@@ -23,6 +23,29 @@ test('accepts SHA-pinned actions with least-privilege workflow guards', () => {
   assert.deepEqual(findings, []);
 });
 
+test('accepts an explicit top-level read-all permission baseline', () => {
+  const findings = validateWorkflowActionPins({
+    relativePath: '.github/workflows/scorecard.yml',
+    content: [
+      'name: scorecard',
+      'permissions: read-all',
+      'jobs:',
+      '  scorecard:',
+      '    runs-on: ubuntu-latest',
+      '    timeout-minutes: 10',
+      '    permissions:',
+      '      contents: read',
+      '      security-events: write',
+      '      id-token: write',
+      '    steps:',
+      '      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5',
+      '        with:',
+      '          persist-credentials: false',
+    ].join('\n'),
+  });
+  assert.deepEqual(findings, []);
+});
+
 test('rejects mutable actions, missing timeouts, and persisted checkout credentials', () => {
   const findings = validateWorkflowActionPins({
     relativePath: '.github/workflows/check.yml',
