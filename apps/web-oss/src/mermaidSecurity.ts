@@ -1,0 +1,139 @@
+const ALLOWED_TAGS = new Set([
+  'circle', 'clippath', 'defs', 'desc', 'ellipse', 'g', 'line', 'lineargradient',
+  'marker', 'mask', 'path', 'pattern', 'polygon', 'polyline', 'radialgradient', 'rect',
+  'stop', 'style', 'svg', 'text', 'title', 'tspan', 'use',
+]);
+
+const ALLOWED_ATTRIBUTES = new Set([
+  'alignment-baseline', 'aria-describedby', 'aria-hidden', 'aria-label', 'aria-labelledby',
+  'aria-roledescription', 'class', 'clip-path', 'clip-rule', 'clippathunits', 'color',
+  'cx', 'cy', 'd', 'direction', 'dominant-baseline', 'dx', 'dy', 'fill', 'fill-opacity',
+  'fill-rule', 'filter', 'font-family', 'font-size', 'font-style', 'font-weight',
+  'gradienttransform', 'gradientunits', 'height', 'href', 'id', 'lang', 'marker-end',
+  'marker-mid', 'marker-start', 'markerheight', 'markerunits', 'markerwidth', 'mask',
+  'offset', 'opacity', 'orient', 'overflow', 'patterncontentunits', 'patterntransform',
+  'patternunits', 'points', 'preserveaspectratio', 'r', 'refx', 'refy', 'role', 'rx',
+  'ry', 'spreadmethod', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray',
+  'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit',
+  'stroke-opacity', 'stroke-width', 'style', 'tabindex', 'text-anchor', 'transform',
+  'vector-effect', 'version', 'viewbox', 'width', 'x', 'x1', 'x2', 'xmlns', 'y', 'y1', 'y2',
+]);
+
+const SAFE_FRAGMENT = /^#[A-Za-z_][A-Za-z0-9_.:-]*$/;
+const SAFE_FRAGMENT_URL = /^url\(\s*['"]?#[A-Za-z_][A-Za-z0-9_.:-]*['"]?\s*\)$/i;
+const URL_ATTRIBUTES = new Set(['clip-path', 'fill', 'filter', 'marker-end', 'marker-mid', 'marker-start', 'mask', 'stroke']);
+const MAX_SANITIZED_SVG_LENGTH = 2_000_000;
+const MAX_SANDBOX_PAYLOAD_LENGTH = 3_000_000;
+
+const isSafeCss = (value: string) => {
+  if (/expression\s*\(|javascript\s*:|@import\b|behavior\s*:|-moz-binding\s*:/i.test(value)) return false;
+  return (value.match(/url\([^)]*\)/gi) ?? []).every((candidate) => SAFE_FRAGMENT_URL.test(candidate));
+};
+
+const isSafeValue = (name: string, value: string) => {
+  if (name.startsWith('on')) return false;
+  if (name === 'href') return SAFE_FRAGMENT.test(value);
+  if (name === 'style') return isSafeCss(value);
+  if (URL_ATTRIBUTES.has(name) && /url\s*\(/i.test(value)) return SAFE_FRAGMENT_URL.test(value);
+  return !/(?:javascript|data|vbscript)\s*:/i.test(value);
+};
+
+const validateSvgText = (svg: string) => {
+  if (!/^\s*<svg(?:\s|>)/i.test(svg) || !/<\/svg>\s*$/i.test(svg)) {
+    throw new Error('Mermaid returned a non-SVG document.');
+  }
+  if (/<!--|<!\[CDATA\[|<\?/i.test(svg)) throw new Error('Mermaid SVG contains unsupported markup.');
+  for (const match of svg.matchAll(/<\/?([A-Za-z][\w:-]*)(?:\s[^<>]*?)?\/?>/g)) {
+    const tag = match[1].toLowerCase();
+    if (!ALLOWED_TAGS.has(tag)) throw new Error(`Mermaid SVG contains a forbidden ${tag} element.`);
+    if (match[0].startsWith('</')) continue;
+    const attributes = match[0].replace(/^<[A-Za-z][\w:-]*/, '').replace(/\/?>$/, '');
+    for (const attribute of attributes.matchAll(/([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g)) {
+      const name = attribute[1].toLowerCase();
+      if (!name || name === '/') continue;
+      const value = attribute[2] ?? attribute[3] ?? attribute[4] ?? '';
+      if ((!ALLOWED_ATTRIBUTES.has(name) && !name.startsWith('data-')) || !isSafeValue(name, value)) {
+        throw new Error(`Mermaid SVG contains a forbidden ${name} attribute.`);
+      }
+    }
+  }
+  if (!isSafeCss(svg)) throw new Error('Mermaid SVG contains an unsafe CSS reference.');
+  return svg;
+};
+
+export const sanitizeOssMermaidSvg = (svg: string): string => {
+  if (typeof svg !== 'string') throw new TypeError('Mermaid SVG must be a string.');
+  if (svg.length > MAX_SANITIZED_SVG_LENGTH) throw new Error('Mermaid SVG exceeds the render budget.');
+  if (typeof DOMParser === 'undefined' || typeof XMLSerializer === 'undefined') return validateSvgText(svg);
+
+  const document = new DOMParser().parseFromString(svg, 'image/svg+xml');
+  const root = document.documentElement;
+  if (root.localName.toLowerCase() !== 'svg' || document.querySelector('parsererror')) {
+    throw new Error('Mermaid returned invalid SVG.');
+  }
+  for (const element of [root, ...document.querySelectorAll('*')]) {
+    const tag = element.localName.toLowerCase();
+    if (!ALLOWED_TAGS.has(tag)) {
+      element.remove();
+      continue;
+    }
+    if (tag === 'style' && !isSafeCss(element.textContent ?? '')) {
+      element.remove();
+      continue;
+    }
+    for (const attribute of [...element.attributes]) {
+      const name = attribute.name.toLowerCase();
+      if ((!ALLOWED_ATTRIBUTES.has(name) && !name.startsWith('data-')) || !isSafeValue(name, attribute.value)) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  }
+  return new XMLSerializer().serializeToString(root);
+};
+
+export const extractOssMermaidSandboxSvg = (rendered: string) => {
+  if (typeof DOMParser === 'undefined' || typeof XMLSerializer === 'undefined') {
+    throw new Error('Mermaid sandbox extraction requires a browser DOM.');
+  }
+  const wrapper = new DOMParser().parseFromString(rendered, 'text/html');
+  const source = wrapper.querySelector('iframe')?.getAttribute('src') ?? '';
+  const prefix = 'data:text/html;charset=UTF-8;base64,';
+  if (!source.startsWith(prefix)) throw new Error('Mermaid sandbox returned an invalid document.');
+  const encoded = source.slice(prefix.length);
+  if (encoded.length > MAX_SANDBOX_PAYLOAD_LENGTH) throw new Error('Mermaid sandbox output exceeds the render budget.');
+
+  let decoded = '';
+  try {
+    const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+    decoded = new TextDecoder().decode(bytes);
+  } catch {
+    throw new Error('Mermaid sandbox returned an invalid payload.');
+  }
+  const sandboxDocument = new DOMParser().parseFromString(decoded, 'text/html');
+  const svg = sandboxDocument.querySelector('svg');
+  if (!svg) throw new Error('Mermaid sandbox returned no SVG.');
+  return new XMLSerializer().serializeToString(svg);
+};
+
+export const createOssMermaidSandboxDocument = (svg: string, theme: 'light' | 'dark') => {
+  const sanitizedSvg = sanitizeOssMermaidSvg(svg);
+  const colorScheme = theme === 'dark' ? 'dark' : 'light';
+  return `<!doctype html>
+<html style="color-scheme:${colorScheme}">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta name="referrer" content="no-referrer">
+<style>html,body{margin:0;min-height:100%;background:transparent}body{box-sizing:border-box;padding:12px;overflow:auto}svg{display:block;max-width:100%;height:auto;margin:0 auto}</style>
+</head>
+<body>${sanitizedSvg}</body>
+</html>`;
+};
+
+export const getOssMermaidConfig = (theme: 'light' | 'dark') => ({
+  startOnLoad: false,
+  securityLevel: 'sandbox' as const,
+  suppressErrorRendering: true,
+  theme: theme === 'dark' ? 'dark' as const : 'default' as const,
+  flowchart: { htmlLabels: false },
+});

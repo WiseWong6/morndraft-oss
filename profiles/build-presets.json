@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "presets": [
+    {
+      "id": "oss-full",
+      "label": "OSS full release",
+      "profile": "oss",
+      "outDir": "dist/oss"
+    }
+  ]
+}
