@@ -129,6 +129,9 @@ export function validateScorecardWorkflow(workflowText) {
   if (!/^ {4}permissions:\s*$[\s\S]*?^ {6}contents: read\s*$[\s\S]*?^ {6}security-events: write\s*$[\s\S]*?^ {6}id-token: write\s*$/m.test(workflowText)) {
     findings.push('OpenSSF Scorecard write permissions must be scoped to the scorecard job');
   }
+  if (!/ossf\/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a\b/.test(workflowText)) {
+    findings.push('OpenSSF Scorecard action must use the verified v2.4.3 commit, not its annotated tag object');
+  }
   return findings;
 }
 

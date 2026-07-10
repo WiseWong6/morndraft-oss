@@ -55,7 +55,8 @@ jobs:
       contents: read
       security-events: write
       id-token: write
-    steps: []
+    steps:
+      - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a
 `;
   assert.deepEqual(validateScorecardWorkflow(validWorkflow), []);
 
@@ -69,6 +70,7 @@ jobs:
 `;
   assert.match(validateScorecardWorkflow(invalidWorkflow).join('\n'), /global permissions read-only/);
   assert.match(validateScorecardWorkflow(invalidWorkflow).join('\n'), /scoped to the scorecard job/);
+  assert.match(validateScorecardWorkflow(invalidWorkflow).join('\n'), /verified v2\.4\.3 commit/);
 });
 
 test('rejects publishable packages and implicit zero/glob test sets', () => {
