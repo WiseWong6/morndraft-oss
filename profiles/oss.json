@@ -1,0 +1,14 @@
+{
+  "id": "oss",
+  "label": "MornDraft OSS",
+  "appEntry": "apps/web-oss",
+  "allowedPackages": [
+    "@morndraft/core",
+    "@morndraft/web-shell"
+  ],
+  "capabilities": [
+    "htmlPreview"
+  ],
+  "securityBoundary": "public-client",
+  "status": "active"
+}

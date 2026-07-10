@@ -1,0 +1,53 @@
+{
+  "name": "morndraft",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "npm@10.9.3",
+  "morndraftDistribution": "oss",
+  "scripts": {
+    "dev": "MORNDRAFT_BUILD_PRESET=oss-full vite",
+    "build": "npm run build:oss",
+    "build:oss": "MORNDRAFT_BUILD_PRESET=oss-full npm run build:profile && MORNDRAFT_BUILD_PRESET=oss-full npm run check:public-surface",
+    "build:profile": "vite build && npm run check:build-profile-artifact && npm run check:build-disclosure && npm run check:static-cdn-build && npm run check:profiles && npm run check:architecture",
+    "check:build-profile-artifact": "node scripts/check-oss-build-profile-artifact.mjs",
+    "check:build-disclosure": "node scripts/check-build-disclosure.mjs",
+    "check:public-surface": "node scripts/check-public-surface.mjs",
+    "check:oss-distribution": "node scripts/check-oss-distribution.mjs",
+    "check:workflow-pins": "node scripts/check-workflow-action-pins.mjs",
+    "check:licenses": "node scripts/check-license-compliance.mjs",
+    "check:licenses:release": "node scripts/check-license-compliance.mjs --release",
+    "check:profiles": "node scripts/check-profile-boundaries.mjs",
+    "check:architecture": "node scripts/check-architecture-guardrails.mjs",
+    "check:static-cdn-build": "node scripts/check-static-cdn-build.mjs",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test scripts/oss-public-distribution.test.mjs scripts/oss-public-lockfile.test.mjs scripts/check-workflow-action-pins.test.mjs scripts/check-oss-distribution.test.mjs packages/core/src/artifact-correction.test.js packages/core/src/artifact-document-analysis.test.js packages/core/src/artifact-map.test.js packages/core/src/code-fence-language.test.js packages/core/src/content-detection.test.js packages/core/src/document-spec.test.js packages/core/src/html-preview-size.test.js packages/core/src/json-fence-content.test.js packages/core/src/markdown-lexical-edit.test.js packages/core/src/markdown-source-patch.test.js packages/core/src/mermaid-label-parser.test.js packages/core/src/mermaid-source.test.js packages/core/src/morndraft-flat-adapter.test.js packages/core/src/morndraft-html-source.test.js packages/core/src/oss-capabilities.test.js packages/core/src/portable-artifact-map.test.js packages/core/src/portable-block-header.test.js packages/core/src/swiss-catalog-renderer.test.js packages/core/src/text-metrics.test.js packages/core/src/text-search.test.js packages/core/src/zoomable-layout.test.js && tsx --test apps/web-oss/src/oss-shell-contract.test.ts apps/web-oss/src/mermaidRenderQueue.test.ts",
+    "preview": "vite preview",
+    "prepublishOnly": "node -e \"throw new Error('MornDraft OSS is distributed as source, not as an npm package')\""
+  },
+  "dependencies": {
+    "json5": "^2.2.3",
+    "mermaid": "^11.15.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-markdown": "^10.1.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "tsx": "^4.22.3",
+    "typescript": "~5.8.2",
+    "typescript-eslint": "^8.57.1",
+    "vite": "^6.2.0"
+  }
+}

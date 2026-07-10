@@ -1,0 +1,9 @@
+{
+  "name": "@morndraft/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/oss-public.ts",
+    "./oss-public": "./src/oss-public.ts"
+  }
+}

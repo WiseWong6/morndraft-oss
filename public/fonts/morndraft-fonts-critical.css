@@ -1,0 +1,58 @@
+/*
+ * MornDraft critical font CSS.
+ * System-first entrypoint for live previews, screenshots, and export paths.
+ * Bundled OFL assets are sourced from Noto Sans SC / Noto Serif SC.
+ */
+@font-face {
+  font-family: "MornDraft Sans SC";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300;
+  src: url("./noto-sc/noto-sans-sc-chinese-simplified-300-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "MornDraft Sans SC";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("./noto-sc/noto-sans-sc-chinese-simplified-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "MornDraft Sans SC";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("./noto-sc/noto-sans-sc-chinese-simplified-700-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "MornDraft Serif SC";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300;
+  src: url("./noto-sc/noto-serif-sc-chinese-simplified-300-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "MornDraft Serif SC";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("./noto-sc/noto-serif-sc-chinese-simplified-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "MornDraft Serif SC";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("./noto-sc/noto-serif-sc-chinese-simplified-700-normal.woff2") format("woff2");
+}
+
+:root {
+  --morndraft-font-sans: "MornDraft Sans SC", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --morndraft-font-serif: "MornDraft Serif SC", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+  --morndraft-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
