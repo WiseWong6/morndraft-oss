@@ -132,6 +132,19 @@ export function validateScorecardWorkflow(workflowText) {
   if (!/ossf\/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a\b/.test(workflowText)) {
     findings.push('OpenSSF Scorecard action must use the verified v2.4.3 commit, not its annotated tag object');
   }
+  if (!/github\/codeql-action\/upload-sarif@02c5e83432fe5497fd85b873b6c9f16a8578e1d9\b/.test(workflowText)) {
+    findings.push('Scorecard SARIF upload must use the verified CodeQL v3.37.0 commit, not its annotated tag object');
+  }
+  return findings;
+}
+
+export function validateCodeqlWorkflow(workflowText) {
+  const findings = [];
+  for (const action of ['init', 'analyze']) {
+    if (!new RegExp(`github/codeql-action/${action}@02c5e83432fe5497fd85b873b6c9f16a8578e1d9\\b`).test(workflowText)) {
+      findings.push(`CodeQL ${action} must use the verified v3.37.0 commit, not its annotated tag object`);
+    }
+  }
   return findings;
 }
 
@@ -341,6 +354,9 @@ export async function checkOssDistribution(projectDir) {
   findings.push(...await checkWorkflowDirectory(projectDir));
   findings.push(...validateScorecardWorkflow(
     await readFile(path.join(projectDir, '.github', 'workflows', 'scorecard.yml'), 'utf8'),
+  ));
+  findings.push(...validateCodeqlWorkflow(
+    await readFile(path.join(projectDir, '.github', 'workflows', 'codeql.yml'), 'utf8'),
   ));
   return findings;
 }
