@@ -1,0 +1,47 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "module": "ESNext",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@morndraft/core/oss-public": [
+        "./packages/core/src/oss-public.ts"
+      ],
+      "@morndraft/core": [
+        "./packages/core/src/oss-public.ts"
+      ],
+      "@morndraft/web-shell": [
+        "./packages/web-shell/src/index.ts"
+      ]
+    },
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "include": [
+    "apps/web-oss/src/**/*.ts",
+    "apps/web-oss/src/**/*.tsx",
+    "packages/core/src/oss-public.ts",
+    "packages/web-shell/src/**/*.ts",
+    "vite.config.ts"
+  ],
+  "exclude": [
+    "artifacts",
+    "dist",
+    "node_modules"
+  ]
+}

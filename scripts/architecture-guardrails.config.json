@@ -1,0 +1,33 @@
+{
+  "lineBudgets": [],
+  "productionRoots": [
+    "packages"
+  ],
+  "productionExtensions": [
+    ".js",
+    ".mjs",
+    ".ts",
+    ".tsx"
+  ],
+  "ignoredDirectories": [
+    "node_modules",
+    "dist",
+    ".vite"
+  ],
+  "sampleOnlyMarkers": [
+    "placehold.co",
+    "baidu.com",
+    "random-001",
+    "morndraft-2026-05-22-dev-random-001"
+  ],
+  "forbiddenCoreImports": [
+    "react",
+    "react-dom",
+    "lucide-react",
+    "../components/",
+    "../../components/",
+    "../services/",
+    "../../services/"
+  ],
+  "forbiddenFileImports": []
+}
