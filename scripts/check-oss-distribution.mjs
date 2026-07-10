@@ -121,6 +121,17 @@ export function validatePublicPackageContract({ packageJson, manifest }) {
   return findings;
 }
 
+export function validateScorecardWorkflow(workflowText) {
+  const findings = [];
+  if (!/^permissions: read-all\s*$/m.test(workflowText)) {
+    findings.push('OpenSSF Scorecard workflow must keep global permissions read-only');
+  }
+  if (!/^ {4}permissions:\s*$[\s\S]*?^ {6}contents: read\s*$[\s\S]*?^ {6}security-events: write\s*$[\s\S]*?^ {6}id-token: write\s*$/m.test(workflowText)) {
+    findings.push('OpenSSF Scorecard write permissions must be scoped to the scorecard job');
+  }
+  return findings;
+}
+
 export function validateNestedPackageDependencies({ packageJson, relativePath, manifest }) {
   const findings = [];
   const declaredExternalDependencies = new Set([
@@ -325,6 +336,9 @@ export async function checkOssDistribution(projectDir) {
   findings.push(...await validateLicenseProjection(projectDir, lock));
   findings.push(...await validateSourceMarkers({ files, manifest }));
   findings.push(...await checkWorkflowDirectory(projectDir));
+  findings.push(...validateScorecardWorkflow(
+    await readFile(path.join(projectDir, '.github', 'workflows', 'scorecard.yml'), 'utf8'),
+  ));
   return findings;
 }
 
