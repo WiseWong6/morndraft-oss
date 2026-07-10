@@ -10,6 +10,7 @@ import {
   findSensitiveText,
   validateNestedPackageDependencies,
   validatePublicPackageContract,
+  validateScorecardWorkflow,
   validateTsconfigPathTargets,
 } from './check-oss-distribution.mjs';
 
@@ -44,6 +45,30 @@ function validPackage() {
 
 test('accepts the fail-closed public package contract', () => {
   assert.deepEqual(validatePublicPackageContract({ packageJson: validPackage(), manifest }), []);
+});
+
+test('requires OpenSSF write permissions to stay job-scoped', () => {
+  const validWorkflow = `permissions: read-all
+jobs:
+  scorecard:
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+    steps: []
+`;
+  assert.deepEqual(validateScorecardWorkflow(validWorkflow), []);
+
+  const invalidWorkflow = `permissions:
+  contents: read
+  security-events: write
+  id-token: write
+jobs:
+  scorecard:
+    steps: []
+`;
+  assert.match(validateScorecardWorkflow(invalidWorkflow).join('\n'), /global permissions read-only/);
+  assert.match(validateScorecardWorkflow(invalidWorkflow).join('\n'), /scoped to the scorecard job/);
 });
 
 test('rejects publishable packages and implicit zero/glob test sets', () => {

@@ -32,7 +32,7 @@ export function validateWorkflowActionPins({ relativePath, content }) {
   if (jobCount > 0 && timeoutCount < jobCount) {
     findings.push(`${relativePath}: every job must declare timeout-minutes (${timeoutCount}/${jobCount})`);
   }
-  if (!/^permissions:\s*$/m.test(content)) {
+  if (!/^permissions:\s*(?:read-all)?\s*$/m.test(content)) {
     findings.push(`${relativePath}: workflow must declare explicit top-level permissions`);
   }
   if (/^permissions:\s*write-all\s*$/m.test(content) || /^\s+contents:\s*write\s*$/m.test(content)) {
