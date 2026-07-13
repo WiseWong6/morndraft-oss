@@ -2,19 +2,22 @@
 /* global AbortController, Buffer, URL, clearTimeout, console, fetch, process, setTimeout */
 import { createHash, createHmac } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnvText } from './check-production-readiness.mjs';
 
 export const SITE_ASSET_PREFIX_ROOT = 'prod/site-assets/';
 export const STATIC_CDN_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+const STATIC_CDN_SMOKE_ORIGIN = 'https://morndraft.com';
 
 const DEFAULT_ENV_FILE = '/etc/morndraft/prod.env';
 const DEFAULT_DIST_DIR = 'dist';
 const DEFAULT_CLEANUP_RETENTION_HOURS = 72;
 const DEFAULT_TOS_FETCH_TIMEOUT_MS = 30_000;
 const DEFAULT_CDN_SMOKE_FETCH_TIMEOUT_MS = 15_000;
+const CDN_COMPRESSION_MIN_SIZE_BYTES = 1024;
+const CDN_COMPRESSION_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 const DELETE_BATCH_SIZE = 1000;
 const MS_PER_HOUR = 60 * 60 * 1000;
 
@@ -152,16 +155,22 @@ export async function buildStaticAssetManifest({ distDir, staticBaseUrl }) {
   const normalizedBaseUrl = normalizeStaticAssetBaseUrl(staticBaseUrl);
   const keyPrefix = objectKeyPrefixFromStaticBaseUrl(normalizedBaseUrl);
   const absoluteDistDir = path.resolve(distDir);
-  const files = await collectFiles(absoluteDistDir);
+  const files = await Promise.all(
+    (await collectFiles(absoluteDistDir)).map(async (filePath) => ({
+      filePath,
+      sizeBytes: (await stat(filePath)).size,
+    })),
+  );
   return files
-    .map((filePath) => {
+    .map(({ filePath, sizeBytes }) => {
       const relativePath = path.relative(absoluteDistDir, filePath).split(path.sep).join('/');
-      return { filePath, relativePath };
+      return { filePath, relativePath, sizeBytes };
     })
     .filter(({ relativePath }) => isUploadableStaticAsset(relativePath))
-    .map(({ filePath, relativePath }) => ({
+    .map(({ filePath, relativePath, sizeBytes }) => ({
       filePath,
       relativePath,
+      sizeBytes,
       objectKey: `${keyPrefix}${relativePath}`,
       publicUrl: new URL(encodePathSegments(relativePath), normalizedBaseUrl).toString(),
       contentType: contentTypeForStaticAsset(relativePath),
@@ -442,8 +451,39 @@ async function deleteTosObjects({ config, keys }) {
 
 export function selectSmokeAssets(manifest) {
   const selected = [];
-  for (const extension of ['.js', '.css', '.woff2']) {
-    const item = manifest.find((candidate) => candidate.relativePath.endsWith(extension));
+  for (const { extensions, preferredPath } of [
+    { extensions: ['.js'], preferredPath: /^assets\/index-[^/]+\.js$/ },
+    { extensions: ['.css'], preferredPath: /^assets\/index-[^/]+\.css$/ },
+    { extensions: ['.woff2'] },
+    { extensions: ['.avif', '.gif', '.jpg', '.jpeg', '.png', '.svg', '.webp'] },
+  ]) {
+    const candidates = manifest.filter((candidate) => (
+      extensions.includes(path.extname(candidate.relativePath).toLowerCase())
+    ));
+    const requiresCompression = extensions.some((extension) => ['.js', '.css'].includes(extension));
+    let item;
+    if (requiresCompression) {
+      const preferred = candidates.find((candidate) => preferredPath.test(candidate.relativePath));
+      const compressionCandidates = candidates.filter((candidate) => (
+        Number.isFinite(candidate.sizeBytes)
+        && candidate.sizeBytes >= CDN_COMPRESSION_MIN_SIZE_BYTES
+        && candidate.sizeBytes <= CDN_COMPRESSION_MAX_SIZE_BYTES
+      ));
+      if (preferred) {
+        if (!compressionCandidates.includes(preferred)) {
+          throw new Error(`CDN smoke main asset ${preferred.relativePath} must be between 1 KB and 10 MB.`);
+        }
+        item = preferred;
+      } else {
+        item = compressionCandidates
+          .toSorted((left, right) => right.sizeBytes - left.sizeBytes)[0];
+        if (!item) {
+          throw new Error(`CDN smoke requires a ${extensions[0]} asset between 1 KB and 10 MB.`);
+        }
+      }
+    } else {
+      [item] = candidates;
+    }
     if (item && !selected.includes(item)) selected.push(item);
   }
   if (selected.length === 0 && manifest[0]) selected.push(manifest[0]);
@@ -454,33 +494,107 @@ async function delay(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function smokePublicUrl(item, { delayMs, fetchImpl = fetch, retries }) {
+function requiresCompressedSmoke(relativePath) {
+  return ['.js', '.css'].includes(path.extname(relativePath).toLowerCase());
+}
+
+function hasImmutableOneYearCacheControl(value) {
+  const directives = value
+    .split(',')
+    .map((directive) => directive.trim().toLowerCase())
+    .filter(Boolean);
+  return directives.includes('public')
+    && directives.includes('immutable')
+    && directives.some((directive) => /^max-age\s*=\s*31536000$/.test(directive));
+}
+
+function hasHeaderToken(value, expectedToken) {
+  const normalizedExpectedToken = expectedToken.toLowerCase();
+  return value
+    .split(',')
+    .map((token) => token.trim().toLowerCase())
+    .includes(normalizedExpectedToken);
+}
+
+async function cancelResponseBody(response) {
+  if (!response?.body) return;
+  try {
+    await response.body.cancel();
+  } catch {
+    // Response headers are sufficient for this smoke; do not mask their result if cleanup fails.
+  }
+}
+
+export async function smokePublicUrl(item, {
+  delayImpl = delay,
+  delayMs,
+  fetchImpl = fetch,
+  retries,
+}) {
   let lastError = null;
+  const requiresCompression = requiresCompressedSmoke(item.relativePath);
+  const headers = requiresCompression
+    ? {
+      'accept-encoding': 'br, gzip',
+      origin: STATIC_CDN_SMOKE_ORIGIN,
+    }
+    : { origin: STATIC_CDN_SMOKE_ORIGIN };
   for (let attempt = 1; attempt <= retries; attempt += 1) {
+    let response = null;
     try {
-      let response = await fetchWithTimeout(fetchImpl, item.publicUrl, { method: 'HEAD' }, DEFAULT_CDN_SMOKE_FETCH_TIMEOUT_MS, `CDN smoke ${item.relativePath}`);
-      if (response.status === 405) {
-        response = await fetchWithTimeout(fetchImpl, item.publicUrl, { method: 'GET' }, DEFAULT_CDN_SMOKE_FETCH_TIMEOUT_MS, `CDN smoke ${item.relativePath}`);
+      response = await fetchWithTimeout(fetchImpl, item.publicUrl, {
+        headers,
+        method: requiresCompression ? 'GET' : 'HEAD',
+      }, DEFAULT_CDN_SMOKE_FETCH_TIMEOUT_MS, `CDN smoke ${item.relativePath}`);
+      if (!requiresCompression && response.status === 405) {
+        await cancelResponseBody(response);
+        response = await fetchWithTimeout(fetchImpl, item.publicUrl, {
+          headers,
+          method: 'GET',
+        }, DEFAULT_CDN_SMOKE_FETCH_TIMEOUT_MS, `CDN smoke ${item.relativePath}`);
       }
       if (!response.ok) {
         throw new Error(`${response.status} ${response.statusText}`);
       }
       const expectedContentType = item.contentType.split(';')[0];
       const actualContentType = response.headers.get('content-type') ?? '';
-      if (!actualContentType.toLowerCase().startsWith(expectedContentType.toLowerCase())) {
+      const actualMimeType = actualContentType.split(';')[0].trim().toLowerCase();
+      if (actualMimeType !== expectedContentType.toLowerCase()) {
         throw new Error(`expected ${expectedContentType}, got ${actualContentType || 'missing content-type'}`);
+      }
+      const cacheControl = response.headers.get('cache-control') ?? '';
+      if (!hasImmutableOneYearCacheControl(cacheControl)) {
+        throw new Error(`expected public one-year immutable cache-control, got ${cacheControl || 'missing cache-control'}`);
+      }
+      const allowedOrigin = response.headers.get('access-control-allow-origin') ?? '';
+      if (allowedOrigin !== STATIC_CDN_SMOKE_ORIGIN) {
+        throw new Error(`expected access-control-allow-origin ${STATIC_CDN_SMOKE_ORIGIN}, got ${allowedOrigin || 'missing access-control-allow-origin'}`);
+      }
+      const vary = response.headers.get('vary') ?? '';
+      if (!hasHeaderToken(vary, 'origin')) {
+        throw new Error(`expected vary to include Origin, got ${vary || 'missing vary'}`);
+      }
+      if (requiresCompression) {
+        const contentEncoding = (response.headers.get('content-encoding') ?? '').trim().toLowerCase();
+        if (!['br', 'gzip'].includes(contentEncoding)) {
+          throw new Error(`expected br or gzip content-encoding, got ${contentEncoding || 'missing content-encoding'}`);
+        }
       }
       return;
     } catch (error) {
       lastError = error;
-      if (attempt < retries) await delay(delayMs);
+      await cancelResponseBody(response);
+      response = null;
+      if (attempt < retries) await delayImpl(delayMs);
+    } finally {
+      await cancelResponseBody(response);
     }
   }
   throw new Error(`CDN smoke failed for ${item.publicUrl}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
 async function uploadCommand(options) {
-  const env = parseEnvText(await readFile(options.envFile, 'utf8'));
+  const env = options.useProcessEnv ? process.env : parseEnvText(await readFile(options.envFile, 'utf8'));
   const config = resolveVolcengineTosConfig(env);
   const staticBaseUrl = normalizeStaticAssetBaseUrl(options.staticBaseUrl);
   validateStaticBaseAgainstPublicBase(staticBaseUrl, config.publicBaseUrl);
@@ -509,7 +623,7 @@ async function uploadCommand(options) {
 }
 
 async function cleanupCommand(options) {
-  const env = parseEnvText(await readFile(options.envFile, 'utf8'));
+  const env = options.useProcessEnv ? process.env : parseEnvText(await readFile(options.envFile, 'utf8'));
   const config = resolveVolcengineTosConfig(env);
   const staticBaseUrl = normalizeStaticAssetBaseUrl(options.staticBaseUrl);
   validateStaticBaseAgainstPublicBase(staticBaseUrl, config.publicBaseUrl);
@@ -538,6 +652,7 @@ function parseArgs(argv) {
     smokeDelayMs: 5000,
     smokeRetries: 6,
     staticBaseUrl: '',
+    useProcessEnv: false,
   };
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -545,6 +660,8 @@ function parseArgs(argv) {
       options.distDir = rest[++index];
     } else if (arg === '--env-file') {
       options.envFile = rest[++index];
+    } else if (arg === '--process-env') {
+      options.useProcessEnv = true;
     } else if (arg === '--retention-hours') {
       options.retentionHours = Number.parseInt(rest[++index], 10);
     } else if (arg === '--smoke') {
@@ -569,8 +686,8 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(`Usage:
-  node scripts/static-cdn-assets.mjs upload --static-base-url <url> [--dist-dir dist] [--env-file /etc/morndraft/prod.env] [--smoke]
-  node scripts/static-cdn-assets.mjs cleanup --static-base-url <url> [--env-file /etc/morndraft/prod.env] [--retention-hours 72]
+  node scripts/static-cdn-assets.mjs upload --static-base-url <url> [--dist-dir dist] [--env-file /etc/morndraft/prod.env | --process-env] [--smoke]
+  node scripts/static-cdn-assets.mjs cleanup --static-base-url <url> [--env-file /etc/morndraft/prod.env | --process-env] [--retention-hours 72]
 `);
 }
 
@@ -581,7 +698,7 @@ async function main() {
     return;
   }
   if (!options.staticBaseUrl) throw new Error('Missing --static-base-url');
-  if (!existsSync(options.envFile)) throw new Error(`Env file not found: ${options.envFile}`);
+  if (!options.useProcessEnv && !existsSync(options.envFile)) throw new Error(`Env file not found: ${options.envFile}`);
   if (options.command === 'upload') {
     if (!existsSync(options.distDir)) throw new Error(`Dist dir not found: ${options.distDir}`);
     await uploadCommand(options);

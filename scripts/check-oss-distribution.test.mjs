@@ -11,6 +11,7 @@ import {
   validateNestedPackageDependencies,
   validateCodeqlWorkflow,
   validatePublicPackageContract,
+  validatePublicModuleSourceBoundary,
   validateScorecardWorkflow,
   validateTsconfigPathTargets,
 } from './check-oss-distribution.mjs';
@@ -168,6 +169,25 @@ test('detects private entitlement, quota, account-plan, and MCP mock surfaces', 
     pattern.lastIndex = 0;
     assert.equal(pattern.test(marker), true, marker);
   }
+});
+
+test('rejects private application and subsystem imports from the public workspace', () => {
+  for (const [relativePath, content, expected] of [
+    ['components/public-workspace/example.ts', "import AppImpl from '../AppImpl';", 'private application component'],
+    ['components/public-workspace/billing.ts', "import { createBillingClient } from '../billing/client';", 'private subsystem import'],
+    ['components/public-workspace/share.ts', 'const client = new HostedLinkClient();', 'private subsystem symbol'],
+    ['components/public-workspace/api.ts', "fetch('/api/delivery/export')", 'private MornDraft API'],
+  ]) {
+    assert.match(validatePublicModuleSourceBoundary(relativePath, content).join('\n'), new RegExp(expected));
+  }
+  assert.deepEqual(
+    validatePublicModuleSourceBoundary('components/public-workspace/editor.ts', 'const draft = nextSource;'),
+    [],
+  );
+  assert.deepEqual(
+    validatePublicModuleSourceBoundary('components/public-workspace/editor.test.ts', 'AppImpl DraftSidebar BillingClient'),
+    [],
+  );
 });
 
 test('ignores the candidate root workspace directories but rejects nested reserved directories', async () => {

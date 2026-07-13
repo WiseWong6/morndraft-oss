@@ -32,6 +32,16 @@ const SECRET_SCAN_IGNORED = new Set([
   'scripts/check-oss-distribution.mjs',
   'scripts/check-oss-distribution.test.mjs',
 ]);
+const PUBLIC_MODULE_SOURCE_PREFIXES = Object.freeze([
+  'components/public-workspace/',
+]);
+const PUBLIC_MODULE_FORBIDDEN_PATTERNS = Object.freeze([
+  ['private application component', /\b(?:AppImpl|DraftSidebar)\b/u],
+  ['private subsystem import', /(?:from\s*|import\s*\()\s*['"`][^'"`]*(?:\/(?:auth|billing|drafts?|quota|moderation|telemetry|hosted|watermark|upgrade))(?:\/|['"`])/iu],
+  ['private subsystem symbol', /\b(?:Auth(?:Client|Adapter|Provider|User)|Billing\w*|Draft(?:Sidebar|Store|Box|Api|Client)|Quota\w*|Moderation\w*|Telemetry\w*|Hosted\w*|Watermark\w*|Upgrade\w*)\b/u],
+  ['private workspace package', /@morndraft\/(?:features-(?:pro|ide)|workspace-private)\b/u],
+  ['private MornDraft API', /\/api\//u],
+]);
 
 export const SOURCE_MARKER_PATTERNS = Object.freeze({
   'private API surface': /\/api\/(?:dev\/)?(?:ai|auth|billing|drafts|editor|hosted-link|internal\/admin-data|mcp|me|sms|telemetry)\b/gi,
@@ -205,6 +215,19 @@ export function findSensitiveText(relativePath, content) {
   return findings;
 }
 
+export function validatePublicModuleSourceBoundary(relativePath, content) {
+  if (
+    !PUBLIC_MODULE_SOURCE_PREFIXES.some((prefix) => relativePath.startsWith(prefix))
+    || /\.test\.[cm]?[jt]sx?$/u.test(relativePath)
+  ) return [];
+  const findings = [];
+  for (const [label, pattern] of PUBLIC_MODULE_FORBIDDEN_PATTERNS) {
+    pattern.lastIndex = 0;
+    if (pattern.test(content)) findings.push(`${relativePath}: ${label}`);
+  }
+  return findings;
+}
+
 function countPattern(content, pattern) {
   pattern.lastIndex = 0;
   let count = 0;
@@ -317,7 +340,9 @@ export async function checkOssDistribution(projectDir) {
       findings.push(`${file.relativePath}: secret-bearing file type is forbidden`);
     }
     if (TEXT_EXTENSIONS.has(path.extname(file.relativePath)) && !SECRET_SCAN_IGNORED.has(file.relativePath)) {
-      findings.push(...findSensitiveText(file.relativePath, await readFile(file.path, 'utf8')));
+      const content = await readFile(file.path, 'utf8');
+      findings.push(...findSensitiveText(file.relativePath, content));
+      findings.push(...validatePublicModuleSourceBoundary(file.relativePath, content));
     }
   }
 

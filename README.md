@@ -1,13 +1,13 @@
 # MornDraft OSS
 
-MornDraft OSS is the public local-first client for previewing, reviewing, correcting, copying, exporting, and handing off AI-generated artifacts before delivery.
+MornDraft OSS is the public local-first client for previewing, reviewing, and correcting AI-generated artifacts before delivery.
 
 ## What is included
 
 - Public preview syntax: Markdown, code blocks, JSON/JSON5, Mermaid, HTML preview, and MornDraft flat components.
-- Local import/export and public all-open delivery behavior.
-- Final toolbar Syntax and More menu; More includes About, language, theme, and OSS AI config.
-- Browser-local OpenAI-compatible AI configuration: Base URL, API Key, and separate generate/modify/summarize models.
+- Source and Final editing backed by one canonical Source document.
+- Browser-local file import with optional local image embedding.
+- 29 Syntax examples, 30 MornDraft flat insertions, and the More menu for About, language, and theme.
 
 ## What is intentionally excluded
 

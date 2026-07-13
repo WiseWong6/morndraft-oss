@@ -26,7 +26,7 @@
     "check:static-cdn-build": "node scripts/check-static-cdn-build.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "node --test scripts/oss-public-distribution.test.mjs scripts/oss-public-lockfile.test.mjs scripts/check-workflow-action-pins.test.mjs scripts/check-oss-distribution.test.mjs packages/core/src/artifact-correction.test.js packages/core/src/artifact-document-analysis.test.js packages/core/src/artifact-map.test.js packages/core/src/code-fence-language.test.js packages/core/src/content-detection.test.js packages/core/src/document-spec.test.js packages/core/src/html-preview-size.test.js packages/core/src/json-fence-content.test.js packages/core/src/markdown-lexical-edit.test.js packages/core/src/markdown-source-patch.test.js packages/core/src/mermaid-label-parser.test.js packages/core/src/mermaid-source.test.js packages/core/src/morndraft-flat-adapter.test.js packages/core/src/morndraft-html-source.test.js packages/core/src/oss-capabilities.test.js packages/core/src/portable-artifact-map.test.js packages/core/src/portable-block-header.test.js packages/core/src/swiss-catalog-renderer.test.js packages/core/src/text-metrics.test.js packages/core/src/text-search.test.js packages/core/src/zoomable-layout.test.js && tsx --test apps/web-oss/src/oss-shell-contract.test.ts apps/web-oss/src/mermaidRenderQueue.test.ts",
+    "test": "node --test scripts/oss-public-distribution.test.mjs scripts/oss-public-lockfile.test.mjs scripts/check-workflow-action-pins.test.mjs scripts/check-oss-distribution.test.mjs packages/core/src/code-fence-language.test.js packages/core/src/content-detection.test.js packages/core/src/document-spec.test.js packages/core/src/json-fence-content.test.js packages/core/src/markdown-lexical-edit.test.js packages/core/src/markdown-source-patch.test.js packages/core/src/morndraft-flat-adapter.test.js packages/core/src/morndraft-html-source.test.js packages/core/src/oss-capabilities.test.js packages/core/src/public-morndraft-showcase.test.js packages/core/src/swiss-catalog-renderer.test.js && tsx --test components/public-workspace/publicDocument.test.ts components/public-workspace/publicFlatFinalEditor.test.ts components/public-workspace/publicImport.test.ts components/public-workspace/publicMarkdownPatch.test.ts components/public-workspace/publicMermaidSecurity.test.ts components/public-workspace/publicShowcase.test.ts components/public-workspace/publicWorkspaceController.test.ts components/public-workspace/publicWorkspaceBoundary.test.ts apps/web-oss/src/oss-shell-contract.test.ts",
     "preview": "vite preview",
     "prepublishOnly": "node -e \"throw new Error('MornDraft OSS is distributed as source, not as an npm package')\""
   },
@@ -36,7 +36,7 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-markdown": "^10.1.0",
-    "zod": "^4.4.3"
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

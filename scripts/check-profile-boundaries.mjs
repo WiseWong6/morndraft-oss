@@ -17,7 +17,7 @@ const profile = await readJson('profiles/oss.json');
 if (profile.id !== 'oss' || profile.appEntry !== 'apps/web-oss' || profile.securityBoundary !== 'public-client') {
   findings.push('profiles/oss.json must describe the public OSS app entry');
 }
-const expectedAllowedPackages = ['@morndraft/core', '@morndraft/web-shell'];
+const expectedAllowedPackages = ["@morndraft/core","@morndraft/web-shell"];
 if (JSON.stringify(profile.allowedPackages ?? []) !== JSON.stringify(expectedAllowedPackages)) findings.push('OSS allowedPackages differ from the public workspace manifest');
 if (JSON.stringify(profile.capabilities ?? []) !== JSON.stringify(PROFILE_CAPABILITIES.oss ?? [])) findings.push('OSS capabilities differ from the public registry');
 const config = resolveBuildConfig({ projectDir, env: { MORNDRAFT_BUILD_PRESET: 'oss-full' } });

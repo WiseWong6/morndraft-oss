@@ -1,6 +1,7 @@
 {
   "lineBudgets": [],
   "productionRoots": [
+    "components",
     "packages"
   ],
   "productionExtensions": [
