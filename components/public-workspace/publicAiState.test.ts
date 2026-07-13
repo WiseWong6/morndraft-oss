@@ -33,7 +33,7 @@ test('AI provider errors remain explicit without exposing request contents', () 
   const labels = {
     failed: 'failed', missing: 'missing', unauthorized: 'unauthorized', notFound: 'not-found',
     rateLimited: 'rate-limited', server: 'server', network: 'network', invalid: 'invalid',
-    timeout: 'timeout', cancelled: 'cancelled',
+    timeout: 'timeout', cancelled: 'cancelled', tooLarge: 'too-large',
   } as Parameters<typeof getPublicAiRequestErrorMessage>[1];
   assert.equal(getPublicAiRequestErrorMessage({ code: 'missing_config' }, labels), 'missing');
   assert.equal(getPublicAiRequestErrorMessage({ code: 'unauthorized' }, labels), 'unauthorized');
@@ -45,13 +45,14 @@ test('AI provider errors remain explicit without exposing request contents', () 
   assert.equal(getPublicAiRequestErrorMessage({ code: 'empty_response' }, labels), 'invalid');
   assert.equal(getPublicAiRequestErrorMessage({ code: 'timeout' }, labels), 'timeout');
   assert.equal(getPublicAiRequestErrorMessage({ code: 'aborted' }, labels), 'cancelled');
+  assert.equal(getPublicAiRequestErrorMessage({ code: 'input_too_large' }, labels), 'too-large');
 });
 
 test('AI panel maps a locally detected empty adapter result to the explicit invalid-response message', () => {
   const labels = {
     failed: 'failed', missing: 'missing', unauthorized: 'unauthorized', notFound: 'not-found',
     rateLimited: 'rate-limited', server: 'server', network: 'network', invalid: 'invalid',
-    timeout: 'timeout', cancelled: 'cancelled',
+    timeout: 'timeout', cancelled: 'cancelled', tooLarge: 'too-large',
   } as Parameters<typeof getPublicAiRequestErrorMessage>[1];
   assert.throws(
     () => ensurePublicAiResponseText('  '),

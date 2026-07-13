@@ -17,6 +17,8 @@ import {
   getPublicThemePaperColor,
   serializePublicThemeVariables,
 } from './theme';
+import { hasPublicDynamicCaptureMarkup } from './dynamicMarkup';
+import { decodePortableCssEscapes } from './portableCss';
 
 export const PUBLIC_CAPTURE_SCALE = 2 as const;
 export const PUBLIC_CAPTURE_MAX_CANVAS_DIMENSION = 16_384;
@@ -26,9 +28,7 @@ const PUBLIC_CAPTURE_ASSET_TIMEOUT_MS = 10_000;
 const PUBLIC_CAPTURE_RENDER_TIMEOUT_MS = 20_000;
 export const PUBLIC_CANVAS_PNG_ENCODE_TIMEOUT_MS = 20_000;
 
-const PUBLIC_DYNAMIC_MARKUP_PATTERN = /<(?:script|iframe|canvas|object|embed|video|audio|input|select|textarea|details|dialog)\b|\scontenteditable(?:\s*=|\s|>)|\son[a-z][\w:-]*\s*=|\s(?:href|src|xlink:href|action|formaction)\s*=\s*["']?\s*(?:javascript|vbscript)\s*:/iu;
-
-export const hasPublicDynamicCaptureMarkup = (html: string) => PUBLIC_DYNAMIC_MARKUP_PATTERN.test(html);
+export { hasPublicDynamicCaptureMarkup } from './dynamicMarkup';
 
 const assertStaticCaptureMarkup = (html: string) => {
   if (hasPublicDynamicCaptureMarkup(html)) {
@@ -463,7 +463,7 @@ const escapePublicCaptureCssUrl = (value: string) => (
 );
 
 const resolvePublicCaptureCssUrl = (value: string, baseUrl: string) => {
-  const normalized = value.trim();
+  const normalized = decodePortableCssEscapes(value).trim();
   if (
     !normalized ||
     normalized.startsWith('#') ||
@@ -585,9 +585,16 @@ export const appendReadableDocumentStyles = (doc: Document, target: ShadowRoot) 
   }
 };
 
+const PUBLIC_DELIVERY_EXCLUDE_SELECTOR = '[data-morndraft-delivery-exclude]';
+
+export const getPublicCapturableIframes = (root: ParentNode) => (
+  Array.from(root.querySelectorAll('iframe')).filter(frame => !frame.closest(PUBLIC_DELIVERY_EXCLUDE_SELECTOR))
+);
+
 const createRenderedDocumentCaptureTarget = async (input: PublicDeliveryInput) => {
-  const originalFrames = Array.from(input.previewRoot.querySelectorAll('iframe'));
-  if (originalFrames.length === 0) return null;
+  const originalFrames = getPublicCapturableIframes(input.previewRoot);
+  const hasExcludedNodes = Boolean(input.previewRoot.querySelector(PUBLIC_DELIVERY_EXCLUDE_SELECTOR));
+  if (originalFrames.length === 0 && !hasExcludedNodes) return null;
   const doc = input.previewRoot.ownerDocument;
   if (!doc.defaultView || !doc.body) {
     throw new PublicDeliveryError('capture-not-ready', '当前环境无法初始化混合内容截图。');
@@ -617,12 +624,15 @@ const createRenderedDocumentCaptureTarget = async (input: PublicDeliveryInput) =
   appendReadableDocumentStyles(doc, shadow);
 
   const target = input.previewRoot.cloneNode(true) as HTMLElement;
-  target.querySelectorAll('[data-morndraft-delivery-exclude]').forEach(node => node.remove());
+  target.querySelectorAll(PUBLIC_DELIVERY_EXCLUDE_SELECTOR).forEach(node => node.remove());
   target.removeAttribute('contenteditable');
   target.querySelectorAll('[contenteditable]').forEach(node => node.removeAttribute('contenteditable'));
   const clonedFrames = Array.from(target.querySelectorAll('iframe'));
   const replacements: HTMLImageElement[] = [];
   try {
+    if (clonedFrames.length !== originalFrames.length) {
+      throw new PublicDeliveryError('capture-failed', '预览 iframe 数量不一致，未生成不完整的交付产物。');
+    }
     for (let index = 0; index < clonedFrames.length; index += 1) {
       throwIfCaptureAborted(input.signal);
       const frame = clonedFrames[index];

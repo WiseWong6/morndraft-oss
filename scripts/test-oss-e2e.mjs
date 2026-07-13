@@ -669,6 +669,74 @@ const selectRenderedOccurrence = async (block, needle, occurrence) => {
   );
 };
 
+const selectRenderedAcrossBlocks = async (startBlock, startNeedle, endBlock, endNeedle) => {
+  const startHandle = await startBlock.first().elementHandle();
+  const endHandle = await endBlock.first().elementHandle();
+  assert.ok(startHandle && endHandle, 'Could not resolve rendered blocks for the cross-block selection fixture.');
+  try {
+    const selectionResult = await startBlock.page().evaluate((input) => {
+      const collectTextNodes = (root) => {
+        const walker = root.ownerDocument.createTreeWalker(root, 4);
+        const entries = [];
+        let combined = '';
+        let current = walker.nextNode();
+        while (current) {
+          entries.push({ node: current, start: combined.length, text: current.textContent ?? '' });
+          combined += current.textContent ?? '';
+          current = walker.nextNode();
+        }
+        return { combined, entries };
+      };
+      const startText = collectTextNodes(input.startRoot);
+      const endText = collectTextNodes(input.endRoot);
+      const start = startText.combined.indexOf(input.startNeedle);
+      const endStart = endText.combined.indexOf(input.endNeedle);
+      if (start < 0 || endStart < 0) {
+        return {
+          error: 'needle-not-found',
+          selected: '',
+          startText: startText.combined,
+          endText: endText.combined,
+        };
+      }
+      const end = endStart + input.endNeedle.length;
+      const startEntry = startText.entries.find((entry) => (
+        start >= entry.start && start <= entry.start + entry.text.length
+      ));
+      const endEntry = [...endText.entries].reverse().find((entry) => (
+        end >= entry.start && end <= entry.start + entry.text.length
+      ));
+      if (!startEntry || !endEntry) {
+        return { error: 'range-node-not-found', selected: '' };
+      }
+      const selection = input.startRoot.ownerDocument.getSelection();
+      selection?.removeAllRanges();
+      selection?.setBaseAndExtent(
+        startEntry.node,
+        start - startEntry.start,
+        endEntry.node,
+        end - endEntry.start,
+      );
+      const selected = selection?.toString() ?? '';
+      input.endRoot.dispatchEvent(new (input.endRoot.ownerDocument.defaultView).MouseEvent('mouseup', { bubbles: true }));
+      return { selected };
+    }, {
+      endNeedle,
+      endRoot: endHandle,
+      startNeedle,
+      startRoot: startHandle,
+    });
+    assert.match(
+      selectionResult.selected,
+      new RegExp(`${startNeedle}[\\s\\S]*${endNeedle}`, 'u'),
+      `Could not select rendered content across blocks: ${JSON.stringify(selectionResult)}`,
+    );
+  } finally {
+    await startHandle.dispose();
+    await endHandle.dispose();
+  }
+};
+
 const runImportFlow = async (page, canonicalFlatSource) => {
   const input = page.locator('input.md-public-file-input');
   const sourceButton = page.getByRole('button', { name: /^(Source|源码)$/u });
@@ -848,11 +916,16 @@ const runAiFlow = async (page, mockBaseUrl) => {
   await clickByTestId(page, 'oss-ai-adopt');
 
   await sourceEditor.waitFor({ state: 'visible' });
-  await sourceEditor.fill('**bold target** repeat repeat');
+  const localImageData = `data:image/png;base64,${'A'.repeat(2_000)}`;
+  const sourceBeforeModify = `![local](${localImageData})\n\nFirst target\n\nSecond repeat repeat repeat`;
+  const sourceAfterModify = `![local](${localImageData})\n\nFirst Modified selection from OSS AI repeat repeat`;
+  await sourceEditor.fill(sourceBeforeModify);
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  let renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'bold target repeat repeat' });
+  const firstBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'First target' });
+  let renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'Second repeat repeat repeat' });
+  await firstBlock.waitFor({ state: 'visible' });
   await renderedBlock.waitFor({ state: 'visible' });
-  await selectRenderedOccurrence(renderedBlock, 'bold target', 0);
+  await selectRenderedAcrossBlocks(firstBlock, 'target', renderedBlock, 'repeat');
   await clickByTestId(page, 'oss-ai-modify');
   await page.getByTestId('oss-ai-instruction').fill('Make the selection clearer');
   await page.getByRole('dialog').getByRole('button', { name: /^(Send|发送)$/u }).click();
@@ -860,9 +933,9 @@ const runAiFlow = async (page, mockBaseUrl) => {
   await clickByTestId(page, 'oss-ai-adopt');
 
   await sourceMode.click();
-  assert.equal(await sourceEditor.inputValue(), '**Modified selection from OSS AI** repeat repeat');
+  assert.equal(await sourceEditor.inputValue(), sourceAfterModify);
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'Modified selection from OSS AI repeat repeat' });
+  renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'First Modified selection from OSS AI repeat repeat' });
   await renderedBlock.waitFor({ state: 'visible' });
   await selectRenderedOccurrence(renderedBlock, 'repeat', 1);
   await clickByTestId(page, 'oss-ai-summarize');
@@ -871,7 +944,7 @@ const runAiFlow = async (page, mockBaseUrl) => {
   await sourceMode.click();
   assert.equal(
     await sourceEditor.inputValue(),
-    '**Modified selection from OSS AI** repeat repeat',
+    sourceAfterModify,
     'Summarize must remain read-only and leave Source unchanged.',
   );
 
@@ -1870,6 +1943,9 @@ const main = async () => {
       assert.equal(request.authorization, 'Bearer oss-e2e-key');
       assert.equal(request.body.stream, false);
     }
+    const modifyBody = JSON.stringify(aiMock.requests[1].body);
+    assert.doesNotMatch(modifyBody, /data:image|A{64}/u, 'Modify must omit embedded local image data from the AI request.');
+    assert.ok(modifyBody.length < 70_000, `Modify request exceeded the bounded browser context: ${modifyBody.length} bytes.`);
     const summarizeBody = JSON.stringify(aiMock.requests[2].body);
     assert.doesNotMatch(summarizeBody, /Modified selection from OSS AI/u, 'Summarize must not send the complete Source.');
     assert.deepEqual(consoleErrors, [], `Browser console errors: ${consoleErrors.join('\n')}`);

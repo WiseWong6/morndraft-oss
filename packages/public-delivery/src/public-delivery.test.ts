@@ -21,6 +21,7 @@ import {
   appendReadableDocumentStyles,
   canvasToPngBlob,
   createPublicCaptureContextWithGuard,
+  getPublicCapturableIframes,
   rewritePublicCaptureCssUrls,
   withPublicDeliveryTimeout,
 } from './capture';
@@ -371,6 +372,8 @@ test('buildPublicStandaloneHtml strips supported HTML fence info strings before 
 
 test('image capture fails closed for dynamic HTML that cannot match the sandboxed Final', () => {
   assert.equal(hasPublicDynamicCaptureMarkup('<main><h1>Static</h1></main>'), false);
+  assert.equal(hasPublicDynamicCaptureMarkup('<!-- example: <script>ignored()</script> -->'), false);
+  assert.equal(hasPublicDynamicCaptureMarkup('<style>/* <script>ignored()</script> */</style><main>Static</main>'), false);
   assert.equal(hasPublicDynamicCaptureMarkup('<script>document.body.append("dynamic")</script>'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<svg onload="draw()"></svg>'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<canvas></canvas>'), true);
@@ -378,6 +381,17 @@ test('image capture fails closed for dynamic HTML that cannot match the sandboxe
   assert.equal(hasPublicDynamicCaptureMarkup('<input value="initial">'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<p contenteditable>Mutable</p>'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<a href="javascript:run()">run</a>'), true);
+});
+
+test('capture pairs only non-excluded source iframes with the cloned delivery tree', () => {
+  const excludedContainer = {};
+  const excludedFrame = { closest: () => excludedContainer };
+  const includedFrame = { closest: () => null };
+  const root = {
+    querySelectorAll: () => [excludedFrame, includedFrame],
+  } as unknown as ParentNode;
+
+  assert.deepEqual(getPublicCapturableIframes(root), [includedFrame]);
 });
 
 test('capture resource parser finds quoted and unquoted CSS URLs without treating visible links as assets', () => {
@@ -1086,6 +1100,14 @@ test('capture CSS URL rewriting preserves embedded assets and text that only loo
   assert.match(cssText, /content:"url\(\.\.\/not-an-asset\.png\)"/u);
   assert.match(cssText, /background:url\(data:image\/svg\+xml;base64,AAAA\)/u);
   assert.match(cssText, /cursor:url\("https:\/\/cdn\.example\/cursor\.cur"\),auto/u);
+});
+
+test('portable and capture CSS rewriting preserve escaped URL parentheses', () => {
+  const css = String.raw`.report{background:url(report\(1\).png)}.hex{mask:url(report\28 1\29 .png)}`;
+  const expected = '.report{background:url("https://example.com/base/report(1).png")}.hex{mask:url("https://example.com/base/report(1).png")}';
+
+  assert.equal(absolutizePortableCssReferences(css, 'https://example.com/base/app.css'), expected);
+  assert.equal(rewritePublicCaptureCssUrls(css, 'https://example.com/base/app.css'), expected);
 });
 
 test('buildPublicStandaloneHtml cannot be broken out of its top-level style element', async () => {

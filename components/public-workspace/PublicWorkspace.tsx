@@ -3,6 +3,7 @@ import { PublicAiPanel, type PublicAiGenerateIntent } from './PublicAiPanel';
 import { PublicDialog } from './PublicDialog';
 import { PublicDeliveryToolbar } from './PublicDeliveryToolbar';
 import { PublicFinalPreview } from './PublicFinalPreview';
+import { resolvePublicMarkdownDomSelection } from './PublicEditableMarkdown';
 import { PublicSourceEditor } from './PublicSourceEditor';
 import { PUBLIC_IMPORT_ACCEPT, PublicImportError } from './publicImport';
 import { getPublicFlatInsertEntries, getPublicSyntaxEntries } from './publicShowcase';
@@ -163,17 +164,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
       setTextSelection(null);
       return;
     }
-    const text = browserSelection.toString();
-    if (!text.trim()) {
-      setTextSelection(null);
-      return;
-    }
-    const start = source.indexOf(text);
-    if (start < 0 || source.indexOf(text, start + text.length) >= 0) {
-      setTextSelection(null);
-      return;
-    }
-    setTextSelection({ start, end: start + text.length, text, sourceText: text, source });
+    setTextSelection(resolvePublicMarkdownDomSelection(previewRoot, browserSelection, source));
   }, [getPreviewRoot, mode, source]);
 
   const importFiles = async (files: readonly File[]) => {

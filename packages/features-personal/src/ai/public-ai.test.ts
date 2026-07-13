@@ -11,7 +11,7 @@ import {
   validatePublicAiBaseUrl,
   writePublicAiConfig,
 } from './config';
-import { createPublicAiAdapter } from './client';
+import { createPublicAiAdapter, PUBLIC_AI_MAX_USER_PROMPT_CHARS } from './client';
 import { PublicAiError, type PublicAiConfig } from './types';
 
 class MemoryStorage implements Storage {
@@ -277,6 +277,31 @@ test('finish_reason length is returned to the caller without silently discarding
     text: 'partial output',
     finishReason: 'length',
   });
+});
+
+test('adapter omits local image data and rejects oversized prompts before fetch', async () => {
+  const seen: string[] = [];
+  const adapter = createPublicAiAdapter({
+    readConfig: () => configured(),
+    fetch: async (_input, init) => {
+      seen.push(String(init?.body));
+      return jsonResponse({ choices: [{ message: { content: 'result' } }] });
+    },
+  });
+  await adapter.request({
+    action: 'modify',
+    selectedText: 'selection',
+    source: `before data:image/png;base64,${'A'.repeat(2_000)} after`,
+  });
+  assert.equal(seen.length, 1);
+  assert.doesNotMatch(seen[0], /data:image|AAAAAA/u);
+  assert.match(seen[0], /local image data omitted/u);
+
+  await assert.rejects(adapter.request({
+    action: 'generate',
+    source: 'x'.repeat(PUBLIC_AI_MAX_USER_PROMPT_CHARS + 1),
+  }), (error: unknown) => error instanceof PublicAiError && error.code === 'input_too_large');
+  assert.equal(seen.length, 1, 'oversized prompts must fail before fetch');
 });
 
 test('missing config opens settings and reports a typed error', async () => {

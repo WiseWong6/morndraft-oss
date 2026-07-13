@@ -266,6 +266,7 @@
 }
 .md-public-ai-result { max-height: min(52vh, 520px); overflow: auto; padding: 14px; border-radius: 9px; white-space: pre-wrap; background: var(--md-public-hover); }
 .md-public-ai-warning { color: #9a6100; }
+.md-public-ai-privacy { margin: 0; color: var(--md-public-muted); font-size: 12px; line-height: 1.5; }
 .md-public-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 
 .md-public-drop-overlay {

@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { splitPublicDocumentSegments } from './publicDocument';
-import { patchPublicMarkdownVisibleText, resolvePublicMarkdownVisibleSourceRange } from './publicMarkdownPatch';
+import {
+  patchPublicMarkdownVisibleText,
+  resolvePublicMarkdownVisibleSourceOffset,
+  resolvePublicMarkdownVisibleSourceRange,
+} from './publicMarkdownPatch';
 
 test('Final heading edit patches text without removing Markdown structure', () => {
   const source = '# Original title\n\nBody';
@@ -127,6 +131,28 @@ test('rendered selections map through formatting, links, entities, repeats, and 
     assert.equal(resolved?.sourceText, scenario.sourceText);
     assert.equal(source.slice(resolved?.start, resolved?.end), scenario.sourceText);
   }
+});
+
+test('cross-block selection boundaries map to exact source offsets', () => {
+  const source = '# **First** 😀 paragraph\n\nSecond [label](https://example.com) ending';
+  const firstEnd = source.indexOf('\n\n');
+  const secondStart = firstEnd + 2;
+  const start = resolvePublicMarkdownVisibleSourceOffset({
+    source,
+    range: { start: 0, end: firstEnd },
+    visibleText: 'First 😀 paragraph',
+    visibleOffset: 'First '.length,
+    edge: 'start',
+  });
+  const end = resolvePublicMarkdownVisibleSourceOffset({
+    source,
+    range: { start: secondStart, end: source.length },
+    visibleText: 'Second label ending',
+    visibleOffset: 'Second label'.length,
+    edge: 'end',
+  });
+
+  assert.equal(source.slice(start ?? -1, end ?? -1), '😀 paragraph\n\nSecond [label');
 });
 
 test('mixed document segments retain absolute offsets for precise Final patches', () => {

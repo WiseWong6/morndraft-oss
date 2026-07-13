@@ -16,5 +16,6 @@ export * from './morndraft-flat-default-item.js';
 export * from './morndraft-flat-source-patch.js';
 export * from './morndraft-html-source.js';
 export * from './public-morndraft-showcase.js';
+export * from './public-standalone-fence.js';
 export * from './swiss-catalog-css.js';
 export * from './swiss-catalog-renderer.js';

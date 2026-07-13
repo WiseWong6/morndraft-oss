@@ -17,10 +17,9 @@ export const normalizePublicFenceInfoLanguage = (value: string) => (
 );
 
 /**
- * Parses the one closed top-level fence contract shared by OSS document
- * detection and browser-local delivery. It intentionally preserves the exact
- * opening/closing text and content offset so Final edits can patch Source
- * without normalizing whitespace or line endings.
+ * Parses the one closed top-level fence contract used by browser-local
+ * delivery. It remains self-contained so this framework-agnostic package has
+ * no workspace dependency and can be projected into an OSS candidate alone.
  */
 export const parsePublicStandaloneFence = (source: string): PublicStandaloneFence | null => {
   const match = String(source ?? '').match(PUBLIC_STANDALONE_FENCE_RE);

@@ -40,7 +40,7 @@ test('ordinary HTML is not misclassified as a flat component', () => {
   assert.equal(patchPublicMornDraftFlatHtml('<h1>Plain</h1>', '$.title', 'Changed'), null);
 });
 
-test('structured Final rejects marker text outside the canonical rendered document', () => {
+test('structured Final rejects noncanonical documents instead of rebuilding away their content', () => {
   const source = getPublicMornDraftInsertEntries('showcase')[0].source;
   const canonicalHtml = source.replace(/^```html\n/u, '').replace(/\n```$/u, '');
   const forgedBodies = [

@@ -32,10 +32,9 @@ const matchesCanonicalFlatDom = (html: string, canonicalHtml: string) => {
   const canonicalStyles = canonical.querySelectorAll('style[data-morndraft-source-style]');
   if (actualStyles.length !== 1 || canonicalStyles.length !== 1) return false;
 
-  // The source style is the one supported customization point and is preserved
-  // by the canonical patcher. Replace it before comparing the actual DOM so
-  // scripts, templates, comments, extra body nodes, and forged attributes still
-  // make the document non-canonical.
+  // Source style is the only supported customization point. Replacing it
+  // before comparing keeps custom colors while rejecting extra nodes, scripts,
+  // templates, comments, or forged flat markers that a patch would discard.
   actualStyles[0].replaceWith(actual.importNode(canonicalStyles[0], true));
   return actual.isEqualNode(canonical);
 };
@@ -48,19 +47,16 @@ export const parsePublicMornDraftFlatHtml = (html: string) => {
   const canonical = createMornDraftHtmlSource(structure.component);
   if (!canonical.ok || typeof canonical.html !== 'string') return null;
 
-  // Markdown fence extraction intentionally removes the newline immediately
-  // before the closing fence. Treat that boundary-only difference as the same
-  // canonical document before asking DOMParser to compare parsed trees (where
-  // it otherwise becomes a different whitespace text node inside <body>).
+  // Fence extraction removes only the newline before the closing marker. The
+  // source comparison deliberately normalizes that boundary and CRLF without
+  // normalizing arbitrary HTML content.
   const actualSource = normalizeCanonicalFlatSource(html);
   const canonicalSource = normalizeCanonicalFlatSource(canonical.html);
   if (actualSource && canonicalSource && actualSource === canonicalSource) return structure;
 
   const domMatch = matchesCanonicalFlatDom(html, canonical.html);
   if (domMatch === false) return null;
-  if (domMatch === null) {
-    if (!actualSource || !canonicalSource || actualSource !== canonicalSource) return null;
-  }
+  if (domMatch === null && (!actualSource || !canonicalSource || actualSource !== canonicalSource)) return null;
   return structure;
 };
 

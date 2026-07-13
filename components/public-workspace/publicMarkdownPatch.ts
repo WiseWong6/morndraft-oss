@@ -160,14 +160,50 @@ export const resolvePublicMarkdownVisibleSourceRange = ({
   const units = mapMarkdownToVisibleUnits(source.slice(range.start, range.end));
   if (!units || units.map(unit => unit.character).join('') !== visibleText) return null;
 
-  const startIndex = Array.from(visibleText.slice(0, visibleStart)).length;
-  const endIndex = startIndex + Array.from(visibleText.slice(visibleStart, visibleEnd)).length;
-  const first = units[startIndex];
-  const last = units[endIndex - 1];
-  if (!first || !last) return null;
-  const start = range.start + first.sourceStart;
-  const end = range.start + last.sourceEnd;
+  const start = resolvePublicMarkdownVisibleSourceOffset({
+    source,
+    range,
+    visibleText,
+    visibleOffset: visibleStart,
+    edge: 'start',
+  });
+  const end = resolvePublicMarkdownVisibleSourceOffset({
+    source,
+    range,
+    visibleText,
+    visibleOffset: visibleEnd,
+    edge: 'end',
+  });
+  if (start === null || end === null || end <= start) return null;
   return { start, end, sourceText: source.slice(start, end) };
+};
+
+export const resolvePublicMarkdownVisibleSourceOffset = ({
+  source,
+  range,
+  visibleText,
+  visibleOffset,
+  edge,
+}: {
+  source: string;
+  range: PublicMarkdownSourceRange;
+  visibleText: string;
+  visibleOffset: number;
+  edge: 'start' | 'end';
+}) => {
+  if (
+    range.start < 0 || range.end < range.start || range.end > source.length
+    || visibleOffset < 0 || visibleOffset > visibleText.length
+  ) return null;
+  const units = mapMarkdownToVisibleUnits(source.slice(range.start, range.end));
+  if (!units || units.map(unit => unit.character).join('') !== visibleText || units.length === 0) return null;
+  const codePointOffset = Array.from(visibleText.slice(0, visibleOffset)).length;
+  if (edge === 'start') {
+    const unit = units[Math.min(codePointOffset, units.length - 1)];
+    return range.start + (codePointOffset >= units.length ? units[units.length - 1].sourceEnd : unit.sourceStart);
+  }
+  const unit = units[Math.max(0, Math.min(codePointOffset - 1, units.length - 1))];
+  return range.start + (codePointOffset <= 0 ? units[0].sourceStart : unit.sourceEnd);
 };
 
 const getCommonPrefixLength = (left: readonly string[], right: readonly string[]) => {

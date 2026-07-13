@@ -3,6 +3,7 @@ import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markd
 import remarkGfm from 'remark-gfm';
 import {
   patchPublicMarkdownVisibleText,
+  resolvePublicMarkdownVisibleSourceOffset,
   resolvePublicMarkdownVisibleSourceRange,
 } from './publicMarkdownPatch';
 import type { PublicTextSelection } from './types';
@@ -56,6 +57,7 @@ type PublicEditableBlockProps = {
   children: React.ReactNode;
   position: MarkdownPosition;
   segmentStart: number;
+  segmentEnd: number;
   source: string;
   editable: boolean;
   reversible: boolean;
@@ -69,6 +71,7 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
   children,
   position,
   segmentStart,
+  segmentEnd,
   source,
   editable,
   reversible,
@@ -91,13 +94,23 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
 
   const updateRenderedSelection = (event: React.SyntheticEvent<HTMLElement>) => {
     if (!onSelectionChange || !canPatch) return;
-    event.stopPropagation();
     const selection = event.currentTarget.ownerDocument.defaultView?.getSelection();
     const browserRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
-    if (!selection || selection.isCollapsed || !browserRange || !event.currentTarget.contains(browserRange.commonAncestorContainer)) {
+    if (!selection || selection.isCollapsed || !browserRange) {
+      event.stopPropagation();
       onSelectionChange(null);
       return;
     }
+    if (
+      !event.currentTarget.contains(browserRange.startContainer)
+      || !event.currentTarget.contains(browserRange.endContainer)
+    ) {
+      // A selection spanning multiple rendered blocks is resolved once at the
+      // workspace root. Let the event bubble so exact source offsets can be
+      // derived from both boundary blocks.
+      return;
+    }
+    event.stopPropagation();
     const prefixRange = event.currentTarget.ownerDocument.createRange();
     prefixRange.selectNodeContents(event.currentTarget);
     prefixRange.setEnd(browserRange.startContainer, browserRange.startOffset);
@@ -127,6 +140,10 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
     contentEditable: canEditBlock,
     'data-public-final-editable': canEditBlock ? 'true' : undefined,
     'data-public-final-block': canPatch ? 'true' : undefined,
+    'data-public-source-start': canPatch ? segmentStart + (relativeStart ?? 0) : undefined,
+    'data-public-source-end': canPatch ? segmentStart + (relativeEnd ?? 0) : undefined,
+    'data-public-segment-start': canPatch ? segmentStart : undefined,
+    'data-public-segment-end': canPatch ? segmentEnd : undefined,
     suppressContentEditableWarning: true,
     onFocus: (event: React.FocusEvent<HTMLElement>) => {
       if (!canEditBlock) return;
@@ -172,6 +189,7 @@ export const PublicEditableMarkdown: React.FC<{
   onSourcePatch(next: string): void;
   onSelectionChange?(selection: PublicTextSelection | null): void;
 }> = ({ content, segmentStart, source, editable, onSourcePatch, onSelectionChange }) => {
+  const segmentEnd = segmentStart + content.length;
   const components = useMemo<Components>(() => {
     const renderEditable = (
       tag: EditableTag,
@@ -185,6 +203,7 @@ export const PublicEditableMarkdown: React.FC<{
         className={className}
         position={position}
         segmentStart={segmentStart}
+        segmentEnd={segmentEnd}
         source={source}
         editable={editable}
         reversible={isPublicMarkdownNodeSafelyEditable(node)}
@@ -210,7 +229,86 @@ export const PublicEditableMarkdown: React.FC<{
       td: ({ node, children, className }) => renderEditable('td', node, getChildContentPosition(node), children, className),
       th: ({ node, children, className }) => renderEditable('th', node, getChildContentPosition(node), children, className),
     };
-  }, [editable, onSelectionChange, onSourcePatch, segmentStart, source]);
+  }, [editable, onSelectionChange, onSourcePatch, segmentEnd, segmentStart, source]);
 
   return <ReactMarkdown components={components} remarkPlugins={[remarkGfm]} urlTransform={transformPublicMarkdownUrl}>{content}</ReactMarkdown>;
+};
+
+const getPublicFinalBlock = (node: Node | null): HTMLElement | null => {
+  const element = node instanceof HTMLElement ? node : node?.parentElement;
+  return element?.closest<HTMLElement>('[data-public-final-block="true"]') ?? null;
+};
+
+const readIntegerAttribute = (element: HTMLElement, name: string) => {
+  const raw = element.getAttribute(name);
+  if (!raw || !/^-?\d+$/u.test(raw)) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) ? value : null;
+};
+
+const getVisibleOffset = (block: HTMLElement, container: Node, offset: number) => {
+  const range = block.ownerDocument.createRange();
+  try {
+    range.selectNodeContents(block);
+    range.setEnd(container, offset);
+    return range.toString().length;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Resolve a browser selection spanning multiple Markdown blocks back to exact
+ * Source offsets. Selections crossing a non-Markdown segment fail closed so an
+ * AI modification can never remove an intervening HTML/Mermaid artifact.
+ */
+export const resolvePublicMarkdownDomSelection = (
+  root: HTMLElement,
+  selection: Selection,
+  source: string,
+): PublicTextSelection | null => {
+  if (selection.isCollapsed || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  const startBlock = getPublicFinalBlock(range.startContainer);
+  const endBlock = getPublicFinalBlock(range.endContainer);
+  if (!startBlock || !endBlock || !root.contains(startBlock) || !root.contains(endBlock)) return null;
+
+  const startSegment = readIntegerAttribute(startBlock, 'data-public-segment-start');
+  const endSegment = readIntegerAttribute(startBlock, 'data-public-segment-end');
+  if (
+    startSegment === null || endSegment === null
+    || startSegment !== readIntegerAttribute(endBlock, 'data-public-segment-start')
+    || endSegment !== readIntegerAttribute(endBlock, 'data-public-segment-end')
+  ) return null;
+
+  const startRange = {
+    start: readIntegerAttribute(startBlock, 'data-public-source-start'),
+    end: readIntegerAttribute(startBlock, 'data-public-source-end'),
+  };
+  const endRange = {
+    start: readIntegerAttribute(endBlock, 'data-public-source-start'),
+    end: readIntegerAttribute(endBlock, 'data-public-source-end'),
+  };
+  if (startRange.start === null || startRange.end === null || endRange.start === null || endRange.end === null) return null;
+
+  const visibleStart = getVisibleOffset(startBlock, range.startContainer, range.startOffset);
+  const visibleEnd = getVisibleOffset(endBlock, range.endContainer, range.endOffset);
+  if (visibleStart === null || visibleEnd === null) return null;
+  const start = resolvePublicMarkdownVisibleSourceOffset({
+    source,
+    range: { start: startRange.start, end: startRange.end },
+    visibleText: startBlock.textContent ?? '',
+    visibleOffset: visibleStart,
+    edge: 'start',
+  });
+  const end = resolvePublicMarkdownVisibleSourceOffset({
+    source,
+    range: { start: endRange.start, end: endRange.end },
+    visibleText: endBlock.textContent ?? '',
+    visibleOffset: visibleEnd,
+    edge: 'end',
+  });
+  const text = range.toString();
+  if (start === null || end === null || end <= start || !text.trim()) return null;
+  return { start, end, text, sourceText: source.slice(start, end), source };
 };

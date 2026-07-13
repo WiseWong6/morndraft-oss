@@ -32,6 +32,7 @@ export type PublicAiErrorCode =
   | 'aborted'
   | 'empty_response'
   | 'http_error'
+  | 'input_too_large'
   | 'invalid_base_url'
   | 'invalid_response'
   | 'missing_config'

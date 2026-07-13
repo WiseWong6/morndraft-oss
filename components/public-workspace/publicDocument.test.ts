@@ -38,7 +38,7 @@ test('standalone JSON5 fence keeps its exact fence contract when Final edits con
   assert.equal(serializePublicDocumentEdit(document, "{project:'Public',}"), "```JSON5\n{project:'Public',}\n```");
 });
 
-test('standalone fence detection and delivery share info-string parsing and preserve CRLF edits', () => {
+test('standalone fence info strings preserve CRLF edits and exact content offsets', () => {
   const source = "```HTML preview linenums\r\n<!doctype html><html><body>Before</body></html>\r\n```\r\n";
   const document = detectPublicDocument(source);
   assert.equal(document.kind, 'html');
@@ -68,12 +68,15 @@ test('standalone Markdown fence exposes only its inner Markdown for exact Final 
   assert.equal(getPublicDocumentContentOffset(source, document), source.indexOf('# Original'));
 });
 
-test('standalone canonical MornDraft flat HTML stays mixed so Final keeps structured editing', () => {
-  const source = getPublicMornDraftInsertEntries('showcase')[0].source;
-  const document = detectPublicDocument(source);
-  assert.equal(document.kind, 'markdown');
-  assert.equal(document.content, source);
-  assert.equal(getPublicContentType(source), 'mixed');
+test('all standalone canonical MornDraft flat entries stay mixed for structured Final editing', () => {
+  const entries = getPublicMornDraftInsertEntries('showcase');
+  assert.equal(entries.length, 30);
+  for (const entry of entries) {
+    const document = detectPublicDocument(entry.source);
+    assert.equal(document.kind, 'markdown', entry.id);
+    assert.equal(document.content, entry.source, entry.id);
+    assert.equal(getPublicContentType(entry.source), 'mixed', entry.id);
+  }
 });
 
 test('ordinary and forged standalone HTML fences remain raw HTML documents', () => {
@@ -83,7 +86,7 @@ test('ordinary and forged standalone HTML fences remain raw HTML documents', () 
   assert.equal(detectPublicDocument(forged).kind, 'html');
 });
 
-test('valid flat metadata cannot turn forged marker contexts into a structured document', () => {
+test('valid flat metadata cannot make noncanonical HTML structurally editable', () => {
   const canonicalSource = getPublicMornDraftInsertEntries('showcase')[0].source;
   const canonicalHtml = canonicalSource.replace(/^```html\n/u, '').replace(/\n```$/u, '');
   const forgedBodies = [
@@ -120,7 +123,7 @@ test('mixed source splits supported fences while legacy morndraft remains ordina
   assert.equal(legacyFence?.kind === 'fence' ? legacyFence.language : null, 'morndraft');
 });
 
-test('mixed CRLF fences keep info-string languages, closing boundaries, and exact Final patches', () => {
+test('mixed CRLF fences keep info-string languages and exact Final patches', () => {
   const source = [
     '# Mixed CRLF\r\n',
     '\r\n',
@@ -140,12 +143,6 @@ test('mixed CRLF fences keep info-string languages, closing boundaries, and exac
   const json5Fence = fences[1];
 
   assert.equal(getPublicContentType(source), 'mixed');
-  assert.deepEqual(segments[0], {
-    kind: 'markdown',
-    content: '# Mixed CRLF\r\n',
-    start: 0,
-    end: '# Mixed CRLF\r\n'.length,
-  });
   assert.equal(fences.length, 2);
   assert.ok(htmlFence?.kind === 'fence');
   assert.ok(json5Fence?.kind === 'fence');

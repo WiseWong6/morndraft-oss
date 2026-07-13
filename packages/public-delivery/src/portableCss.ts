@@ -19,6 +19,40 @@ const skipQuotedValue = (cssText: string, start: number) => {
   return cssText.length;
 };
 
+export const decodePortableCssEscapes = (value: string) => {
+  let decoded = '';
+  let index = 0;
+  while (index < value.length) {
+    if (value[index] !== '\\') {
+      decoded += value[index];
+      index += 1;
+      continue;
+    }
+    index += 1;
+    if (value[index] === '\r' && value[index + 1] === '\n') {
+      index += 2;
+      continue;
+    }
+    if (/[\n\r\f]/u.test(value[index] ?? '')) {
+      index += 1;
+      continue;
+    }
+    const hex = value.slice(index).match(/^[0-9a-f]{1,6}/iu)?.[0] ?? '';
+    if (hex) {
+      const codePoint = Number.parseInt(hex, 16);
+      decoded += codePoint === 0 || codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ? '\uFFFD'
+        : String.fromCodePoint(codePoint);
+      index += hex.length;
+      if (/\s/u.test(value[index] ?? '')) index += 1;
+      continue;
+    }
+    if (index < value.length) decoded += value[index];
+    index += 1;
+  }
+  return decoded;
+};
+
 const readUrlFunction = (
   cssText: string,
   start: number,
@@ -36,13 +70,15 @@ const readUrlFunction = (
     const valueStart = index + 1;
     const quotedEnd = skipQuotedValue(cssText, index);
     if (quotedEnd === cssText.length && cssText[cssText.length - 1] !== quote) return null;
-    value = cssText.slice(valueStart, Math.max(valueStart, quotedEnd - 1));
+    value = decodePortableCssEscapes(cssText.slice(valueStart, Math.max(valueStart, quotedEnd - 1)));
     index = quotedEnd;
     while (/\s/u.test(cssText[index] ?? '')) index += 1;
   } else {
     const valueStart = index;
-    while (index < cssText.length && cssText[index] !== ')') index += 1;
-    value = cssText.slice(valueStart, index).trim();
+    while (index < cssText.length && cssText[index] !== ')') {
+      index += cssText[index] === '\\' ? 2 : 1;
+    }
+    value = decodePortableCssEscapes(cssText.slice(valueStart, index).trim());
   }
   if (cssText[index] !== ')') return null;
   return { start, end: index + 1, value };
@@ -104,7 +140,7 @@ export const findPortableCssImportOccurrences = (cssText: string) => {
       const valueStart = index + 1;
       const quotedEnd = skipQuotedValue(cssText, index);
       if (quotedEnd === cssText.length && cssText[cssText.length - 1] !== quote) continue;
-      value = cssText.slice(valueStart, Math.max(valueStart, quotedEnd - 1));
+      value = decodePortableCssEscapes(cssText.slice(valueStart, Math.max(valueStart, quotedEnd - 1)));
       index = quotedEnd;
     } else {
       continue;

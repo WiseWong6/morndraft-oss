@@ -1,9 +1,9 @@
 import JSON5 from 'json5';
-import { MERMAID_KEYWORDS } from '@morndraft/core/oss-public';
 import {
+  MERMAID_KEYWORDS,
   normalizePublicFenceInfoLanguage,
   parsePublicStandaloneFence,
-} from '@morndraft/public-delivery';
+} from '@morndraft/core/oss-public';
 import type { PublicContentType } from './types';
 import { isPublicMornDraftFlatHtml } from './publicMornDraftFlat';
 
@@ -57,8 +57,8 @@ const parseStandaloneFence = (source: string): PublicDocument | null => {
     fence: {
       opening: parsed.opening,
       closing: parsed.closing,
-      openingLineBreak: parsed.openingLineBreak,
-      closingLineBreak: parsed.closingLineBreak,
+      openingLineBreak: parsed.openingLineBreak as '\n' | '\r\n',
+      closingLineBreak: parsed.closingLineBreak as '\n' | '\r\n',
     },
   }, parsed.contentStart);
 };
@@ -138,9 +138,7 @@ export const splitPublicDocumentSegments = (source: string): PublicDocumentSegme
   const flushMarkdown = (beforeFence = false) => {
     if (markdown.length === 0) return;
     const joined = markdown.join('\n');
-    const content = beforeFence && joined.endsWith('\r')
-      ? joined.slice(0, -1)
-      : joined;
+    const content = beforeFence && joined.endsWith('\r') ? joined.slice(0, -1) : joined;
     segments.push({ kind: 'markdown', content, start: markdownStart, end: markdownStart + content.length });
     markdown = [];
   };
@@ -203,9 +201,7 @@ export const replacePublicFenceSegmentContent = (
   const openingEnd = source.indexOf('\n', segment.start);
   const closingStart = source.lastIndexOf('\n', segment.end - 1);
   if (openingEnd < segment.start || closingStart < openingEnd || closingStart > segment.end) return null;
-  const closingLineBreakStart = source[closingStart - 1] === '\r'
-    ? closingStart - 1
-    : closingStart;
+  const closingLineBreakStart = source[closingStart - 1] === '\r' ? closingStart - 1 : closingStart;
   return `${source.slice(0, openingEnd + 1)}${nextContent}${source.slice(closingLineBreakStart)}`;
 };
 

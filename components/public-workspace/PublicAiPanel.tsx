@@ -5,6 +5,7 @@ import {
   PublicAiStaleSourceError,
   type PublicAiGenerateSnapshot,
 } from './publicAiState';
+import { buildPublicAiBoundedRequest } from './publicAiContext';
 import type {
   PublicAiAdapter,
   PublicTextSelection,
@@ -52,7 +53,9 @@ const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
   notFound: 'AI 地址或模型不存在（404）。', rateLimited: 'AI 请求过于频繁（429），请稍后再试。',
   server: 'AI 服务暂时不可用（5xx）。', network: '浏览器无法连接 AI 服务，请检查网络、Base URL 和 CORS。',
   invalid: 'AI 返回了无效 JSON 或空内容。',
+  tooLarge: '内容过长。请缩小选区或精简指令后重试。',
   truncated: '模型返回的内容可能不完整，请检查后再采用。',
+  privacy: '仅发送选区、指令和附近的有限上下文；本地图片数据不会发送。总结只发送当前选区。',
 } : {
   modify: 'Modify', summarize: 'Summarize', generate: 'AI generate', cancel: 'Cancel', run: 'Send',
   instruction: 'What should AI do?', result: 'AI result preview', apply: 'Apply', copy: 'Copy', copied: 'Copied',
@@ -63,7 +66,9 @@ const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
   notFound: 'The AI endpoint or model was not found (404).', rateLimited: 'The AI provider rate-limited this request (429). Try again later.',
   server: 'The AI provider is temporarily unavailable (5xx).', network: 'The browser could not reach the AI provider. Check the network, Base URL, and CORS.',
   invalid: 'The AI provider returned invalid JSON or an empty response.',
+  tooLarge: 'The input is too long. Select less content or shorten the instruction.',
   truncated: 'The model response may be incomplete. Review it before applying.',
+  privacy: 'Only the selection, instruction, and limited nearby context are sent. Local image data is omitted. Summaries send only the selection.',
 };
 
 type PublicAiLabels = ReturnType<typeof getLabels>;
@@ -83,6 +88,7 @@ export const getPublicAiRequestErrorMessage = (error: unknown, labels: PublicAiL
     case 'aborted': return labels.cancelled;
     case 'invalid_response':
     case 'empty_response': return labels.invalid;
+    case 'input_too_large': return labels.tooLarge;
     default: return labels.failed;
   }
 };
@@ -220,27 +226,26 @@ export const PublicAiPanel: React.FC<PublicAiPanelProps> = ({
     }, REQUEST_TIMEOUT_MS);
     timeoutRef.current = timeoutId;
     try {
-      const response = snapshot.action === 'summarize'
-        ? await adapter.request({
+      const boundedRequest = snapshot.action === 'summarize'
+        ? buildPublicAiBoundedRequest({
           action: 'summarize',
           selectedText: snapshot.selection.text,
-          visibleText: snapshot.selection.text,
-          signal: controller.signal,
         })
         : snapshot.action === 'modify'
-          ? await adapter.request({
+          ? buildPublicAiBoundedRequest({
             action: 'modify',
             instruction: requestInstruction,
-            source: snapshot.selection.source,
             selectedText: snapshot.selection.text,
-            signal: controller.signal,
+            source: snapshot.selection.source,
+            range: { start: snapshot.selection.start, end: snapshot.selection.end },
           })
-          : await adapter.request({
+          : buildPublicAiBoundedRequest({
             action: 'generate',
             instruction: requestInstruction,
             source: snapshot.generate.source,
-            signal: controller.signal,
+            range: snapshot.generate.range,
           });
+      const response = await adapter.request({ ...boundedRequest, signal: controller.signal });
       ensurePublicAiResponseText(response.text);
       if (requestSequence === requestSequenceRef.current) {
         setResult({ text: response.text, finishReason: response.finishReason, snapshot });
@@ -307,6 +312,7 @@ export const PublicAiPanel: React.FC<PublicAiPanelProps> = ({
                 <textarea data-testid="oss-ai-instruction" data-public-dialog-initial-focus autoFocus value={instruction} onChange={(event) => setInstruction(event.currentTarget.value)} />
               </label>
             )}
+            {(form || isBusy || result) && <p className="md-public-ai-privacy">{labels.privacy}</p>}
             {isBusy && <p role="status">{labels.busy}</p>}
             {error && <p className="md-public-inline-error" role="alert">{error}</p>}
             {copyError && <p className="md-public-inline-error" data-testid="oss-ai-copy-error" role="alert">{copyError}</p>}

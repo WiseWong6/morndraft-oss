@@ -5,7 +5,14 @@ import {
   PUBLIC_IMPORT_LIMITS,
   PublicImportError,
 } from './publicImport';
-import { PUBLIC_IMPORT_FINAL_IMAGE_MAX_BYTES } from './publicImageCompression';
+import {
+  assertPublicImportImageDimensions,
+  PUBLIC_IMPORT_FINAL_IMAGE_MAX_BYTES,
+  PUBLIC_IMPORT_MAX_IMAGE_DIMENSION,
+  PUBLIC_IMPORT_MAX_IMAGE_PIXELS,
+  PublicImageCompressionError,
+  readPublicImportImageDimensions,
+} from './publicImageCompression';
 import { transformPublicMarkdownUrl } from './PublicEditableMarkdown';
 
 const textFile = (name: string, source: string, type = 'text/plain') => new File([source], name, { type });
@@ -32,6 +39,43 @@ test('local import embeds image attachments as data URLs without a network call'
   ]);
   assert.match(result.source, /!\[hero\]\(data:image\/png;base64,/u);
   assert.doesNotMatch(result.source, /\.\/hero\.png/u);
+});
+
+test('generic binary MIME uses a supported bitmap extension consistently', async () => {
+  const result = await buildPublicImportedDocument([
+    textFile('artifact.md', '# Image\n\n![hero](./photo.png)'),
+    new File([new Uint8Array([137, 80, 78, 71])], 'photo.png', { type: 'application/octet-stream' }),
+  ]);
+  assert.match(result.source, /!\[hero\]\(data:image\/png;base64,/u);
+});
+
+test('bitmap dimensions are gated before any full-size canvas allocation', async () => {
+  assert.doesNotThrow(() => assertPublicImportImageDimensions({ width: 4096, height: 4096 }, 'safe.png'));
+  for (const dimensions of [
+    { width: PUBLIC_IMPORT_MAX_IMAGE_DIMENSION + 1, height: 1 },
+    { width: 8192, height: Math.floor(PUBLIC_IMPORT_MAX_IMAGE_PIXELS / 8192) + 1 },
+  ]) {
+    assert.throws(
+      () => assertPublicImportImageDimensions(dimensions, 'oversized.png'),
+      (error: unknown) => error instanceof PublicImageCompressionError && error.code === 'file-too-large',
+    );
+  }
+
+  const png = new Uint8Array(24);
+  png.set([137, 80, 78, 71, 13, 10, 26, 10], 0);
+  png.set([73, 72, 68, 82], 12);
+  const view = new DataView(png.buffer);
+  view.setUint32(16, PUBLIC_IMPORT_MAX_IMAGE_DIMENSION + 1);
+  view.setUint32(20, 1);
+  const declared = await readPublicImportImageDimensions(
+    new File([png], 'declared-huge.png', { type: 'image/png' }),
+    'image/png',
+  );
+  assert.deepEqual(declared, { width: PUBLIC_IMPORT_MAX_IMAGE_DIMENSION + 1, height: 1 });
+  assert.throws(
+    () => assertPublicImportImageDimensions(declared!, 'declared-huge.png'),
+    (error: unknown) => error instanceof PublicImageCompressionError && error.code === 'file-too-large',
+  );
 });
 
 test('local import resolves nested and URL-encoded relative image paths without appending duplicates', async () => {
