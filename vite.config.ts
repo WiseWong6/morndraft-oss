@@ -43,8 +43,8 @@ export default defineConfig({
   },
   resolve: { alias: {
     '@morndraft/core/oss-public': path.resolve(__dirname, 'packages/core/src/oss-public.ts'),
-    '@morndraft/core': path.resolve(__dirname, 'packages/core/src/oss-public.ts'),
     '@morndraft/features-personal/ai': path.resolve(__dirname, 'packages/features-personal/src/ai/index.ts'),
+    '@morndraft/public-delivery': path.resolve(__dirname, 'packages/public-delivery/src/index.ts'),
     '@morndraft/web-shell': path.resolve(__dirname, 'packages/web-shell/src/index.ts'),
   } },
 });

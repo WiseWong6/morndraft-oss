@@ -2,6 +2,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import ts from 'typescript';
 
 import {
   analyzeLicenseEntries,
@@ -15,8 +16,10 @@ import {
 import { checkWorkflowDirectory } from './check-workflow-action-pins.mjs';
 import {
   isDeclaredOssPath,
+  normalizeExternalPackageSpecifier,
   readOssDistributionManifest,
 } from './oss-public-distribution.mjs';
+import { resolveOssSourceClosure } from './oss-public-source-closure.mjs';
 import { serializePublicPackageLock } from './oss-public-lockfile.mjs';
 import { PROFILE_CAPABILITIES } from '../packages/core/src/oss-capabilities.js';
 
@@ -33,13 +36,25 @@ const SECRET_SCAN_IGNORED = new Set([
   'scripts/check-oss-distribution.test.mjs',
 ]);
 const PUBLIC_MODULE_SOURCE_PREFIXES = Object.freeze([
+  'apps/web-oss/src/',
   'components/public-workspace/',
+  'packages/core/src/',
   'packages/features-personal/src/ai/',
+  'packages/public-delivery/src/',
+  'packages/web-shell/src/',
 ]);
+export const PUBLIC_DELIVERY_RUNTIME_DEPENDENCIES = Object.freeze([
+  'html2canvas',
+  'modern-screenshot',
+  'pdf-lib',
+]);
+const PUBLIC_DELIVERY_SOURCE_PREFIX = 'packages/public-delivery/src/';
+const OSS_E2E_SCRIPT_PATH = 'scripts/test-oss-e2e.mjs';
+const OSS_E2E_SCRIPT_COMMAND = `node ${OSS_E2E_SCRIPT_PATH} --candidate .`;
 const PUBLIC_MODULE_FORBIDDEN_PATTERNS = Object.freeze([
   ['private application component', /\b(?:AppImpl|DraftSidebar)\b/u],
-  ['private subsystem import', /(?:from\s*|import\s*\()\s*['"`][^'"`]*(?:\/(?:auth|billing|drafts?|quota|moderation|telemetry|hosted|watermark|upgrade))(?:\/|['"`])/iu],
-  ['private subsystem symbol', /\b(?:Auth(?:Client|Adapter|Provider|User)|Billing\w*|Draft(?:Sidebar|Store|Box|Api|Client)|Quota\w*|Moderation\w*|Telemetry\w*|Hosted\w*|Watermark\w*|Upgrade\w*)\b/u],
+  ['private subsystem import', /(?:from\s*|import\s*\()\s*['"`][^'"`]*(?:\/(?:account|auth|billing|drafts?|entitlement|mcp|quota|moderation|telemetry|hosted|watermark|upgrade))(?:\/|['"`])/iu],
+  ['private subsystem symbol', /\b(?:Account\w*|Auth(?:Client|Adapter|Provider|User)|Billing\w*|Draft(?:Sidebar|Store|Box|Api|Client)|Entitlement\w*|MCP[A-Za-z_]\w*|Mcp[A-Za-z_]\w*|Quota\w*|Moderation\w*|Telemetry\w*|Hosted\w*|Watermark\w*|Upgrade\w*)\b/u],
   ['private workspace package', /@morndraft\/(?:features-(?:pro|ide)|workspace-private)\b/u],
   ['private MornDraft API', /\/api\//u],
 ]);
@@ -52,7 +67,126 @@ export const SOURCE_MARKER_PATTERNS = Object.freeze({
   'private payment marker': /(?:alipay|paddle|subscriptionCheckout|subscriptionCouponCenter)/gi,
   'private entitlement or account-plan implementation marker': /(?:MORNDRAFT_(?:ACCOUNT_PLANS|ACCOUNT_REGIONS|ENTITLEMENTS|QUOTA_METERS|USAGE_EVENT_TYPES)|FREE_MORNDRAFT_FLAT_LAYOUT_STYLES|resolveMornDraftFlatLayoutTier|(?:acct|token)_(?:free|pro)_mcp)/g,
   'private workspace package marker': /(?:@morndraft\/features-(?:pro|ide)|packages\/features-(?:pro|ide)|@morndraft\/features-personal(?!\/ai\b)|packages\/features-personal(?!\/src\/ai(?:\/|\b)))/g,
+  'production filesystem or storage credential marker': /(?:\/etc\/morndraft\/prod\.env|VOLCENGINE_TOS_ACCESS_KEY_(?:ID|SECRET)|AWS4-HMAC-SHA256)/g,
+  'production asset mutation marker': /(?:uploadCommand|deleteTosObjects|parseListObjectsResponse|buildDeleteObjectsXml)/g,
 });
+
+const sortedUniqueStrings = (values) => [...new Set(values)].sort();
+
+export function collectPublicDeliveryModuleSpecifiers(content) {
+  const specifiers = [];
+  const sourceFile = ts.createSourceFile(
+    'public-module.tsx',
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const visit = (node) => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+      && node.moduleSpecifier
+      && ts.isStringLiteralLike(node.moduleSpecifier)
+    ) {
+      specifiers.push(node.moduleSpecifier.text);
+    } else if (
+      ts.isImportEqualsDeclaration(node)
+      && ts.isExternalModuleReference(node.moduleReference)
+      && node.moduleReference.expression
+      && ts.isStringLiteralLike(node.moduleReference.expression)
+    ) {
+      specifiers.push(node.moduleReference.expression.text);
+    } else if (
+      ts.isCallExpression(node)
+      && node.expression.kind === ts.SyntaxKind.ImportKeyword
+      && node.arguments.length === 1
+      && ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      specifiers.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return specifiers;
+}
+
+export function validateCandidateScriptImportClosure({
+  filePaths,
+  manifest,
+  scriptSources,
+}) {
+  const findings = [];
+  const allowedPackages = new Set([
+    ...(manifest.runtimeDependencies ?? []),
+    ...(manifest.devDependencies ?? []),
+  ]);
+  for (const [relativePath, content] of Object.entries(scriptSources ?? {})) {
+    for (const specifier of collectPublicDeliveryModuleSpecifiers(content)) {
+      if (specifier.startsWith('.')) {
+        const resolvedPath = path.posix.normalize(path.posix.join(
+          path.posix.dirname(relativePath),
+          specifier,
+        ));
+        if (
+          resolvedPath === '..'
+          || resolvedPath.startsWith('../')
+          || path.posix.isAbsolute(resolvedPath)
+          || !filePaths.has(resolvedPath)
+        ) {
+          findings.push(`${relativePath}: script import is missing from the OSS candidate: ${specifier}`);
+        }
+        continue;
+      }
+      const packageName = normalizeExternalPackageSpecifier(specifier);
+      if (packageName && !allowedPackages.has(packageName)) {
+        findings.push(`${relativePath}: script imports undeclared OSS dependency ${packageName}`);
+      }
+    }
+  }
+  return findings;
+}
+
+export function validatePublicDeliverySourceContract({
+  declaredDependencies,
+  externalSpecifiers,
+  localImportSpecifiers,
+  sourceFiles,
+}) {
+  const findings = [];
+  const allowedDependencies = [...PUBLIC_DELIVERY_RUNTIME_DEPENDENCIES].sort();
+  const declared = sortedUniqueStrings(declaredDependencies ?? []);
+  const external = sortedUniqueStrings(externalSpecifiers ?? []);
+  if (JSON.stringify(declared) !== JSON.stringify(allowedDependencies)) {
+    findings.push(
+      `public-delivery dependencies must be exactly ${allowedDependencies.join(', ')}; found ${declared.join(', ') || 'none'}`,
+    );
+  }
+  if (JSON.stringify(external) !== JSON.stringify(allowedDependencies)) {
+    const workspaceImports = external.filter(specifier => specifier.startsWith('@morndraft/'));
+    if (workspaceImports.length > 0) {
+      findings.push(`public-delivery forbids workspace imports: ${workspaceImports.join(', ')}`);
+    }
+    const unsupported = external.filter(specifier => !allowedDependencies.includes(specifier));
+    if (unsupported.length > 0) {
+      findings.push(`public-delivery imports unsupported external packages: ${unsupported.join(', ')}`);
+    }
+    const missing = allowedDependencies.filter(specifier => !external.includes(specifier));
+    if (missing.length > 0) {
+      findings.push(`public-delivery does not import its declared runtime dependencies: ${missing.join(', ')}`);
+    }
+  }
+  const nonRelativeImports = sortedUniqueStrings(localImportSpecifiers ?? [])
+    .filter(specifier => !specifier.startsWith('.'));
+  if (nonRelativeImports.length > 0) {
+    findings.push(`public-delivery local imports must be relative: ${nonRelativeImports.join(', ')}`);
+  }
+  const escapedSourceFiles = sortedUniqueStrings(sourceFiles ?? [])
+    .filter(relativePath => !relativePath.startsWith(PUBLIC_DELIVERY_SOURCE_PREFIX));
+  if (escapedSourceFiles.length > 0) {
+    findings.push(`public-delivery relative source closure escaped its package: ${escapedSourceFiles.join(', ')}`);
+  }
+  return findings;
+}
 
 const SECRET_PATTERNS = Object.freeze([
   ['private key material', /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g],
@@ -98,7 +232,7 @@ function sameStringSet(actual, expected) {
   return JSON.stringify([...actual].sort()) === JSON.stringify([...expected].sort());
 }
 
-export function validatePublicPackageContract({ packageJson, manifest }) {
+export function validatePublicPackageContract({ filePaths, packageJson, manifest }) {
   const findings = [];
   if (packageJson.name !== manifest.packageName) findings.push(`package.json name must be ${manifest.packageName}`);
   if (packageJson.private !== true) findings.push('package.json must use private: true to block accidental npm publication');
@@ -119,6 +253,15 @@ export function validatePublicPackageContract({ packageJson, manifest }) {
   }
   for (const testFile of manifest.testFiles) {
     if (!testScript.includes(testFile)) findings.push(`package.json test script is missing ${testFile}`);
+  }
+  if (packageJson.scripts?.['test:e2e:oss'] !== OSS_E2E_SCRIPT_COMMAND) {
+    findings.push(`package.json test:e2e:oss must be exactly ${OSS_E2E_SCRIPT_COMMAND}`);
+  }
+  if (!manifest.copyFiles?.includes(OSS_E2E_SCRIPT_PATH)) {
+    findings.push(`${OSS_E2E_SCRIPT_PATH} must be declared in the positive OSS manifest`);
+  }
+  if (filePaths && !filePaths.has(OSS_E2E_SCRIPT_PATH)) {
+    findings.push(`${OSS_E2E_SCRIPT_PATH} is missing from the OSS candidate`);
   }
   if (!packageJson.scripts?.['build:oss']?.includes(`MORNDRAFT_BUILD_PRESET=${manifest.buildPreset}`)) {
     findings.push(`package.json build:oss must force ${manifest.buildPreset}`);
@@ -216,15 +359,86 @@ export function findSensitiveText(relativePath, content) {
   return findings;
 }
 
-export function validatePublicModuleSourceBoundary(relativePath, content) {
+export function validatePublicModuleSourceBoundary(
+  relativePath,
+  content,
+  { resolvedSource = false } = {},
+) {
   if (
-    !PUBLIC_MODULE_SOURCE_PREFIXES.some((prefix) => relativePath.startsWith(prefix))
+    (!resolvedSource && !PUBLIC_MODULE_SOURCE_PREFIXES.some((prefix) => relativePath.startsWith(prefix)))
     || /\.test\.[cm]?[jt]sx?$/u.test(relativePath)
   ) return [];
   const findings = [];
+  if (collectPublicDeliveryModuleSpecifiers(content).includes('@morndraft/core')) {
+    findings.push(`${relativePath}: broad @morndraft/core import; use @morndraft/core/oss-public`);
+  }
   for (const [label, pattern] of PUBLIC_MODULE_FORBIDDEN_PATTERNS) {
     pattern.lastIndex = 0;
     if (pattern.test(content)) findings.push(`${relativePath}: ${label}`);
+  }
+  return findings;
+}
+
+export function validateResolvedSourceClosure({ actualFiles, manifest, recordedFiles }) {
+  const findings = [];
+  if ((recordedFiles ?? []).length === 0) {
+    findings.push('profiles/oss-public-distribution.json must record the exporter-resolved source closure');
+  }
+  if (!sameStringSet(actualFiles ?? [], recordedFiles ?? [])) {
+    const actual = new Set(actualFiles ?? []);
+    const recorded = new Set(recordedFiles ?? []);
+    const missing = [...actual].filter(file => !recorded.has(file));
+    const stale = [...recorded].filter(file => !actual.has(file));
+    findings.push(
+      `exporter-resolved source closure is stale (missing: ${missing.join(', ') || 'none'}; extra: ${stale.join(', ') || 'none'})`,
+    );
+  }
+  for (const relativePath of actualFiles ?? []) {
+    if (!isDeclaredOssPath(manifest, relativePath)) {
+      findings.push(`${relativePath}: resolved OSS source is outside the positive distribution manifest`);
+    }
+  }
+  return findings;
+}
+
+export async function validatePublicDeliveryPackageBoundary({ files, projectDir }) {
+  const sourceFiles = files.filter(file => (
+    file.relativePath.startsWith(PUBLIC_DELIVERY_SOURCE_PREFIX)
+    && /\.[cm]?[jt]sx?$/u.test(file.relativePath)
+    && !/\.test\.[cm]?[jt]sx?$/u.test(file.relativePath)
+  ));
+  const externalSpecifiers = [];
+  const localImportSpecifiers = [];
+  const escapedRelativeImports = [];
+  for (const file of sourceFiles) {
+    const content = await readFile(file.path, 'utf8');
+    for (const specifier of collectPublicDeliveryModuleSpecifiers(content)) {
+      if (!specifier.startsWith('.')) {
+        externalSpecifiers.push(specifier);
+        continue;
+      }
+      localImportSpecifiers.push(specifier);
+      const resolvedImport = path.posix.normalize(path.posix.join(
+        path.posix.dirname(file.relativePath),
+        specifier,
+      ));
+      if (!resolvedImport.startsWith(PUBLIC_DELIVERY_SOURCE_PREFIX)) {
+        escapedRelativeImports.push(`${file.relativePath} -> ${specifier}`);
+      }
+    }
+  }
+  const packageJson = JSON.parse(await readFile(
+    path.join(projectDir, 'packages', 'public-delivery', 'package.json'),
+    'utf8',
+  ));
+  const findings = validatePublicDeliverySourceContract({
+    declaredDependencies: Object.keys(packageJson.dependencies ?? {}),
+    externalSpecifiers,
+    localImportSpecifiers,
+    sourceFiles: sourceFiles.map(file => file.relativePath),
+  });
+  if (escapedRelativeImports.length > 0) {
+    findings.push(`public-delivery relative imports escaped its package: ${escapedRelativeImports.join(', ')}`);
   }
   return findings;
 }
@@ -329,6 +543,25 @@ export async function checkOssDistribution(projectDir) {
   }
 
   const filePaths = new Set(files.map(file => file.relativePath));
+  let actualResolvedSourceFiles = [];
+  try {
+    const resolved = await resolveOssSourceClosure({ manifest, projectDir });
+    actualResolvedSourceFiles = resolved.files;
+    findings.push(...validateResolvedSourceClosure({
+      actualFiles: resolved.files,
+      manifest,
+      recordedFiles: manifest.resolvedSourceClosure ?? [],
+    }));
+    const undeclaredExternalPackages = resolved.externalPackages.filter(
+      packageName => !manifest.runtimeDependencies.includes(packageName),
+    );
+    if (undeclaredExternalPackages.length > 0) {
+      findings.push(`resolved OSS source imports undeclared runtime dependencies: ${undeclaredExternalPackages.join(', ')}`);
+    }
+  } catch (cause) {
+    findings.push(`failed to recompute the OSS source closure: ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+  const resolvedSourceClosure = new Set(actualResolvedSourceFiles);
   const requiredFiles = new Set(manifest.requiredFiles);
   for (const requiredFile of manifest.requiredFiles) {
     if (!filePaths.has(requiredFile)) findings.push(`${requiredFile}: required OSS distribution file is missing`);
@@ -343,9 +576,23 @@ export async function checkOssDistribution(projectDir) {
     if (TEXT_EXTENSIONS.has(path.extname(file.relativePath)) && !SECRET_SCAN_IGNORED.has(file.relativePath)) {
       const content = await readFile(file.path, 'utf8');
       findings.push(...findSensitiveText(file.relativePath, content));
-      findings.push(...validatePublicModuleSourceBoundary(file.relativePath, content));
+      findings.push(...validatePublicModuleSourceBoundary(file.relativePath, content, {
+        resolvedSource: resolvedSourceClosure.has(file.relativePath),
+      }));
     }
   }
+  const candidateScriptSources = Object.fromEntries(await Promise.all(files
+    .filter(file => (
+      /^scripts\/.*\.(?:js|mjs)$/u.test(file.relativePath)
+      && !/\.test\.(?:js|mjs)$/u.test(file.relativePath)
+    ))
+    .map(async file => [file.relativePath, await readFile(file.path, 'utf8')])));
+  findings.push(...validateCandidateScriptImportClosure({
+    filePaths,
+    manifest,
+    scriptSources: candidateScriptSources,
+  }));
+  findings.push(...await validatePublicDeliveryPackageBoundary({ files, projectDir }));
 
   const actualTests = files
     .map(file => file.relativePath)
@@ -357,7 +604,7 @@ export async function checkOssDistribution(projectDir) {
   }
 
   const packageJson = JSON.parse(await readFile(path.join(projectDir, 'package.json'), 'utf8'));
-  findings.push(...validatePublicPackageContract({ packageJson, manifest }));
+  findings.push(...validatePublicPackageContract({ filePaths, packageJson, manifest }));
   const tsconfig = JSON.parse(await readFile(path.join(projectDir, 'tsconfig.json'), 'utf8'));
   findings.push(...validateTsconfigPathTargets({ tsconfig, filePaths }));
   for (const file of files.filter(entry => /^packages\/[^/]+\/package\.json$/.test(entry.relativePath))) {

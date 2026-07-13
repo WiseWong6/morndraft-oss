@@ -3,6 +3,7 @@ export { PublicEditableMarkdown } from './PublicEditableMarkdown';
 export { PublicFlatFinalEditor, patchPublicMornDraftFlatHtml } from './PublicFlatFinalEditor';
 export { PublicAiPanel } from './PublicAiPanel';
 export { PublicDialog } from './PublicDialog';
+export { PublicDeliveryToolbar } from './PublicDeliveryToolbar';
 export { PublicSourceEditor } from './PublicSourceEditor';
 export { PublicWorkspace } from './PublicWorkspace';
 export {

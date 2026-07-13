@@ -26,7 +26,47 @@ test('Final structured flat edit writes through the canonical source patch and r
   assert.doesNotMatch(next, />识别</u);
 });
 
+test('all 30 canonical public flat entries keep structured Final editing', () => {
+  const entries = getPublicMornDraftInsertEntries('showcase');
+  assert.equal(entries.length, 30);
+  for (const entry of entries) {
+    const html = entry.source.replace(/^```html\n/u, '').replace(/\n```$/u, '');
+    assert.equal(isPublicMornDraftFlatHtml(html), true, entry.id);
+  }
+});
+
 test('ordinary HTML is not misclassified as a flat component', () => {
   assert.equal(isPublicMornDraftFlatHtml('<!doctype html><h1>Plain</h1>'), false);
   assert.equal(patchPublicMornDraftFlatHtml('<h1>Plain</h1>', '$.title', 'Changed'), null);
+});
+
+test('structured Final rejects marker text outside the canonical rendered document', () => {
+  const source = getPublicMornDraftInsertEntries('showcase')[0].source;
+  const canonicalHtml = source.replace(/^```html\n/u, '').replace(/\n```$/u, '');
+  const forgedBodies = [
+    '<body><script>const marker = \'data-morndraft-source="morndraft-flat"\';</script><p>Keep script HTML</p></body>',
+    '<body><template><div data-morndraft-source="morndraft-flat"></div></template><p>Keep template HTML</p></body>',
+    '<body><!-- <div data-morndraft-source="morndraft-flat"></div> --><p>Keep comment HTML</p></body>',
+    '<body><div class="component-shell" data-morndraft-source="morndraft-flat" data-morndraft-layout="flow" data-morndraft-variant="chain" data-renderer="swiss-catalog"><p>Keep arbitrary HTML</p></div></body>',
+  ];
+
+  for (const body of forgedBodies) {
+    const forgedHtml = canonicalHtml.replace(/<body>[\s\S]*?<\/body>/u, body);
+    assert.equal(isPublicMornDraftFlatHtml(forgedHtml), false);
+    assert.equal(patchPublicMornDraftFlatHtml(forgedHtml, '$.items[0].label', 'Must not replace'), null);
+    assert.match(forgedHtml, /Keep (?:script|template|comment|arbitrary) HTML/u);
+  }
+});
+
+test('canonical source-style overrides remain structured and survive Final edits', () => {
+  const source = getPublicMornDraftInsertEntries('showcase')[0].source;
+  const html = source
+    .replace(/^```html\n/u, '')
+    .replace(/\n```$/u, '')
+    .replace('--morndraft-accent: #d95e00;', '--morndraft-accent: #0057ff;');
+  assert.equal(isPublicMornDraftFlatHtml(html), true);
+  const next = patchPublicMornDraftFlatHtml(html, '$.items[0].label', '已安全更新');
+  assert.ok(next);
+  assert.match(next, /--morndraft-accent: #0057ff;/u);
+  assert.match(next, />已安全更新</u);
 });

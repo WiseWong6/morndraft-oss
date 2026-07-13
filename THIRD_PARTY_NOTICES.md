@@ -9,11 +9,16 @@ This file lists the exact direct dependency versions kept in the generated publi
 | `@eslint/js` | 9.39.4 | MIT |
 | `@types/node` | 22.19.15 | MIT |
 | `@vitejs/plugin-react` | 5.2.0 | MIT |
+| `esbuild` | 0.25.12 | MIT |
 | `eslint` | 9.39.4 | MIT |
 | `eslint-config-prettier` | 10.1.8 | MIT |
 | `eslint-plugin-react-hooks` | 5.2.0 | MIT |
+| `html2canvas` | 1.4.1 | MIT |
 | `json5` | 2.2.3 | MIT |
 | `mermaid` | 11.15.0 | MIT |
+| `modern-screenshot` | 4.7.0 | MIT |
+| `pdf-lib` | 1.17.1 | MIT |
+| `playwright` | 1.60.0 | Apache-2.0 |
 | `react` | 19.2.4 | MIT |
 | `react-dom` | 19.2.4 | MIT |
 | `react-markdown` | 10.1.0 | MIT |

@@ -5,6 +5,7 @@
   "allowedPackages": [
     "@morndraft/core",
     "@morndraft/features-personal",
+    "@morndraft/public-delivery",
     "@morndraft/web-shell"
   ],
   "capabilities": [

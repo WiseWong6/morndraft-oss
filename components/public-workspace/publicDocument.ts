@@ -1,6 +1,11 @@
 import JSON5 from 'json5';
 import { MERMAID_KEYWORDS } from '@morndraft/core/oss-public';
+import {
+  normalizePublicFenceInfoLanguage,
+  parsePublicStandaloneFence,
+} from '@morndraft/public-delivery';
 import type { PublicContentType } from './types';
+import { isPublicMornDraftFlatHtml } from './publicMornDraftFlat';
 
 export type PublicDocumentKind = Exclude<PublicContentType, 'mixed'>;
 
@@ -10,6 +15,8 @@ export type PublicDocument = {
   fence?: {
     opening: string;
     closing: string;
+    openingLineBreak: '\n' | '\r\n';
+    closingLineBreak: '\n' | '\r\n';
   };
 };
 
@@ -37,24 +44,23 @@ const PUBLIC_FENCE_KINDS: Record<string, PublicDocumentKind> = {
   mermaid: 'mermaid',
 };
 
-export const normalizePublicFenceLanguage = (value: string) => (
-  value.trim().split(/\s+/u, 1)[0]?.toLowerCase() ?? ''
-);
+export const normalizePublicFenceLanguage = normalizePublicFenceInfoLanguage;
 
 const parseStandaloneFence = (source: string): PublicDocument | null => {
-  const match = source.match(/^(((?:[ \t]*\n)*[ \t]*)(`{3,}|~{3,})[ \t]*([^\n]*))\n([\s\S]*?)\n(\3[ \t]*)([ \t\r\n]*)$/u);
-  if (!match) return null;
-  const language = normalizePublicFenceLanguage(match[4]);
-  const kind = PUBLIC_FENCE_KINDS[language];
+  const parsed = parsePublicStandaloneFence(source);
+  if (!parsed) return null;
+  const kind = PUBLIC_FENCE_KINDS[parsed.language];
   if (!kind) return null;
   return recordPublicDocumentContentStart({
     kind,
-    content: match[5],
+    content: parsed.content,
     fence: {
-      opening: match[1],
-      closing: `${match[6]}${match[7]}`,
+      opening: parsed.opening,
+      closing: parsed.closing,
+      openingLineBreak: parsed.openingLineBreak,
+      closingLineBreak: parsed.closingLineBreak,
     },
-  }, match[1].length + 1);
+  }, parsed.contentStart);
 };
 
 const parsesAsJson5Container = (source: string) => {
@@ -77,6 +83,9 @@ export const detectPublicDocument = (rawSource: string): PublicDocument => {
   const source = String(rawSource ?? '');
   const trimmed = source.trim();
   const fenced = parseStandaloneFence(source);
+  if (fenced?.kind === 'html' && isPublicMornDraftFlatHtml(fenced.content)) {
+    return recordPublicDocumentContentStart({ kind: 'markdown', content: source }, 0);
+  }
   if (fenced) return fenced;
   if (/^(?:<!doctype\s+html\b|<html\b)/iu.test(trimmed)) {
     return recordPublicDocumentContentStart({ kind: 'html', content: source }, 0);
@@ -100,7 +109,7 @@ export const getPublicContentType = (source: string): PublicContentType => {
 
 export const serializePublicDocumentEdit = (document: PublicDocument, content: string) => {
   if (!document.fence) return content;
-  return `${document.fence.opening}\n${content}\n${document.fence.closing}`;
+  return `${document.fence.opening}${document.fence.openingLineBreak}${content}${document.fence.closingLineBreak}${document.fence.closing}`;
 };
 
 export const getPublicDocumentContentOffset = (_source: string, document: PublicDocument) => (
@@ -121,57 +130,65 @@ export const splitPublicDocumentSegments = (source: string): PublicDocumentSegme
   let markdown: string[] = [];
   let markdownStart = 0;
   let activeFence: {
-    content: string[];
+    contentStart: number;
     language: string;
     marker: string;
-    openingLine: string;
     start: number;
   } | null = null;
-  const flushMarkdown = () => {
+  const flushMarkdown = (beforeFence = false) => {
     if (markdown.length === 0) return;
-    const content = markdown.join('\n');
+    const joined = markdown.join('\n');
+    const content = beforeFence && joined.endsWith('\r')
+      ? joined.slice(0, -1)
+      : joined;
     segments.push({ kind: 'markdown', content, start: markdownStart, end: markdownStart + content.length });
     markdown = [];
   };
 
   for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index];
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
     if (activeFence) {
-      const closing = lines[index].match(/^\s*(`+|~+)\s*$/u)?.[1];
+      const closing = line.match(/^[ \t]*(`+|~+)[ \t]*$/u)?.[1];
       if (closing && closing[0] === activeFence.marker[0] && closing.length >= activeFence.marker.length) {
+        const closingStart = lineOffsets[index];
+        let contentEnd = closingStart;
+        if (contentEnd > activeFence.contentStart && source[contentEnd - 1] === '\n') {
+          contentEnd -= 1;
+          if (contentEnd > activeFence.contentStart && source[contentEnd - 1] === '\r') contentEnd -= 1;
+        }
         segments.push({
           kind: 'fence',
-          content: activeFence.content.join('\n'),
+          content: source.slice(activeFence.contentStart, contentEnd),
           language: activeFence.language,
           marker: activeFence.marker,
           start: activeFence.start,
-          end: lineOffsets[index] + lines[index].length,
+          end: lineOffsets[index] + rawLine.length,
         });
         activeFence = null;
-      } else {
-        activeFence.content.push(lines[index]);
       }
       continue;
     }
 
-    const opening = lines[index].match(/^\s*(`{3,}|~{3,})\s*([^\s]*)?.*$/u);
+    const opening = line.match(/^[ \t]*(`{3,}|~{3,})[ \t]*(.*)$/u);
     if (!opening) {
       if (markdown.length === 0) markdownStart = lineOffsets[index];
-      markdown.push(lines[index]);
+      markdown.push(rawLine);
       continue;
     }
-    flushMarkdown();
+    flushMarkdown(true);
+    const info = opening[2] ?? '';
     activeFence = {
-      content: [],
-      language: opening[2] ?? '',
+      contentStart: Math.min(source.length, lineOffsets[index] + rawLine.length + 1),
+      language: info.trim().split(/\s+/u, 1)[0] ?? '',
       marker: opening[1],
-      openingLine: lines[index],
       start: lineOffsets[index],
     };
   }
 
   if (activeFence) {
     markdownStart = activeFence.start;
-    markdown = [activeFence.openingLine, ...activeFence.content];
+    markdown = [source.slice(activeFence.start)];
   }
   flushMarkdown();
   return segments;
@@ -186,7 +203,10 @@ export const replacePublicFenceSegmentContent = (
   const openingEnd = source.indexOf('\n', segment.start);
   const closingStart = source.lastIndexOf('\n', segment.end - 1);
   if (openingEnd < segment.start || closingStart < openingEnd || closingStart > segment.end) return null;
-  return `${source.slice(0, openingEnd + 1)}${nextContent}${source.slice(closingStart)}`;
+  const closingLineBreakStart = source[closingStart - 1] === '\r'
+    ? closingStart - 1
+    : closingStart;
+  return `${source.slice(0, openingEnd + 1)}${nextContent}${source.slice(closingLineBreakStart)}`;
 };
 
 export const findPublicSlashTrigger = (source: string, cursor: number) => {

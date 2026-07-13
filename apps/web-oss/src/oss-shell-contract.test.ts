@@ -14,6 +14,7 @@ test('OSS entry mounts an independent public shell without commercial imports', 
   const entry = read('./index.ts');
   const shell = read('./OssShell.tsx');
   const workspace = read('../../../components/public-workspace/PublicWorkspace.tsx');
+  const publicDialog = read('../../../components/public-workspace/PublicDialog.tsx');
   const preview = read('../../../components/public-workspace/PublicFinalPreview.tsx');
 
   assert.match(entry, /import OssShell from '\.\/OssShell'/);
@@ -22,8 +23,15 @@ test('OSS entry mounts an independent public shell without commercial imports', 
   assert.match(shell, /data-oss-shell="public"/);
   assert.match(shell, /<PublicWorkspace/);
   assert.match(shell, /createPublicAiAdapter/);
+  assert.match(shell, /createBrowserPublicDeliveryAdapter/);
   assert.match(shell, /<PublicAiSettingsForm/);
+  assert.match(shell, /deliveryAdapter=\{deliveryAdapter\}/);
   assert.match(shell, /onAiSettingsOpen=\{openAiSettings\}/);
+  assert.match(workspace, /const closeMenus = useCallback/u);
+  assert.match(workspace, /const closeMoreForDialog = useCallback/u);
+  assert.match(publicDialog, /openerDetails && !openerDetails\.open/u);
+  assert.match(workspace, /moreMenuRef\.current\.open = false/u);
+  assert.match(workspace, /onClick=\{openAbout\}/u);
   assert.match(preview, /sandbox="allow-scripts"/);
   assert.doesNotMatch(preview, /allow-same-origin/);
 });
@@ -46,7 +54,12 @@ test('OSS document routing keeps HTML in an explicit sandbox path', () => {
   assert.deepEqual(detectPublicDocument('```html\n<!doctype html><html></html>\n```'), {
     kind: 'html',
     content: '<!doctype html><html></html>',
-    fence: { opening: '```html', closing: '```' },
+    fence: {
+      opening: '```html',
+      closing: '```',
+      openingLineBreak: '\n',
+      closingLineBreak: '\n',
+    },
   });
   assert.equal(detectPublicDocument('{ready:true,}').kind, 'json');
   assert.equal(detectPublicDocument('flowchart LR\nA-->B').kind, 'mermaid');

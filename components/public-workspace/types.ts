@@ -1,10 +1,20 @@
 import type React from 'react';
+import type {
+  PublicDeliveryAdapter,
+  PublicDeliveryContentType,
+  PublicDeliveryTheme,
+} from '@morndraft/public-delivery';
+
+export type {
+  PublicDeliveryAdapter,
+  PublicDeliveryInput,
+} from '@morndraft/public-delivery';
 
 export type PublicWorkspaceLocale = 'zh' | 'en';
-export type PublicWorkspaceTheme = 'light' | 'dark';
+export type PublicWorkspaceTheme = PublicDeliveryTheme;
 export type PublicWorkspaceMode = 'source' | 'final';
 
-export type PublicContentType = 'markdown' | 'json' | 'html' | 'mermaid' | 'mixed';
+export type PublicContentType = PublicDeliveryContentType;
 
 export type SourceChangeMeta = {
   origin: 'source' | 'final' | 'import' | 'syntax' | 'insert' | 'ai';
@@ -31,25 +41,6 @@ export interface PublicAiAdapter {
     visibleText?: string;
     signal?: AbortSignal;
   }): Promise<{ text: string; finishReason?: string }>;
-}
-
-export type PublicDeliveryInput = {
-  previewRoot: HTMLElement;
-  source: string;
-  contentType: PublicContentType;
-  theme: PublicWorkspaceTheme;
-  title: string;
-  ensureRendered?: () => Promise<void>;
-  /** Fails if the document changed while an asynchronous artifact was built. */
-  assertCurrent?: () => void;
-  signal?: AbortSignal;
-};
-
-export interface PublicDeliveryAdapter {
-  copyImage?(input: PublicDeliveryInput): Promise<void>;
-  downloadImage?(input: PublicDeliveryInput): Promise<void>;
-  downloadPdf?(input: PublicDeliveryInput): Promise<void>;
-  downloadHtml?(input: PublicDeliveryInput): Promise<void>;
 }
 
 export type PublicSyntaxEntry = {

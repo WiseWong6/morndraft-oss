@@ -14,6 +14,7 @@ import {
   readPublicAiConfig,
   type PublicAiConfig,
 } from '@morndraft/features-personal/ai';
+import { createBrowserPublicDeliveryAdapter } from '@morndraft/public-delivery';
 import './oss-shell.css';
 
 const LOCALE_KEY = 'morndraft.oss.locale';
@@ -58,6 +59,7 @@ export const OssShell: React.FC = () => {
   const [aiConfig, setAiConfig] = useState<PublicAiConfig>(() => readPublicAiConfig());
   const importAdapter = useMemo(() => createLocalPublicImportAdapter(), []);
   const aiAdapter = useMemo(() => createPublicAiAdapter(), []);
+  const deliveryAdapter = useMemo(() => createBrowserPublicDeliveryAdapter(), []);
 
   const openAiSettings = useCallback(() => {
     setAiConfig(readPublicAiConfig());
@@ -89,6 +91,7 @@ export const OssShell: React.FC = () => {
     <div className="oss-app" data-build-profile="oss" data-oss-shell="public">
       <PublicWorkspace
         aiAdapter={aiAdapter}
+        deliveryAdapter={deliveryAdapter}
         documentEpoch={documentEpoch}
         importAdapter={importAdapter}
         locale={locale}

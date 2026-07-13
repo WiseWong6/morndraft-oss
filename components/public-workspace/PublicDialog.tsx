@@ -79,7 +79,11 @@ export const PublicDialog: React.FC<PublicDialogProps> = ({ children, className 
         if (previousAriaHidden === null) workspace.removeAttribute('aria-hidden');
         else workspace.setAttribute('aria-hidden', previousAriaHidden);
       }
-      opener?.focus();
+      const openerDetails = opener?.closest<HTMLDetailsElement>('details');
+      const returnTarget = openerDetails && !openerDetails.open
+        ? openerDetails.querySelector<HTMLElement>('summary')
+        : opener;
+      returnTarget?.focus();
     };
   }, [isOpen, onClose]);
 

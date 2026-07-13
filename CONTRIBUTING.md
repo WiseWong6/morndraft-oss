@@ -4,7 +4,7 @@ Thanks for improving MornDraft OSS. Keep changes inside the public client bounda
 
 ## Public boundary
 
-- Allowed: Source/Final editing, preview, syntax rendering, local import, browser-local OpenAI-compatible generate/modify/summarize workflows, language, theme, examples, About, Syntax and More menus, documentation, and public governance files.
+- Allowed: Source/Final editing, preview, syntax rendering, local import, browser-local OpenAI-compatible generate/modify/summarize workflows, local image/PNG/image-based A4 PDF/portable standalone HTML delivery, language, theme, examples, About, Syntax and More menus, documentation, and public governance files.
 - Not allowed: draft box, account/login, cloud drafts, payment, hosted/private AI providers, AI usage ledger, MCP, telemetry, admin surfaces, hosted links, SMS, private APIs, secrets, and private operational docs.
 
 ## Checks
@@ -20,4 +20,6 @@ npm run check:licenses:release
 npm test
 npm run build:oss
 MORNDRAFT_BUILD_PRESET=oss-full npm run check:public-surface
+npx playwright install chromium
+npm run test:e2e:oss
 ```

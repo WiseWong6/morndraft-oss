@@ -61,7 +61,10 @@ textarea:focus-visible {
 }
 
 .oss-app {
+  height: 100vh;
+  height: 100dvh;
   min-height: 100vh;
+  min-height: 100dvh;
   background:
     radial-gradient(circle at 12% 8%, rgb(49 94 251 / 9%), transparent 28rem),
     canvas;

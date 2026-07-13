@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { getPublicMornDraftInsertEntries } from '@morndraft/core/oss-public';
 import {
   applyPublicInsert,
   detectPublicDocument,
@@ -37,6 +38,18 @@ test('standalone JSON5 fence keeps its exact fence contract when Final edits con
   assert.equal(serializePublicDocumentEdit(document, "{project:'Public',}"), "```JSON5\n{project:'Public',}\n```");
 });
 
+test('standalone fence detection and delivery share info-string parsing and preserve CRLF edits', () => {
+  const source = "```HTML preview linenums\r\n<!doctype html><html><body>Before</body></html>\r\n```\r\n";
+  const document = detectPublicDocument(source);
+  assert.equal(document.kind, 'html');
+  assert.equal(document.content, '<!doctype html><html><body>Before</body></html>');
+  assert.equal(getPublicDocumentContentOffset(source, document), source.indexOf('<!doctype html>'));
+  assert.equal(
+    serializePublicDocumentEdit(document, '<!doctype html><html><body>After</body></html>'),
+    "```HTML preview linenums\r\n<!doctype html><html><body>After</body></html>\r\n```\r\n",
+  );
+});
+
 test('standalone fence records the exact content offset instead of searching repeated text', () => {
   const source = '\n  ```   JSON5  \nJSON5\n```  \n';
   const document = detectPublicDocument(source);
@@ -53,6 +66,39 @@ test('standalone Markdown fence exposes only its inner Markdown for exact Final 
   assert.equal(document.kind, 'markdown');
   assert.equal(document.content, '# Original\n\nBody');
   assert.equal(getPublicDocumentContentOffset(source, document), source.indexOf('# Original'));
+});
+
+test('standalone canonical MornDraft flat HTML stays mixed so Final keeps structured editing', () => {
+  const source = getPublicMornDraftInsertEntries('showcase')[0].source;
+  const document = detectPublicDocument(source);
+  assert.equal(document.kind, 'markdown');
+  assert.equal(document.content, source);
+  assert.equal(getPublicContentType(source), 'mixed');
+});
+
+test('ordinary and forged standalone HTML fences remain raw HTML documents', () => {
+  const ordinary = '```html\n<!doctype html><html><body>Plain</body></html>\n```';
+  const forged = '```html\n<div data-morndraft-source="morndraft-flat">Missing structure</div>\n```';
+  assert.equal(detectPublicDocument(ordinary).kind, 'html');
+  assert.equal(detectPublicDocument(forged).kind, 'html');
+});
+
+test('valid flat metadata cannot turn forged marker contexts into a structured document', () => {
+  const canonicalSource = getPublicMornDraftInsertEntries('showcase')[0].source;
+  const canonicalHtml = canonicalSource.replace(/^```html\n/u, '').replace(/\n```$/u, '');
+  const forgedBodies = [
+    '<body><script>const marker = \'data-morndraft-source="morndraft-flat"\';</script><p>Keep script HTML</p></body>',
+    '<body><template><div data-morndraft-source="morndraft-flat"></div></template><p>Keep template HTML</p></body>',
+    '<body><!-- <div data-morndraft-source="morndraft-flat"></div> --><p>Keep comment HTML</p></body>',
+    '<body><div class="component-shell" data-morndraft-source="morndraft-flat" data-morndraft-layout="flow" data-morndraft-variant="chain" data-renderer="swiss-catalog"><p>Keep arbitrary HTML</p></div></body>',
+  ];
+
+  for (const body of forgedBodies) {
+    const source = `\`\`\`html\n${canonicalHtml.replace(/<body>[\s\S]*?<\/body>/u, body)}\n\`\`\``;
+    const document = detectPublicDocument(source);
+    assert.equal(document.kind, 'html');
+    assert.match(document.content, /Keep (?:script|template|comment|arbitrary) HTML/u);
+  }
 });
 
 test('mixed source splits supported fences while legacy morndraft remains ordinary code', () => {
@@ -72,6 +118,49 @@ test('mixed source splits supported fences while legacy morndraft remains ordina
   assert.equal(getPublicContentType(source), 'mixed');
   assert.equal(segments.filter((segment) => segment.kind === 'fence').length, 2);
   assert.equal(legacyFence?.kind === 'fence' ? legacyFence.language : null, 'morndraft');
+});
+
+test('mixed CRLF fences keep info-string languages, closing boundaries, and exact Final patches', () => {
+  const source = [
+    '# Mixed CRLF\r\n',
+    '\r\n',
+    '```HTML preview linenums\r\n',
+    '<div>Old</div>\r\n',
+    '```\r\n',
+    '\r\n',
+    '~~~JSON5 editor\r\n',
+    "{project:'MornDraft',}\r\n",
+    '~~~\r\n',
+    '\r\n',
+    '# After',
+  ].join('');
+  const segments = splitPublicDocumentSegments(source);
+  const fences = segments.filter(segment => segment.kind === 'fence');
+  const htmlFence = fences[0];
+  const json5Fence = fences[1];
+
+  assert.equal(getPublicContentType(source), 'mixed');
+  assert.deepEqual(segments[0], {
+    kind: 'markdown',
+    content: '# Mixed CRLF\r\n',
+    start: 0,
+    end: '# Mixed CRLF\r\n'.length,
+  });
+  assert.equal(fences.length, 2);
+  assert.ok(htmlFence?.kind === 'fence');
+  assert.ok(json5Fence?.kind === 'fence');
+  assert.equal(htmlFence.language, 'HTML');
+  assert.equal(htmlFence.content, '<div>Old</div>');
+  assert.equal(json5Fence.language, 'JSON5');
+  assert.equal(json5Fence.content, "{project:'MornDraft',}");
+  assert.equal(
+    replacePublicFenceSegmentContent(source, htmlFence, '<div>New</div>'),
+    source.replace('<div>Old</div>', '<div>New</div>'),
+  );
+  assert.equal(
+    replacePublicFenceSegmentContent(source, json5Fence, "{project:'Public',}"),
+    source.replace("{project:'MornDraft',}", "{project:'Public',}"),
+  );
 });
 
 test('mixed fence scan handles a large unclosed fence in one forward pass', () => {

@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   createMornDraftFlatSourceEditMap,
-  parseMornDraftHtmlSourceStructure,
   patchMornDraftFlatSourceValues,
   updateMornDraftHtmlSourceComponent,
 } from '@morndraft/core/oss-public';
 import type { PublicWorkspaceLocale } from './types';
+import { parsePublicMornDraftFlatHtml } from './publicMornDraftFlat';
+
+export { isPublicMornDraftFlatHtml } from './publicMornDraftFlat';
 
 type FlatTextEntry = { path: string; value: string };
 
@@ -16,8 +18,8 @@ export const updatePublicFlatDraftValue = (
 ) => ({ ...current, [path]: value });
 
 const createFlatEditModel = (html: string) => {
-  const structure = parseMornDraftHtmlSourceStructure(html);
-  if (!structure.ok || !structure.component || typeof structure.component !== 'object') return null;
+  const structure = parsePublicMornDraftFlatHtml(html);
+  if (!structure || typeof structure.component !== 'object') return null;
   const componentSource = JSON.stringify(structure.component, null, 2);
   const sourceEditMap = createMornDraftFlatSourceEditMap(componentSource) as Record<string, { value?: unknown }>;
   const entries = Object.entries(sourceEditMap)
@@ -27,8 +29,6 @@ const createFlatEditModel = (html: string) => {
     .map(([path, entry]) => ({ path, value: String(entry.value) }));
   return entries.length ? { componentSource, entries } : null;
 };
-
-export const isPublicMornDraftFlatHtml = (html: string) => createFlatEditModel(html) !== null;
 
 export const patchPublicMornDraftFlatHtml = (
   html: string,

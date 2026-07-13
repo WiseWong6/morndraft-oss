@@ -15,3 +15,4 @@
 - [ ] `npm test`
 - [ ] `npm run build:oss`
 - [ ] `MORNDRAFT_BUILD_PRESET=oss-full npm run check:public-surface`
+- [ ] `npm run test:e2e:oss`

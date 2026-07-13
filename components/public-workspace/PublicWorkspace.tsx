@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PublicAiPanel, type PublicAiGenerateIntent } from './PublicAiPanel';
 import { PublicDialog } from './PublicDialog';
+import { PublicDeliveryToolbar } from './PublicDeliveryToolbar';
 import { PublicFinalPreview } from './PublicFinalPreview';
 import { PublicSourceEditor } from './PublicSourceEditor';
 import { PUBLIC_IMPORT_ACCEPT, PublicImportError } from './publicImport';
@@ -66,6 +67,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
   onSourceChange,
   importAdapter,
   aiAdapter,
+  deliveryAdapter,
   locale = 'zh',
   theme = 'light',
   syntaxEntries,
@@ -85,6 +87,8 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
     [providedFlatInsertEntries],
   );
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const moreMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const syntaxMenuRef = useRef<HTMLDetailsElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
@@ -118,6 +122,15 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
   const workspaceClassName = useMemo(() => (
     `md-public-workspace md-public-workspace--${theme}${isDragging ? ' is-dragging' : ''}`
   ), [isDragging, theme]);
+  const closeMenus = useCallback(() => {
+    if (moreMenuRef.current) moreMenuRef.current.open = false;
+    if (syntaxMenuRef.current) syntaxMenuRef.current.open = false;
+  }, []);
+  const closeMoreForDialog = useCallback(() => {
+    const summary = moreMenuRef.current?.querySelector<HTMLElement>('summary');
+    closeMenus();
+    summary?.focus();
+  }, [closeMenus]);
 
   useEffect(() => setTextSelection(null), [documentEpoch, source]);
 
@@ -186,6 +199,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
   };
 
   const loadSyntax = async (entry: PublicSyntaxEntry) => {
+    closeMenus();
     const operation = beginAsyncReplacement();
     setImportState(current => current.kind === 'busy' ? { kind: 'idle' } : current);
     try {
@@ -203,6 +217,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
   };
 
   const openAbout = () => {
+    closeMoreForDialog();
     if (onAboutOpen) {
       onAboutOpen();
       return;
@@ -238,11 +253,22 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
       <header className="md-public-toolbar">
         <strong className="md-public-title">{title}</strong>
         <div className="md-public-mode-switch" role="group" aria-label={locale === 'zh' ? '工作区模式' : 'Workspace mode'}>
-          <button type="button" aria-pressed={mode === 'source'} onClick={() => setMode('source')}>{labels.source}</button>
-          <button type="button" aria-pressed={mode === 'final'} onClick={() => setMode('final')}>{labels.final}</button>
+          <button type="button" aria-pressed={mode === 'source'} onClick={() => { closeMenus(); setMode('source'); }}>{labels.source}</button>
+          <button type="button" aria-pressed={mode === 'final'} onClick={() => { closeMenus(); setMode('final'); }}>{labels.final}</button>
         </div>
         <nav className="md-public-actions" aria-label={locale === 'zh' ? '公共工作区操作' : 'Public workspace actions'}>
-          <button type="button" disabled={importState.kind === 'busy'} onClick={() => inputRef.current?.click()}>
+          {mode === 'final' && deliveryAdapter && (
+            <PublicDeliveryToolbar
+              adapter={deliveryAdapter}
+              source={source}
+              documentEpoch={documentEpoch}
+              locale={locale}
+              theme={theme}
+              title={title}
+              getPreviewRoot={getPreviewRoot}
+            />
+          )}
+          <button type="button" disabled={importState.kind === 'busy'} onClick={() => { closeMenus(); inputRef.current?.click(); }}>
             {importState.kind === 'busy' ? labels.importing : labels.import}
           </button>
           <input
@@ -257,7 +283,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
               void importFiles(files);
             }}
           />
-          <details className="md-public-menu">
+          <details ref={syntaxMenuRef} className="md-public-menu">
             <summary>{labels.syntax}</summary>
             <div role="menu" aria-label={labels.syntax}>
               {entries.map((entry) => (
@@ -265,13 +291,16 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
               ))}
             </div>
           </details>
-          <details className="md-public-menu md-public-menu--more">
+          <details ref={moreMenuRef} className="md-public-menu md-public-menu--more">
             <summary>{labels.more}</summary>
             <div role="menu" aria-label={labels.more}>
               {onLocaleChange && (
                 <label>
                   <span>{labels.language}</span>
-                  <select value={locale} onChange={(event) => onLocaleChange(event.target.value as PublicWorkspaceLocale)}>
+                  <select value={locale} onChange={(event) => {
+                    onLocaleChange(event.target.value as PublicWorkspaceLocale);
+                    closeMenus();
+                  }}>
                     <option value="zh">中文</option>
                     <option value="en">English</option>
                   </select>
@@ -280,13 +309,16 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
               {onThemeChange && (
                 <label>
                   <span>{labels.theme}</span>
-                  <select value={theme} onChange={(event) => onThemeChange(event.target.value as PublicWorkspaceTheme)}>
+                  <select value={theme} onChange={(event) => {
+                    onThemeChange(event.target.value as PublicWorkspaceTheme);
+                    closeMenus();
+                  }}>
                     <option value="light">{labels.light}</option>
                     <option value="dark">{labels.dark}</option>
                   </select>
                 </label>
               )}
-              {onAiSettingsOpen && <button type="button" role="menuitem" data-testid="oss-ai-settings-open" onClick={onAiSettingsOpen}>{labels.ai}</button>}
+              {onAiSettingsOpen && <button type="button" role="menuitem" data-testid="oss-ai-settings-open" onClick={() => { closeMoreForDialog(); onAiSettingsOpen(); }}>{labels.ai}</button>}
               <button type="button" role="menuitem" onClick={openAbout}>{labels.about}</button>
             </div>
           </details>
