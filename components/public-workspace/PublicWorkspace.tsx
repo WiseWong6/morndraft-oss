@@ -1,4 +1,5 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PublicAiPanel, type PublicAiGenerateIntent } from './PublicAiPanel';
 import { PublicDialog } from './PublicDialog';
 import { PublicFinalPreview } from './PublicFinalPreview';
 import { PublicSourceEditor } from './PublicSourceEditor';
@@ -10,6 +11,7 @@ import type {
   PublicWorkspaceLocale,
   PublicWorkspaceProps,
   PublicWorkspaceTheme,
+  PublicTextSelection,
   SourceChangeMeta,
 } from './types';
 import './public-workspace.css';
@@ -29,6 +31,7 @@ const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
   light: '浅色',
   dark: '深色',
   about: '关于',
+  ai: 'AI 配置',
   close: '关闭',
   aboutText: '纯浏览器运行的 Agent 产物编辑、预览与本地交付工作区。',
   drop: '松开即可从本地导入',
@@ -47,6 +50,7 @@ const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
   light: 'Light',
   dark: 'Dark',
   about: 'About',
+  ai: 'AI settings',
   close: 'Close',
   aboutText: 'A browser-only workspace for editing, previewing, and locally delivering Agent output.',
   drop: 'Drop to import from this device',
@@ -61,6 +65,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
   documentEpoch,
   onSourceChange,
   importAdapter,
+  aiAdapter,
   locale = 'zh',
   theme = 'light',
   syntaxEntries,
@@ -71,6 +76,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
   onLocaleChange,
   onThemeChange,
   onAboutOpen,
+  onAiSettingsOpen,
 }) => {
   const labels = getLabels(locale);
   const entries = syntaxEntries ?? getPublicSyntaxEntries(locale);
@@ -79,8 +85,11 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
     [providedFlatInsertEntries],
   );
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [textSelection, setTextSelection] = useState<PublicTextSelection | null>(null);
+  const [generateIntent, setGenerateIntent] = useState<PublicAiGenerateIntent | null>(null);
   const [importState, setImportState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; message?: string }>({ kind: 'idle' });
   const forwardSourceChange = useCallback((next: string, meta?: SourceChangeMeta) => {
     if (!meta) return;
@@ -110,6 +119,8 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
     `md-public-workspace md-public-workspace--${theme}${isDragging ? ' is-dragging' : ''}`
   ), [isDragging, theme]);
 
+  useEffect(() => setTextSelection(null), [documentEpoch, source]);
+
   const handleSourceChange = useCallback((next: string, meta: SourceChangeMeta) => {
     if (meta.origin === 'final') {
       commitFinal(next, meta);
@@ -117,6 +128,40 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
     }
     commitSource(next, meta);
   }, [commitFinal, commitSource]);
+
+  const requestAiGenerate = useCallback((range: { start: number; end: number }) => {
+    setGenerateIntent({ id: Date.now(), range });
+  }, []);
+
+  const getPreviewRoot = useCallback(() => (
+    workspaceRef.current?.querySelector<HTMLElement>('[data-public-preview-root="true"]') ?? null
+  ), []);
+
+  const updateRenderedSelection = useCallback(() => {
+    if (mode !== 'final' || typeof window === 'undefined') {
+      setTextSelection(null);
+      return;
+    }
+    const browserSelection = window.getSelection();
+    const previewRoot = getPreviewRoot();
+    const anchor = browserSelection?.anchorNode;
+    const focus = browserSelection?.focusNode;
+    if (!browserSelection || browserSelection.isCollapsed || !anchor || !focus || !previewRoot?.contains(anchor) || !previewRoot.contains(focus)) {
+      setTextSelection(null);
+      return;
+    }
+    const text = browserSelection.toString();
+    if (!text.trim()) {
+      setTextSelection(null);
+      return;
+    }
+    const start = source.indexOf(text);
+    if (start < 0 || source.indexOf(text, start + text.length) >= 0) {
+      setTextSelection(null);
+      return;
+    }
+    setTextSelection({ start, end: start + text.length, text, sourceText: text, source });
+  }, [getPreviewRoot, mode, source]);
 
   const importFiles = async (files: readonly File[]) => {
     if (files.length === 0) return;
@@ -168,6 +213,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
 
   return (
     <div
+      ref={workspaceRef}
       className={workspaceClassName}
       data-public-workspace="true"
       data-workspace-mode={mode}
@@ -240,13 +286,14 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
                   </select>
                 </label>
               )}
+              {onAiSettingsOpen && <button type="button" role="menuitem" data-testid="oss-ai-settings-open" onClick={onAiSettingsOpen}>{labels.ai}</button>}
               <button type="button" role="menuitem" onClick={openAbout}>{labels.about}</button>
             </div>
           </details>
         </nav>
       </header>
 
-      <main className="md-public-main">
+      <main className="md-public-main" onMouseUp={updateRenderedSelection} onKeyUp={updateRenderedSelection}>
         {mode === 'source' ? (
           <PublicSourceEditor
             key={`source-${documentEpoch}`}
@@ -256,6 +303,8 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
             flatInsertEntries={flatInsertEntries}
             ariaLabel={labels.sourceEditor}
             onSourceChange={handleSourceChange}
+            onSelectionChange={setTextSelection}
+            onAiGenerateRequest={aiAdapter ? requestAiGenerate : undefined}
           />
         ) : CustomFinalRenderer ? (
           <CustomFinalRenderer
@@ -264,6 +313,8 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
             locale={locale}
             theme={theme}
             onSourceChange={handleSourceChange}
+            onSelectionChange={setTextSelection}
+            onAiGenerateRequest={aiAdapter ? requestAiGenerate : undefined}
           />
         ) : (
           <PublicFinalPreview
@@ -272,6 +323,8 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
             locale={locale}
             theme={theme}
             onSourceChange={handleSourceChange}
+            onSelectionChange={setTextSelection}
+            onAiGenerateRequest={aiAdapter ? requestAiGenerate : undefined}
           />
         )}
       </main>
@@ -291,6 +344,18 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
         <p>{labels.aboutText}</p>
         <button type="button" data-public-dialog-initial-focus onClick={closeAbout}>{labels.close}</button>
       </PublicDialog>
+      {aiAdapter && (
+        <PublicAiPanel
+          adapter={aiAdapter}
+          source={source}
+          documentEpoch={documentEpoch}
+          locale={locale}
+          selection={textSelection}
+          generateIntent={generateIntent}
+          onGenerateIntentConsumed={() => setGenerateIntent(null)}
+          onSourceChange={handleSourceChange}
+        />
+      )}
     </div>
   );
 };

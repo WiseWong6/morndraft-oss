@@ -188,6 +188,33 @@ test('rejects private application and subsystem imports from the public workspac
     validatePublicModuleSourceBoundary('components/public-workspace/editor.test.ts', 'AppImpl DraftSidebar BillingClient'),
     [],
   );
+  assert.match(
+    validatePublicModuleSourceBoundary(
+      'packages/features-personal/src/ai/unsafe.ts',
+      "import { createBillingClient } from '../../../billing/client';",
+    ).join('\n'),
+    /private subsystem import/u,
+  );
+});
+
+test('allows only the public personal AI entrance while keeping broad personal imports private', () => {
+  const pattern = SOURCE_MARKER_PATTERNS['private workspace package marker'];
+  for (const safeMarker of [
+    '@morndraft/features-personal/ai',
+    'packages/features-personal/src/ai/index.ts',
+  ]) {
+    pattern.lastIndex = 0;
+    assert.equal(pattern.test(safeMarker), false, safeMarker);
+  }
+  for (const privateMarker of [
+    '@morndraft/features-personal',
+    '@morndraft/features-personal/editor/TextSearchControl',
+    'packages/features-personal/src/index.ts',
+    '@morndraft/features-pro',
+  ]) {
+    pattern.lastIndex = 0;
+    assert.equal(pattern.test(privateMarker), true, privateMarker);
+  }
 });
 
 test('ignores the candidate root workspace directories but rejects nested reserved directories', async () => {

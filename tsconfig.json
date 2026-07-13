@@ -25,6 +25,9 @@
       "@morndraft/core": [
         "./packages/core/src/oss-public.ts"
       ],
+      "@morndraft/features-personal/ai": [
+        "./packages/features-personal/src/ai/index.ts"
+      ],
       "@morndraft/web-shell": [
         "./packages/web-shell/src/index.ts"
       ]
@@ -38,6 +41,8 @@
     "components/public-workspace/**/*.ts",
     "components/public-workspace/**/*.tsx",
     "packages/core/src/oss-public.ts",
+    "packages/features-personal/src/ai/**/*.ts",
+    "packages/features-personal/src/ai/**/*.tsx",
     "packages/web-shell/src/**/*.ts",
     "vite.config.ts"
   ],

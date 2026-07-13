@@ -1,11 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  PublicDialog,
   PublicWorkspace,
   createLocalPublicImportAdapter,
   type PublicWorkspaceLocale,
   type PublicWorkspaceTheme,
   type SourceChangeMeta,
 } from '../../../components/public-workspace';
+import {
+  PUBLIC_AI_CONFIG_REQUEST_EVENT,
+  PublicAiSettingsForm,
+  createPublicAiAdapter,
+  readPublicAiConfig,
+  type PublicAiConfig,
+} from '@morndraft/features-personal/ai';
 import './oss-shell.css';
 
 const LOCALE_KEY = 'morndraft.oss.locale';
@@ -29,7 +37,7 @@ flowchart LR
   Review --> Deliver[本地交付]
 \`\`\`
 
-输入 \`/\` 可以插入 Markdown 表格和 MornDraft flat 组件。`;
+输入 \`/\` 可以插入 Markdown 表格和 MornDraft flat 组件；输入 \`/AI\` 可以调用你配置的生成模型。`;
 
 const readPreference = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
   if (typeof window === 'undefined') return fallback;
@@ -46,7 +54,15 @@ export const OssShell: React.FC = () => {
   const [theme, setTheme] = useState<PublicWorkspaceTheme>(() => readPreference(THEME_KEY, ['light', 'dark'], 'light'));
   const [source, setSource] = useState(INITIAL_SOURCE);
   const [documentEpoch, setDocumentEpoch] = useState(0);
+  const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
+  const [aiConfig, setAiConfig] = useState<PublicAiConfig>(() => readPublicAiConfig());
   const importAdapter = useMemo(() => createLocalPublicImportAdapter(), []);
+  const aiAdapter = useMemo(() => createPublicAiAdapter(), []);
+
+  const openAiSettings = useCallback(() => {
+    setAiConfig(readPublicAiConfig());
+    setIsAiSettingsOpen(true);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -59,6 +75,11 @@ export const OssShell: React.FC = () => {
     try { window.localStorage.setItem(LOCALE_KEY, locale); } catch { /* Browser storage may be unavailable. */ }
   }, [locale]);
 
+  useEffect(() => {
+    window.addEventListener(PUBLIC_AI_CONFIG_REQUEST_EVENT, openAiSettings);
+    return () => window.removeEventListener(PUBLIC_AI_CONFIG_REQUEST_EVENT, openAiSettings);
+  }, [openAiSettings]);
+
   const handleSourceChange = useCallback((next: string, meta: SourceChangeMeta) => {
     setSource(next);
     if (meta.resetDocument) setDocumentEpoch((value) => value + 1);
@@ -67,6 +88,7 @@ export const OssShell: React.FC = () => {
   return (
     <div className="oss-app" data-build-profile="oss" data-oss-shell="public">
       <PublicWorkspace
+        aiAdapter={aiAdapter}
         documentEpoch={documentEpoch}
         importAdapter={importAdapter}
         locale={locale}
@@ -74,10 +96,27 @@ export const OssShell: React.FC = () => {
         theme={theme}
         title="MornDraft OSS"
         onLocaleChange={setLocale}
+        onAiSettingsOpen={openAiSettings}
         onSourceChange={handleSourceChange}
         onThemeChange={setTheme}
       />
-
+      <PublicDialog
+        className="md-public-ai-settings-dialog"
+        isOpen={isAiSettingsOpen}
+        labelledBy="oss-ai-settings-title"
+        onClose={() => setIsAiSettingsOpen(false)}
+      >
+        <h2 id="oss-ai-settings-title">{locale === 'zh' ? 'AI 配置' : 'AI settings'}</h2>
+        <PublicAiSettingsForm
+          initialConfig={aiConfig}
+          locale={locale}
+          onCancel={() => setIsAiSettingsOpen(false)}
+          onSave={(saved) => {
+            setAiConfig(saved);
+            setIsAiSettingsOpen(false);
+          }}
+        />
+      </PublicDialog>
     </div>
   );
 };

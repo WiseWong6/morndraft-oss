@@ -34,6 +34,7 @@ const SECRET_SCAN_IGNORED = new Set([
 ]);
 const PUBLIC_MODULE_SOURCE_PREFIXES = Object.freeze([
   'components/public-workspace/',
+  'packages/features-personal/src/ai/',
 ]);
 const PUBLIC_MODULE_FORBIDDEN_PATTERNS = Object.freeze([
   ['private application component', /\b(?:AppImpl|DraftSidebar)\b/u],
@@ -50,7 +51,7 @@ export const SOURCE_MARKER_PATTERNS = Object.freeze({
   'hosted share link marker': /(?:\/delivery\/hosted-link|hostedLinkHtmlOptimizer|privateHostedLink|HOSTED_LINK_|hostedLinkView|hostedLink|shareLinkUpgradeToast)/g,
   'private payment marker': /(?:alipay|paddle|subscriptionCheckout|subscriptionCouponCenter)/gi,
   'private entitlement or account-plan implementation marker': /(?:MORNDRAFT_(?:ACCOUNT_PLANS|ACCOUNT_REGIONS|ENTITLEMENTS|QUOTA_METERS|USAGE_EVENT_TYPES)|FREE_MORNDRAFT_FLAT_LAYOUT_STYLES|resolveMornDraftFlatLayoutTier|(?:acct|token)_(?:free|pro)_mcp)/g,
-  'private workspace package marker': /(?:@morndraft\/features-(?:personal|pro|ide)|packages\/features-(?:personal|pro|ide))/g,
+  'private workspace package marker': /(?:@morndraft\/features-(?:pro|ide)|packages\/features-(?:pro|ide)|@morndraft\/features-personal(?!\/ai\b)|packages\/features-personal(?!\/src\/ai(?:\/|\b)))/g,
 });
 
 const SECRET_PATTERNS = Object.freeze([

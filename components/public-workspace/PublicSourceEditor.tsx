@@ -11,6 +11,7 @@ type PublicSourceEditorProps = {
   ariaLabel: string;
   className?: string;
   onSelectionChange?(selection: PublicTextSelection | null): void;
+  onAiGenerateRequest?(range: { start: number; end: number }): void;
 };
 
 type SlashTrigger = { start: number; end: number; query: string };
@@ -35,6 +36,7 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
   ariaLabel,
   className,
   onSelectionChange,
+  onAiGenerateRequest,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const latestSourceRef = useRef(source);
@@ -89,6 +91,10 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
     }
   };
 
+  const canShowAiGenerate = Boolean(
+    onAiGenerateRequest && slashTrigger && (!slashTrigger.query || 'ai generate 生成'.includes(slashTrigger.query)),
+  );
+
   return (
     <div className={`md-public-source-editor ${className ?? ''}`}>
       <textarea
@@ -115,6 +121,20 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
       />
       {slashTrigger && (
         <div className="md-public-insert-menu" role="menu" aria-label={locale === 'zh' ? '插入内容' : 'Insert content'}>
+          {canShowAiGenerate && (
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="oss-ai-generate"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setSlashTrigger(null);
+                onAiGenerateRequest?.({ start: slashTrigger.start, end: slashTrigger.end });
+              }}
+            >
+              <span>{locale === 'zh' ? 'AI 生成' : 'AI generate'}</span>
+            </button>
+          )}
           {visibleEntries.length > 0 ? visibleEntries.map((entry) => (
             <button
               key={entry.id}

@@ -272,6 +272,7 @@ export const PublicFinalPreview: React.FC<PublicFinalPreviewProps> = ({
   theme,
   onSourceChange,
   onSelectionChange,
+  onAiGenerateRequest,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const labels = getLabels(locale);
@@ -295,6 +296,13 @@ export const PublicFinalPreview: React.FC<PublicFinalPreviewProps> = ({
       text: selection.text,
       source,
     } : null);
+  };
+
+  const handleInnerGenerateRequest = (range: { start: number; end: number }) => {
+    onAiGenerateRequest?.({
+      start: editableContentOffset + range.start,
+      end: editableContentOffset + range.end,
+    });
   };
 
   return (
@@ -321,6 +329,7 @@ export const PublicFinalPreview: React.FC<PublicFinalPreviewProps> = ({
           ariaLabel={labels.editLabel}
           onSourceChange={handleEdit}
           onSelectionChange={handleInnerSelection}
+          onAiGenerateRequest={onAiGenerateRequest ? handleInnerGenerateRequest : undefined}
         />
       ) : (
         <div className="md-public-final-surface" data-public-preview-root="true">

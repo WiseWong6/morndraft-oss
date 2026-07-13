@@ -21,8 +21,25 @@ test('OSS entry mounts an independent public shell without commercial imports', 
   assert.doesNotMatch(`${entry}\n${shell}\n${workspace}\n${preview}`, /AppImpl|ArtifactPreview|AccountMenu|billing|hosted-link|\/api\//);
   assert.match(shell, /data-oss-shell="public"/);
   assert.match(shell, /<PublicWorkspace/);
+  assert.match(shell, /createPublicAiAdapter/);
+  assert.match(shell, /<PublicAiSettingsForm/);
+  assert.match(shell, /onAiSettingsOpen=\{openAiSettings\}/);
   assert.match(preview, /sandbox="allow-scripts"/);
   assert.doesNotMatch(preview, /allow-same-origin/);
+});
+
+test('OSS browser AI stays direct, role-based, local, and opt-in', () => {
+  const shell = read('./OssShell.tsx');
+  const client = read('../../../packages/features-personal/src/ai/client.ts');
+  const config = read('../../../packages/features-personal/src/ai/config.ts');
+  assert.match(config, /\/chat\/completions/);
+  assert.match(client, /authorization: `Bearer \$\{config\.apiKey\.trim\(\)\}`/);
+  assert.match(client, /stream: false/);
+  assert.match(client, /getPublicAiModelRole/);
+  assert.match(config, /PUBLIC_AI_CONFIG_SESSION_STORAGE_KEY/);
+  assert.match(config, /persistApiKey/);
+  assert.match(config, /PUBLIC_AI_DEEPSEEK_PRESET/);
+  assert.doesNotMatch(`${shell}\n${client}\n${config}`, /MornDraft API|\/api\/ai|quota|usageLedger/);
 });
 
 test('OSS document routing keeps HTML in an explicit sandbox path', () => {

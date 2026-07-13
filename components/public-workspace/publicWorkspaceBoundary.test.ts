@@ -47,3 +47,17 @@ test('Final uses rendered contenteditable blocks and keeps HTML frames stable', 
   assert.match(implementationSources, /patchMornDraftFlatSourceValues/u);
   assert.match(implementationSources, /replacePublicFenceSegmentContent/u);
 });
+
+test('public workspace exposes the browser-local AI interaction hooks', () => {
+  for (const testId of [
+    'oss-ai-settings-open',
+    'oss-ai-generate',
+    'oss-ai-modify',
+    'oss-ai-summarize',
+    'oss-ai-instruction',
+    'oss-ai-result',
+    'oss-ai-adopt',
+  ]) {
+    assert.match(implementationSources, new RegExp(`data-testid=["']${testId}["']`, 'u'), testId);
+  }
+});

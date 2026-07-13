@@ -37,6 +37,16 @@
 
 .md-public-title { white-space: nowrap; }
 .md-public-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.md-public-ai-selection button {
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 10px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.md-public-ai-selection button:hover { background: var(--md-public-hover); }
 .md-public-mode-switch { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--md-public-hover); }
 .md-public-mode-switch button,
 .md-public-actions > button,
@@ -203,6 +213,35 @@
 .md-public-preview-loading { min-height: 160px; border-radius: 9px; background: linear-gradient(90deg, var(--md-public-hover), transparent, var(--md-public-hover)); }
 .md-public-inline-error,
 .md-public-json-invalid > p { color: #c33b2e; }
+
+.md-public-ai-selection {
+  position: absolute;
+  z-index: 35;
+  left: 50%;
+  bottom: 18px;
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  transform: translateX(-50%);
+  border: 1px solid var(--md-public-border);
+  border-radius: 10px;
+  background: var(--md-public-paper);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .2);
+}
+.md-public-ai-instruction { display: grid; gap: 8px; }
+.md-public-ai-instruction textarea {
+  min-height: 110px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--md-public-border);
+  border-radius: 8px;
+  color: inherit;
+  background: var(--md-public-bg);
+  font: inherit;
+}
+.md-public-ai-result { max-height: min(52vh, 520px); overflow: auto; padding: 14px; border-radius: 9px; white-space: pre-wrap; background: var(--md-public-hover); }
+.md-public-ai-warning { color: #9a6100; }
+.md-public-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 
 .md-public-drop-overlay {
   position: absolute;

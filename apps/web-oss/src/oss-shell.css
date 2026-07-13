@@ -287,65 +287,42 @@ textarea:focus-visible {
   background: color-mix(in srgb, #d9363e 10%, canvas);
 }
 
-.oss-dialog-backdrop {
-  position: fixed;
-  z-index: 50;
-  inset: 0;
+.public-ai-settings {
   display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgb(0 0 0 / 44%);
+  gap: 14px;
 }
 
-.oss-dialog {
-  width: min(520px, 100%);
-  max-height: min(760px, calc(100vh - 40px));
-  overflow: auto;
-  padding: 24px;
-  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
-  border-radius: 16px;
-  background: canvas;
-  box-shadow: 0 24px 90px rgb(0 0 0 / 24%);
-}
-
-.oss-dialog h2 {
-  margin: 0 0 16px;
-}
-
-.oss-ai-dialog > label:not(.oss-checkbox) {
+.public-ai-settings > label:not(:has(input[type="checkbox"])) {
   display: grid;
   gap: 7px;
-  margin-top: 14px;
   font-size: 13px;
   font-weight: 650;
 }
 
-.oss-ai-dialog input[type="text"],
-.oss-ai-dialog input[type="url"],
-.oss-ai-dialog input[type="password"] {
+.public-ai-settings input[type="text"],
+.public-ai-settings input[type="url"],
+.public-ai-settings input[type="password"] {
   min-height: 42px;
   padding: 0 12px;
 }
 
-.oss-checkbox {
+.public-ai-settings > label:has(input[type="checkbox"]),
+.public-ai-settings > div {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.oss-setting-note,
-.oss-origin {
-  color: color-mix(in srgb, currentColor 66%, transparent);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.oss-dialog-actions {
-  display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 22px;
+}
+
+.public-ai-settings > label:has(input[type="checkbox"]) {
+  justify-content: flex-start;
+}
+
+.public-ai-settings p {
+  margin: 0;
+  color: color-mix(in srgb, currentColor 68%, transparent);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .sr-only {
