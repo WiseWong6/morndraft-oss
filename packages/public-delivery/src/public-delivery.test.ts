@@ -358,6 +358,15 @@ test('raw HTML extraction requires a supported first token and a matching closed
   assert.equal(extractPublicRawHtmlSource(mismatched), mismatched);
 });
 
+test('raw HTML extraction handles long indentation without regular-expression backtracking', () => {
+  const indentation = '\t'.repeat(100_000);
+  const html = '<main>Static</main>';
+  assert.equal(
+    extractPublicRawHtmlSource(`${indentation}\`\`\`html\n${html}\n\`\`\`${indentation}`),
+    html,
+  );
+});
+
 test('buildPublicStandaloneHtml strips supported HTML fence info strings before sandboxing', async () => {
   const html = await buildPublicStandaloneHtml(makeInput({
     contentType: 'html',
@@ -381,6 +390,12 @@ test('image capture fails closed for dynamic HTML that cannot match the sandboxe
   assert.equal(hasPublicDynamicCaptureMarkup('<input value="initial">'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<p contenteditable>Mutable</p>'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<a href="javascript:run()">run</a>'), true);
+});
+
+test('dynamic HTML scanning handles long tag spacing without regular-expression backtracking', () => {
+  const spacing = ' '.repeat(100_000);
+  assert.equal(hasPublicDynamicCaptureMarkup(`<${spacing}main>Static</main>`), false);
+  assert.equal(hasPublicDynamicCaptureMarkup(`<${spacing}script>run()</script>`), true);
 });
 
 test('capture pairs only non-excluded source iframes with the cloned delivery tree', () => {

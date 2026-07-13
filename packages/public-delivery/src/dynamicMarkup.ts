@@ -7,6 +7,45 @@ const PUBLIC_DYNAMIC_URL_ATTRIBUTES = new Set([
   'action', 'formaction', 'href', 'src', 'xlink:href',
 ]);
 
+const isHtmlWhitespace = (character: string | undefined) => (
+  character === ' '
+  || character === '\t'
+  || character === '\n'
+  || character === '\f'
+  || character === '\r'
+);
+
+const isAsciiLetter = (character: string | undefined) => {
+  const code = character?.charCodeAt(0) ?? 0;
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+};
+
+const isTagNameCharacter = (character: string | undefined) => {
+  const code = character?.charCodeAt(0) ?? 0;
+  return isAsciiLetter(character)
+    || (code >= 48 && code <= 57)
+    || character === '_'
+    || character === ':'
+    || character === '-';
+};
+
+const readTagOpening = (html: string, tagStart: number) => {
+  let index = tagStart + 1;
+  while (isHtmlWhitespace(html[index])) index += 1;
+  const closing = html[index] === '/';
+  if (closing) index += 1;
+  while (isHtmlWhitespace(html[index])) index += 1;
+  if (!isAsciiLetter(html[index])) return null;
+  const nameStart = index;
+  index += 1;
+  while (isTagNameCharacter(html[index])) index += 1;
+  return {
+    attributesStart: index,
+    closing,
+    name: html.slice(nameStart, index).toLowerCase(),
+  };
+};
+
 const findTagEnd = (html: string, start: number) => {
   let quote = '';
   for (let index = start; index < html.length; index += 1) {
@@ -81,18 +120,15 @@ export const hasPublicDynamicCaptureMarkup = (html: string) => {
       index = findTagEnd(html, tagStart + 2) + 1;
       continue;
     }
-    const opening = html.slice(tagStart).match(/^<\s*(\/?)\s*([a-z][\w:-]*)/iu);
+    const opening = readTagOpening(html, tagStart);
     if (!opening) {
       index = tagStart + 1;
       continue;
     }
-    const closing = opening[1] === '/';
-    const name = opening[2].toLowerCase();
-    const attributesStart = tagStart + opening[0].length;
-    const tagEnd = findTagEnd(html, attributesStart);
-    if (!closing && PUBLIC_DYNAMIC_ELEMENTS.has(name)) return true;
-    if (!closing && hasDynamicAttribute(html.slice(attributesStart, tagEnd))) return true;
-    if (!closing && name === 'style') {
+    const tagEnd = findTagEnd(html, opening.attributesStart);
+    if (!opening.closing && PUBLIC_DYNAMIC_ELEMENTS.has(opening.name)) return true;
+    if (!opening.closing && hasDynamicAttribute(html.slice(opening.attributesStart, tagEnd))) return true;
+    if (!opening.closing && opening.name === 'style') {
       const styleEnd = lowerHtml.indexOf('</style', Math.min(tagEnd + 1, html.length));
       if (styleEnd === -1) return false;
       index = styleEnd;
