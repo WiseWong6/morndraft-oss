@@ -351,6 +351,53 @@ test('shared redactor removes folded and percent-encoded data URLs from the actu
   assert.match(requestBody, /local image data omitted/u);
 });
 
+test('shared redactor accepts image MIME parameters and fails closed for non-base64 image data', async () => {
+  const parameterizedPng = `DaTa: ImAgE/PnG;charset=utf-8; BaSe64,${ONE_PIXEL_PNG_BASE64}`;
+  const base64Svg = 'data:image/svg+xml;charset=utf-8;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjwvc3ZnPg==';
+  const encodedSvg = 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%3E%3C/svg%3E';
+
+  assert.equal(
+    omitPublicAiLocalImageDataUrls(`before ${parameterizedPng}) after`),
+    'before [local image data omitted]) after',
+  );
+  assert.equal(
+    omitPublicAiLocalImageDataUrls(`before ${base64Svg}) after`),
+    'before [local image data omitted]) after',
+  );
+  assert.equal(
+    omitPublicAiLocalImageDataUrls(`before ${encodedSvg}) private tail`),
+    'before [local image data omitted]',
+  );
+  assert.equal(
+    omitPublicAiLocalImageDataUrls('before data:image/png;charset=utf-8 private tail'),
+    'before [local image data omitted]',
+  );
+  assert.equal(
+    omitPublicAiLocalImageDataUrls('before data:text/plain;base64,QUJD after'),
+    'before data:text/plain;base64,QUJD after',
+  );
+
+  let requestBody = '';
+  const adapter = createPublicAiAdapter({
+    readConfig: () => configured(),
+    fetch: async (_input, init) => {
+      requestBody = String(init?.body);
+      return jsonResponse({ choices: [{ message: { content: 'result' } }] });
+    },
+  });
+  await adapter.request({
+    action: 'modify',
+    selectedText: `selection ${parameterizedPng}) ${encodedSvg} SVG_PRIVATE_TAIL`,
+    source: `before ${parameterizedPng}) ${encodedSvg} SOURCE_PRIVATE_TAIL`,
+  });
+
+  assert.doesNotMatch(
+    requestBody,
+    /data:image|iVBORw0KGgo|PHN2Zy|%3Csvg|SVG_PRIVATE_TAIL|SOURCE_PRIVATE_TAIL/iu,
+  );
+  assert.match(requestBody, /local image data omitted/u);
+});
+
 test('shared redactor keeps original UTF-16 offsets for ASCII-insensitive prefixes', () => {
   const unicodePrefix = 'İ'.repeat(256);
   const image = `DaTa:ImAgE/PnG;BaSe64,${ONE_PIXEL_PNG_BASE64}`;

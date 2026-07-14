@@ -855,6 +855,11 @@ const runAiFlow = async (page, mockBaseUrl) => {
   const upperOnePixelImageData = `DATA:IMAGE/PNG;BASE64,${onePixelBase64}`;
   const percentEncodedImagePayloadTail = onePixelBase64.slice(24);
   const percentEncodedImageData = `data:image/png;base64,${onePixelBase64.slice(0, 24)}%0A${percentEncodedImagePayloadTail}`;
+  const parameterizedImageData = `data:image/png;name=PARAM_PRIVATE_SENTINEL;charset=utf-8; base64,${onePixelBase64}`;
+  const svgImageData = 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221%22%20height=%221%22%3E%3Ctext%3ESVG_PRIVATE_TAIL%3C/text%3E%3C/svg%3E';
+  const nonBase64PngData = `data:image/png,${[...Buffer.from(onePixelBase64, 'base64')]
+    .map(byte => `%${byte.toString(16).padStart(2, '0')}`)
+    .join('')}`;
   const adjacentPrivacyFixture = `${'İ'.repeat(256)}${onePixelImageData}\n${upperOnePixelImageData}\r\n${onePixelImageData}\t${upperOnePixelImageData}`;
   const privacyImageFence = [
     '```html',
@@ -862,6 +867,9 @@ const runAiFlow = async (page, mockBaseUrl) => {
     `<img id="oss-percent-encoded-ai-image" src="${percentEncodedImageData}" alt="encoded">`,
     `<img id="oss-lowercase-ai-image" src="${onePixelImageData}" alt="lowercase">`,
     `<img id="oss-uppercase-ai-image" src="${upperOnePixelImageData}" alt="uppercase">`,
+    `<img id="oss-parameterized-ai-image" src="${parameterizedImageData}" alt="parameterized">`,
+    `<img id="oss-svg-ai-image" src="${svgImageData}" alt="svg">`,
+    `<img id="oss-non-base64-ai-image" src="${nonBase64PngData}" alt="non-base64">`,
     '```',
   ].join('\n');
   const sourceBeforeModify = `![local](${localImageData})\n\n${privacyImageFence}\n\nFirst target\n\nSecond repeat repeat repeat`;
@@ -885,7 +893,13 @@ const runAiFlow = async (page, mockBaseUrl) => {
     [1, 1],
     'Chromium did not decode the percent-encoded 1x1 PNG fixture.',
   );
-  for (const selector of ['#oss-lowercase-ai-image', '#oss-uppercase-ai-image']) {
+  for (const selector of [
+    '#oss-lowercase-ai-image',
+    '#oss-uppercase-ai-image',
+    '#oss-parameterized-ai-image',
+    '#oss-svg-ai-image',
+    '#oss-non-base64-ai-image',
+  ]) {
     const image = percentEncodedImageFrame.locator(selector);
     await image.evaluate((element, label) => new Promise((resolve, reject) => {
       if (element.complete) {
@@ -1250,6 +1264,41 @@ const runDeliveryHardeningFlow = async (
   await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-png');
   await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-pdf');
   await assertNoActiveDeliveryResources(page, baseline, 'overlapping comment-close dynamic markup failure');
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><body>',
+    "<!'<a><script>window.__ossBogusCommentRan=1</script>",
+    '<main id="oss-bogus-comment-marker">Bogus comment boundary</main>',
+    '</body></html>',
+  ].join(''));
+  const bogusCommentFrame = await waitForFrameWithSelector(page, '#oss-bogus-comment-marker');
+  await bogusCommentFrame.waitForFunction(() => window.__ossBogusCommentRan === 1);
+  assert.equal(
+    await bogusCommentFrame.evaluate(() => window.__ossBogusCommentRan),
+    1,
+    'Chromium did not execute the script after the bogus-comment first > boundary.',
+  );
+  await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-png');
+  await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-pdf');
+  await assertNoActiveDeliveryResources(page, baseline, 'bogus comment dynamic markup failure');
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><head>',
+    `<style>${'İ'.repeat(9)}</style><script>window.__ossUnicodeRawTextRan=1</script>`,
+    '</head><body><main id="oss-unicode-raw-text-marker">Unicode raw-text boundary</main></body></html>',
+  ].join(''));
+  const unicodeRawTextFrame = await waitForFrameWithSelector(page, '#oss-unicode-raw-text-marker');
+  await unicodeRawTextFrame.waitForFunction(() => window.__ossUnicodeRawTextRan === 1);
+  assert.equal(
+    await unicodeRawTextFrame.evaluate(() => window.__ossUnicodeRawTextRan),
+    1,
+    'Chromium did not execute the script after the Unicode style raw-text fixture.',
+  );
+  await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-png');
+  await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-pdf');
+  await assertNoActiveDeliveryResources(page, baseline, 'Unicode raw-text dynamic markup failure');
 
   await replaceSourceAndOpenFinal(page, [
     '<!doctype html>',
@@ -1989,6 +2038,7 @@ const main = async () => {
     assert.doesNotMatch(modifyBody, /QkFTRTY0TEVBS1RBSUw=/u, 'Modify leaked the folded data URL payload tail to the AI provider.');
     assert.doesNotMatch(modifyBody, /CAQAAAC1HAwCAAAAC0lEQVR42mNk\+A8AAQUBAScY42YAAAAASUVORK5CYII=/u, 'Modify leaked the percent-encoded data URL payload tail to the AI provider.');
     assert.doesNotMatch(modifyBody, /iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB/iu, 'Modify leaked a Unicode-prefixed or adjacent PNG payload to the AI provider.');
+    assert.doesNotMatch(modifyBody, /PARAM_PRIVATE_SENTINEL|SVG_PRIVATE_TAIL|%89%50%4e%47/iu, 'Modify leaked generalized image data URL metadata or payload bytes.');
     assert.ok(modifyBody.length < 70_000, `Modify request exceeded the bounded browser context: ${modifyBody.length} bytes.`);
     const summarizeBody = JSON.stringify(aiMock.requests[2].body);
     assert.doesNotMatch(summarizeBody, /Modified selection from OSS AI/u, 'Summarize must not send the complete Source.');

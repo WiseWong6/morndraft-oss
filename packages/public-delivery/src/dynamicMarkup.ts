@@ -29,6 +29,20 @@ const isTagNameCharacter = (character: string | undefined) => {
     || character === '-';
 };
 
+const toAsciiLowerCodeUnit = (code: number) => (
+  code >= 0x41 && code <= 0x5a ? code + 0x20 : code
+);
+
+const startsWithAsciiCaseInsensitive = (value: string, candidate: string, start: number) => {
+  if (start < 0 || start + candidate.length > value.length) return false;
+  for (let offset = 0; offset < candidate.length; offset += 1) {
+    if (toAsciiLowerCodeUnit(value.charCodeAt(start + offset)) !== candidate.charCodeAt(offset)) {
+      return false;
+    }
+  }
+  return true;
+};
+
 const readTagOpening = (html: string, tagStart: number) => {
   let index = tagStart + 1;
   while (isHtmlWhitespace(html[index])) index += 1;
@@ -56,6 +70,11 @@ const findTagEnd = (html: string, start: number) => {
     else if (character === '>') return index;
   }
   return html.length;
+};
+
+const findBogusCommentEnd = (html: string, start: number) => {
+  const end = html.indexOf('>', start);
+  return end === -1 ? html.length : end + 1;
 };
 
 type HtmlCommentState =
@@ -161,15 +180,20 @@ const findHtmlCommentEnd = (html: string, start: number) => {
   return -1;
 };
 
-const findRawTextEndTag = (lowerHtml: string, tagName: string, start: number) => {
-  const opener = `</${tagName}`;
+const findRawTextEndTag = (html: string, tagName: string, start: number) => {
   let searchFrom = start;
-  while (searchFrom < lowerHtml.length) {
-    const candidate = lowerHtml.indexOf(opener, searchFrom);
+  while (searchFrom < html.length) {
+    const candidate = html.indexOf('<', searchFrom);
     if (candidate === -1) return -1;
-    const boundary = lowerHtml[candidate + opener.length];
-    if (isHtmlWhitespace(boundary) || boundary === '/' || boundary === '>') return candidate;
-    searchFrom = candidate + opener.length;
+    const nameStart = candidate + 2;
+    if (
+      html[candidate + 1] === '/'
+      && startsWithAsciiCaseInsensitive(html, tagName, nameStart)
+    ) {
+      const boundary = html[nameStart + tagName.length];
+      if (isHtmlWhitespace(boundary) || boundary === '/' || boundary === '>') return candidate;
+    }
+    searchFrom = candidate + 1;
   }
   return -1;
 };
@@ -221,7 +245,6 @@ const hasDynamicAttribute = (attributes: string) => {
  * and CSS comments that merely contain "<script>" are not treated as nodes.
  */
 export const hasPublicDynamicCaptureMarkup = (html: string) => {
-  const lowerHtml = html.toLowerCase();
   let index = 0;
   while (index < html.length) {
     const tagStart = html.indexOf('<', index);
@@ -233,7 +256,7 @@ export const hasPublicDynamicCaptureMarkup = (html: string) => {
       continue;
     }
     if (html[tagStart + 1] === '!' || html[tagStart + 1] === '?') {
-      index = findTagEnd(html, tagStart + 2) + 1;
+      index = findBogusCommentEnd(html, tagStart + 2);
       continue;
     }
     const opening = readTagOpening(html, tagStart);
@@ -245,7 +268,7 @@ export const hasPublicDynamicCaptureMarkup = (html: string) => {
     if (!opening.closing && PUBLIC_DYNAMIC_ELEMENTS.has(opening.name)) return true;
     if (!opening.closing && hasDynamicAttribute(html.slice(opening.attributesStart, tagEnd))) return true;
     if (!opening.closing && opening.name === 'style') {
-      const styleEnd = findRawTextEndTag(lowerHtml, 'style', Math.min(tagEnd + 1, html.length));
+      const styleEnd = findRawTextEndTag(html, 'style', Math.min(tagEnd + 1, html.length));
       if (styleEnd === -1) return false;
       index = styleEnd;
       continue;

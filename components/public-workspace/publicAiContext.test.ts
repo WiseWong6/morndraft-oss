@@ -78,6 +78,25 @@ test('bounded context removes Unicode-prefixed and adjacent local image payloads
   assert.match(request.source ?? '', /local image data omitted/u);
 });
 
+test('bounded context removes parameterized and non-base64 image data URLs', () => {
+  const parameterized = `data:image/png;charset=utf-8; base64,${'A'.repeat(4_000)}`;
+  const encodedSvg = 'data:image/svg+xml;charset=utf-8,%3Csvg%3EPRIVATE_SVG%3C/svg%3E';
+  const source = `before\n${parameterized})\nTARGET\n${encodedSvg}\nPRIVATE_AFTER_IMAGE`;
+  const start = source.indexOf('TARGET');
+  const request = buildPublicAiBoundedRequest({
+    action: 'modify',
+    selectedText: 'TARGET',
+    source,
+    range: { start, end: start + 'TARGET'.length },
+  });
+
+  assert.doesNotMatch(
+    request.source ?? '',
+    /data:image|AAAAAA|%3Csvg|PRIVATE_SVG|PRIVATE_AFTER_IMAGE/iu,
+  );
+  assert.match(request.source ?? '', /local image data omitted/u);
+});
+
 test('summarize sends only the selected text', () => {
   assert.deepEqual(buildPublicAiBoundedRequest({
     action: 'summarize',
