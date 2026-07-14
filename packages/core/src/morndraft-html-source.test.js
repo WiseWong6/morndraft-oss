@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 
 import {
   createMornDraftHtmlMarkdownFence,
   createMornDraftHtmlSource,
   parseMornDraftHtmlSourceStructure,
   patchMornDraftHtmlSourceStyleVariables,
+  readMornDraftHtmlSourceStructureMetadata,
   updateMornDraftHtmlSourceComponent,
 } from './morndraft-html-source.js';
 
@@ -118,6 +120,29 @@ test('parseMornDraftHtmlSourceStructure safely handles legacy minimal metadata',
   assert.equal(parsed.reason, 'missing-component-metadata');
   assert.equal(parsed.metadata.layout, 'flow');
   assert.equal(parsed.component, null);
+});
+
+test('readMornDraftHtmlSourceStructureMetadata scans flexible comments without regex backtracking', () => {
+  const html = [
+    '<!-- not-the-structure-comment -->',
+    '<!-- MORNDRAFT:STRUCTURE\u3000 {"schema":"morndraft-html-structure.v1","component":{"layout":"flow"}} \u2028-->',
+  ].join('\n');
+  const result = readMornDraftHtmlSourceStructureMetadata(html);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.metadata.schema, 'morndraft-html-structure.v1');
+  assert.equal(result.metadata.component.layout, 'flow');
+});
+
+test('readMornDraftHtmlSourceStructureMetadata rejects a 2 MiB unterminated comment in linear time', () => {
+  const html = `<!-- morndraft:structure ${' '.repeat(2 * 1024 * 1024)}`;
+  const startedAt = performance.now();
+  const result = readMornDraftHtmlSourceStructureMetadata(html);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'missing-structure-metadata');
+  assert.ok(elapsedMs < 1500, `2 MiB structure comment scan took ${elapsedMs.toFixed(1)} ms`);
 });
 
 test('updateMornDraftHtmlSourceComponent regenerates compact HTML and preserves source style overrides', () => {
