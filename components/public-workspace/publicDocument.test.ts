@@ -38,6 +38,15 @@ test('standalone JSON5 fence keeps its exact fence contract when Final edits con
   assert.equal(serializePublicDocumentEdit(document, "{project:'Public',}"), "```JSON5\n{project:'Public',}\n```");
 });
 
+test('Final expands standalone fence markers when edited content contains a closing run', () => {
+  const source = '```markdown\nBefore\n```';
+  const document = detectPublicDocument(source);
+  assert.equal(
+    serializePublicDocumentEdit(document, 'Before\n```\nAfter'),
+    '````markdown\nBefore\n```\nAfter\n````',
+  );
+});
+
 test('standalone fence info strings preserve CRLF edits and exact content offsets', () => {
   const source = "```HTML preview linenums\r\n<!doctype html><html><body>Before</body></html>\r\n```\r\n";
   const document = detectPublicDocument(source);
@@ -173,6 +182,16 @@ test('mixed Final replaces only the selected fenced content', () => {
   assert.equal(
     replacePublicFenceSegmentContent(source, segment, '<div>New</div>'),
     '# Before\n\n```html\n<div>New</div>\n```\n\n# After',
+  );
+});
+
+test('mixed Final expands only its own fence when edited content contains a closing run', () => {
+  const source = '# Before\n\n~~~html\n<div>Old</div>\n~~~\n\n# After';
+  const segment = splitPublicDocumentSegments(source).find(candidate => candidate.kind === 'fence');
+  assert.ok(segment);
+  assert.equal(
+    replacePublicFenceSegmentContent(source, segment, '<div>New</div>\n~~~\n<p>Still HTML</p>'),
+    '# Before\n\n~~~~html\n<div>New</div>\n~~~\n<p>Still HTML</p>\n~~~~\n\n# After',
   );
 });
 

@@ -6,8 +6,11 @@ import {
 import { extractPublicRawHtmlSource } from './rawHtml';
 import {
   PUBLIC_CAPTURE_FAILED_RESOURCE_PLACEHOLDER,
+  applyPublicCaptureResourceSnapshot,
   assertPublicCaptureResourcesEmbedded,
-  assertPublicCaptureResourcesReadable,
+  createPublicCaptureResourceSnapshot,
+  preparePublicRawHtmlCaptureResources,
+  type PublicCaptureResourceSnapshot,
 } from './captureResources';
 import {
   loadDeliveryHtml2Canvas,
@@ -28,10 +31,13 @@ const PUBLIC_CAPTURE_ASSET_TIMEOUT_MS = 10_000;
 const PUBLIC_CAPTURE_RENDER_TIMEOUT_MS = 20_000;
 export const PUBLIC_CANVAS_PNG_ENCODE_TIMEOUT_MS = 20_000;
 
-export { hasPublicDynamicCaptureMarkup } from './dynamicMarkup';
+export {
+  PUBLIC_DYNAMIC_CAPTURE_HTML_MAX_BYTES,
+  hasPublicDynamicCaptureMarkup,
+} from './dynamicMarkup';
 
-const assertStaticCaptureMarkup = (html: string) => {
-  if (hasPublicDynamicCaptureMarkup(html)) {
+const assertStaticCaptureMarkup = async (html: string) => {
+  if (await hasPublicDynamicCaptureMarkup(html)) {
     throw new PublicDeliveryError(
       'capture-failed',
       '当前 HTML 包含脚本或动态媒体，浏览器无法安全生成与 Final 一致的图片；请下载 HTML 交付。',
@@ -300,6 +306,7 @@ type PublicPreparedStaticHtmlCapture = {
   cleanup(): void;
   frame: HTMLIFrameElement;
   height: number;
+  resourceSnapshot: PublicCaptureResourceSnapshot;
   width: number;
 };
 
@@ -330,11 +337,17 @@ const prepareStaticHtmlDocumentCapture = async (
   html: string,
   options: { initialHeight: number; signal?: AbortSignal; width: number },
 ): Promise<PublicPreparedStaticHtmlCapture> => {
-  assertStaticCaptureMarkup(html);
+  await assertStaticCaptureMarkup(html);
   throwIfCaptureAborted(options.signal);
   if (!ownerDocument.body) {
     throw new PublicDeliveryError('capture-not-ready', '当前环境无法初始化 HTML 截图。');
   }
+
+  const frozenResources = await preparePublicRawHtmlCaptureResources(
+    ownerDocument,
+    html,
+    options.signal,
+  );
 
   const width = Math.max(1, Math.ceil(options.width));
   const initialHeight = Math.max(1, Math.ceil(options.initialHeight));
@@ -358,7 +371,7 @@ const prepareStaticHtmlDocumentCapture = async (
   ].join(';');
   // Configure srcdoc while detached and subscribe before insertion so the
   // initial about:blank load cannot win the readiness race.
-  frame.srcdoc = html;
+  frame.srcdoc = frozenResources.html;
   const loaded = waitForFrameLoad(frame, options.signal);
   try {
     ownerDocument.body.appendChild(frame);
@@ -371,7 +384,6 @@ const prepareStaticHtmlDocumentCapture = async (
     }
 
     await waitForPreviewAssets(captureRoot, options.signal);
-    await assertPublicCaptureResourcesReadable(captureRoot, options.signal);
     let measuredWidth = Math.max(
       width,
       captureRoot.scrollWidth,
@@ -412,13 +424,18 @@ const prepareStaticHtmlDocumentCapture = async (
     frame.style.height = `${measuredHeight}px`;
     return {
       captureRoot,
-      cleanup: () => frame.remove(),
+      cleanup: () => {
+        frame.remove();
+        frozenResources.snapshot.cleanup();
+      },
       frame,
       height: measuredHeight,
+      resourceSnapshot: frozenResources.snapshot,
       width: measuredWidth,
     };
   } catch (error) {
     frame.remove();
+    frozenResources.snapshot.cleanup();
     throw error;
   }
 };
@@ -438,6 +455,7 @@ const capturePreparedStaticHtmlDocument = async (
   const canvas = await captureRegularElementToCanvas(prepared.captureRoot, {
     backgroundColor: options.backgroundColor,
     height: prepared.height,
+    resourceSnapshot: prepared.resourceSnapshot,
     signal: options.signal,
     width: prepared.width,
   });
@@ -559,8 +577,16 @@ export const rewritePublicCaptureCssUrls = (cssText: string, baseUrl: string) =>
   return parts.join('');
 };
 
-export const appendReadableDocumentStyles = (doc: Document, target: ShadowRoot) => {
-  for (const sheet of Array.from(doc.styleSheets)) {
+export const appendReadableDocumentStyles = (
+  doc: Document,
+  target: ShadowRoot,
+  snapshot?: PublicCaptureResourceSnapshot,
+) => {
+  const sheets = [
+    ...Array.from(doc.styleSheets),
+    ...Array.from(doc.adoptedStyleSheets ?? []),
+  ];
+  for (const sheet of sheets) {
     if (sheet.disabled) continue;
     const mediaText = sheet.media?.mediaText?.trim() ?? '';
     try {
@@ -572,13 +598,13 @@ export const appendReadableDocumentStyles = (doc: Document, target: ShadowRoot) 
       if (!rules) continue;
       const style = doc.createElement('style');
       if (mediaText) style.media = mediaText;
-      style.textContent = rules;
+      style.textContent = snapshot ? snapshot.rewriteCss(rules, baseUrl) : rules;
       target.appendChild(style);
     } catch {
       if (!sheet.href) continue;
       const link = doc.createElement('link');
       link.rel = 'stylesheet';
-      link.href = sheet.href;
+      link.href = snapshot ? snapshot.resolve(sheet.href, doc.baseURI) : sheet.href;
       if (mediaText) link.media = mediaText;
       target.appendChild(link);
     }
@@ -587,14 +613,521 @@ export const appendReadableDocumentStyles = (doc: Document, target: ShadowRoot) 
 
 const PUBLIC_DELIVERY_EXCLUDE_SELECTOR = '[data-morndraft-delivery-exclude]';
 
+const getPublicComposedCaptureElements = (root: ParentNode) => {
+  const elements: Element[] = [];
+  const initial = root.nodeType === 1 ? [root as Element] : Array.from(root.children ?? []);
+  const pending = [...initial];
+  while (pending.length > 0) {
+    const element = pending.pop();
+    if (!element) continue;
+    elements.push(element);
+    const lightChildren = Array.from(element.children ?? []);
+    for (let index = lightChildren.length - 1; index >= 0; index -= 1) pending.push(lightChildren[index]);
+    const shadowChildren = Array.from(element.shadowRoot?.children ?? []);
+    for (let index = shadowChildren.length - 1; index >= 0; index -= 1) pending.push(shadowChildren[index]);
+  }
+  return elements;
+};
+
+const isInsidePublicDeliveryExcludedTree = (element: Element) => {
+  let candidate: Element | null = element;
+  while (candidate) {
+    if (candidate.matches(PUBLIC_DELIVERY_EXCLUDE_SELECTOR)) return true;
+    if (candidate.parentElement) {
+      candidate = candidate.parentElement;
+      continue;
+    }
+    const root = candidate.getRootNode?.();
+    candidate = root && root.nodeType === 11 && 'host' in root
+      ? (root as ShadowRoot).host
+      : null;
+  }
+  return false;
+};
+
+const isInsidePublicCaptureInertFragment = (element: Element) => {
+  const root = element.getRootNode?.();
+  return Boolean(root && root.nodeType === 11 && !('host' in root));
+};
+
 export const getPublicCapturableIframes = (root: ParentNode) => (
-  Array.from(root.querySelectorAll('iframe')).filter(frame => !frame.closest(PUBLIC_DELIVERY_EXCLUDE_SELECTOR))
+  getPublicComposedCaptureElements(root).filter((element): element is HTMLIFrameElement => (
+    element.tagName.toLowerCase() === 'iframe' && !isInsidePublicDeliveryExcludedTree(element)
+  ))
 );
+
+const appendReadableAdoptedStyles = (
+  source: DocumentOrShadowRoot,
+  target: ParentNode,
+  doc: Document,
+  snapshot: PublicCaptureResourceSnapshot,
+) => {
+  for (const sheet of Array.from(source.adoptedStyleSheets ?? [])) {
+    let cssText = '';
+    try {
+      cssText = Array.from(sheet.cssRules, rule => (
+        rewritePublicCaptureCssUrls(rule.cssText, sheet.href || doc.baseURI)
+      )).join('\n');
+    } catch (error) {
+      throw new PublicDeliveryError(
+        'capture-failed',
+        '预览样式无法安全冻结，未生成不完整的交付产物。',
+        { cause: error },
+      );
+    }
+    if (!cssText) continue;
+    const style = doc.createElement('style');
+    style.textContent = snapshot.rewriteCss(cssText, sheet.href || doc.baseURI);
+    target.appendChild(style);
+  }
+};
+
+type PublicCaptureElementRuntimeState =
+  | Readonly<{
+      bitmap: HTMLCanvasElement;
+      height: number;
+      kind: 'canvas';
+      width: number;
+    }>
+  | Readonly<{
+      checked: boolean;
+      indeterminate: boolean;
+      kind: 'input';
+      value: string;
+    }>
+  | Readonly<{
+      kind: 'textarea';
+      value: string;
+    }>
+  | Readonly<{
+      kind: 'select';
+      multiple: boolean;
+      selected: readonly boolean[];
+      selectedIndex: number;
+    }>
+  | Readonly<{
+      kind: 'option';
+      selected: boolean;
+    }>
+  | Readonly<{
+      kind: 'details' | 'dialog';
+      open: boolean;
+    }>
+  | Readonly<{
+      kind: 'output';
+      value: string;
+    }>
+  | Readonly<{
+      kind: 'progress';
+      max: number;
+      value: number;
+    }>
+  | Readonly<{
+      high: number;
+      kind: 'meter';
+      low: number;
+      max: number;
+      min: number;
+      optimum: number;
+      value: number;
+    }>;
+
+type PublicCaptureRuntimeState = Readonly<{
+  cleanup: () => void;
+  elements: ReadonlyMap<Element, PublicCaptureElementRuntimeState>;
+}>;
+
+const throwUnsupportedPublicCaptureLiveState = (message: string) => {
+  throw new PublicDeliveryError(
+    'capture-failed',
+    `${message}，浏览器无法生成确定的静态图片；请下载 HTML 交付。`,
+  );
+};
+
+const createPublicCaptureRuntimeState = (root: ParentNode): PublicCaptureRuntimeState => {
+  const states = new Map<Element, PublicCaptureElementRuntimeState>();
+  const ownedCanvases: HTMLCanvasElement[] = [];
+  let canvasPixels = 0;
+  const cleanup = () => {
+    for (const canvas of ownedCanvases) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+    ownedCanvases.length = 0;
+    states.clear();
+  };
+
+  try {
+    for (const element of getPublicComposedCaptureElements(root)) {
+      if (isInsidePublicDeliveryExcludedTree(element)) continue;
+      const tagName = element.tagName.toLowerCase();
+      if (tagName === 'video' || tagName === 'audio') {
+        throwUnsupportedPublicCaptureLiveState('预览包含无法冻结当前帧的音视频');
+      }
+      if (tagName === 'input') {
+        const input = element as HTMLInputElement;
+        if (input.type.toLowerCase() === 'file' && (input.files?.length ?? 0) > 0) {
+          throwUnsupportedPublicCaptureLiveState('预览包含无法复制的本地文件选择');
+        }
+        states.set(element, {
+          checked: input.checked,
+          indeterminate: input.indeterminate,
+          kind: 'input',
+          value: input.value,
+        });
+        continue;
+      }
+      if (tagName === 'textarea') {
+        states.set(element, { kind: 'textarea', value: (element as HTMLTextAreaElement).value });
+        continue;
+      }
+      if (tagName === 'select') {
+        const select = element as HTMLSelectElement;
+        states.set(element, {
+          kind: 'select',
+          multiple: select.multiple,
+          selected: Array.from(select.options, option => option.selected),
+          selectedIndex: select.selectedIndex,
+        });
+        continue;
+      }
+      if (tagName === 'option') {
+        states.set(element, { kind: 'option', selected: (element as HTMLOptionElement).selected });
+        continue;
+      }
+      if (tagName === 'details') {
+        states.set(element, { kind: 'details', open: (element as HTMLDetailsElement).open });
+        continue;
+      }
+      if (tagName === 'dialog') {
+        states.set(element, { kind: 'dialog', open: (element as HTMLDialogElement).open });
+        continue;
+      }
+      if (tagName === 'output') {
+        states.set(element, { kind: 'output', value: (element as HTMLOutputElement).value });
+        continue;
+      }
+      if (tagName === 'progress') {
+        const progress = element as HTMLProgressElement;
+        if (!progress.hasAttribute('value')) {
+          throwUnsupportedPublicCaptureLiveState('预览包含持续变化的不确定进度条');
+        }
+        states.set(element, { kind: 'progress', max: progress.max, value: progress.value });
+        continue;
+      }
+      if (tagName === 'meter') {
+        const meter = element as HTMLMeterElement;
+        states.set(element, {
+          high: meter.high,
+          kind: 'meter',
+          low: meter.low,
+          max: meter.max,
+          min: meter.min,
+          optimum: meter.optimum,
+          value: meter.value,
+        });
+        continue;
+      }
+      if (tagName !== 'canvas') continue;
+
+      const sourceCanvas = element as HTMLCanvasElement;
+      const { height, width } = sourceCanvas;
+      const pixels = height * width;
+      if (
+        height > PUBLIC_CAPTURE_MAX_CANVAS_DIMENSION
+        || width > PUBLIC_CAPTURE_MAX_CANVAS_DIMENSION
+        || pixels > PUBLIC_CAPTURE_MAX_CANVAS_PIXELS - canvasPixels
+      ) {
+        throw new PublicDeliveryError(
+          'capture-too-large',
+          '预览画布尺寸超过浏览器安全截图上限，请缩小内容后重试。',
+        );
+      }
+      canvasPixels += pixels;
+      const bitmap = sourceCanvas.ownerDocument.createElement('canvas');
+      bitmap.width = width;
+      bitmap.height = height;
+      ownedCanvases.push(bitmap);
+      if (width > 0 && height > 0) {
+        const context = bitmap.getContext('2d');
+        if (!context) throw new Error('Canvas 2D snapshot context is unavailable.');
+        context.drawImage(sourceCanvas, 0, 0);
+        // Canvas taint is global: reading one pixel proves the entire copied
+        // bitmap is origin-clean before it reaches either screenshot runtime.
+        context.getImageData(0, 0, 1, 1);
+      }
+      states.set(element, { bitmap, height, kind: 'canvas', width });
+    }
+    return { cleanup, elements: states };
+  } catch (error) {
+    cleanup();
+    if (error instanceof PublicDeliveryError) throw error;
+    throw new PublicDeliveryError(
+      'capture-failed',
+      '预览画布无法安全冻结，未生成不完整的交付产物。',
+      { cause: error },
+    );
+  }
+};
+
+const restorePublicCaptureRuntimeState = (
+  source: Element,
+  target: Element,
+  runtime: PublicCaptureRuntimeState,
+) => {
+  if (
+    isInsidePublicDeliveryExcludedTree(source)
+    || isInsidePublicCaptureInertFragment(source)
+  ) return;
+  const tagName = source.tagName.toLowerCase();
+  const state = runtime.elements.get(source);
+  const requireState = <T extends PublicCaptureElementRuntimeState['kind']>(kind: T) => {
+    if (!state || state.kind !== kind) {
+      throw new PublicDeliveryError(
+        'capture-failed',
+        '预览在截图准备期间发生变化，未生成不一致的交付产物。',
+      );
+    }
+    return state as Extract<PublicCaptureElementRuntimeState, { kind: T }>;
+  };
+
+  if (tagName === 'canvas') {
+    const canvasState = requireState('canvas');
+    const canvas = target as HTMLCanvasElement;
+    canvas.width = canvasState.width;
+    canvas.height = canvasState.height;
+    if (canvasState.width > 0 && canvasState.height > 0) {
+      const context = canvas.getContext('2d');
+      if (!context) throwUnsupportedPublicCaptureLiveState('预览画布无法复制');
+      context.drawImage(canvasState.bitmap, 0, 0);
+    }
+    return;
+  }
+  if (tagName === 'input') {
+    const inputState = requireState('input');
+    const input = target as HTMLInputElement;
+    input.setAttribute('value', inputState.value);
+    if (input.type.toLowerCase() !== 'file') input.value = inputState.value;
+    input.toggleAttribute('checked', inputState.checked);
+    input.checked = inputState.checked;
+    input.indeterminate = inputState.indeterminate;
+    return;
+  }
+  if (tagName === 'textarea') {
+    const textareaState = requireState('textarea');
+    const textarea = target as HTMLTextAreaElement;
+    textarea.textContent = textareaState.value;
+    textarea.value = textareaState.value;
+    return;
+  }
+  if (tagName === 'select') {
+    const selectState = requireState('select');
+    const select = target as HTMLSelectElement;
+    if (select.options.length !== selectState.selected.length) {
+      throw new PublicDeliveryError(
+        'capture-failed',
+        '预览选项在截图准备期间发生变化，未生成不一致的交付产物。',
+      );
+    }
+    Array.from(select.options).forEach((option, index) => {
+      const selected = selectState.selected[index] ?? false;
+      option.toggleAttribute('selected', selected);
+      option.selected = selected;
+    });
+    if (!selectState.multiple) select.selectedIndex = selectState.selectedIndex;
+    return;
+  }
+  if (tagName === 'option') {
+    const optionState = requireState('option');
+    const option = target as HTMLOptionElement;
+    option.toggleAttribute('selected', optionState.selected);
+    option.selected = optionState.selected;
+    return;
+  }
+  if (tagName === 'details' || tagName === 'dialog') {
+    const openState = requireState(tagName);
+    target.toggleAttribute('open', openState.open);
+    (target as HTMLDetailsElement | HTMLDialogElement).open = openState.open;
+    return;
+  }
+  if (tagName === 'output') {
+    const outputState = requireState('output');
+    const output = target as HTMLOutputElement;
+    output.textContent = outputState.value;
+    output.value = outputState.value;
+    return;
+  }
+  if (tagName === 'progress') {
+    const progressState = requireState('progress');
+    const progress = target as HTMLProgressElement;
+    progress.max = progressState.max;
+    progress.value = progressState.value;
+    return;
+  }
+  if (tagName === 'meter') {
+    const meterState = requireState('meter');
+    const meter = target as HTMLMeterElement;
+    meter.min = meterState.min;
+    meter.max = meterState.max;
+    meter.low = meterState.low;
+    meter.high = meterState.high;
+    meter.optimum = meterState.optimum;
+    meter.value = meterState.value;
+  }
+};
+
+const PUBLIC_CAPTURE_CLONE_CSS_ATTRIBUTES = new Set([
+  'background',
+  'clip-path',
+  'cursor',
+  'fill',
+  'filter',
+  'marker',
+  'marker-end',
+  'marker-mid',
+  'marker-start',
+  'mask',
+  'mask-image',
+  'stroke',
+  'style',
+]);
+
+const clonePublicCaptureNode = (
+  source: Node,
+  doc: Document,
+  snapshot: PublicCaptureResourceSnapshot,
+  runtime: PublicCaptureRuntimeState,
+): Node | null => {
+  if (source.nodeType === 3) return doc.createTextNode(source.nodeValue ?? '');
+  if (source.nodeType === 8) return doc.createComment(source.nodeValue ?? '');
+  if (source.nodeType !== 1) return null;
+  const sourceElement = source as Element;
+  const tagName = sourceElement.tagName.toLowerCase();
+  if (tagName === 'script') return null;
+  const isStylesheetLink = tagName === 'link'
+    && /(?:^|\s)stylesheet(?:\s|$)/iu.test(sourceElement.getAttribute('rel') ?? '');
+  // Resource hints have no visual output, but cloning even while detached can
+  // start a second author request. Omit them from the operation-owned tree.
+  if (tagName === 'link' && !isStylesheetLink) return null;
+  if (isStylesheetLink && !sourceElement.getAttribute('href')) return null;
+  const qualifiedName = sourceElement.prefix
+    ? `${sourceElement.prefix}:${sourceElement.localName}`
+    : sourceElement.localName;
+  const cloneElement = doc.createElementNS(sourceElement.namespaceURI, qualifiedName);
+  const baseUrl = sourceElement.baseURI || sourceElement.ownerDocument.baseURI;
+  for (const attribute of Array.from(sourceElement.attributes)) {
+    const attributeName = attribute.name.toLowerCase();
+    if (
+      (tagName === 'iframe' && (attributeName === 'src' || attributeName === 'srcdoc'))
+      || ((tagName === 'audio' || tagName === 'video' || tagName === 'track' || tagName === 'embed') && attributeName === 'src')
+      || (tagName === 'object' && attributeName === 'data')
+    ) continue;
+    let value = attribute.value;
+    if (attributeName === 'srcset' && (tagName === 'img' || tagName === 'source')) {
+      value = snapshot.rewriteSrcset(value, baseUrl);
+    } else if (
+      (attributeName === 'src' && (
+        tagName === 'img'
+        || tagName === 'source'
+        || tagName === 'mglyph'
+        || (tagName === 'input' && (sourceElement.getAttribute('type') ?? '').toLowerCase() === 'image')
+      ))
+      || (attributeName === 'poster' && tagName === 'video')
+      || (attributeName === 'href' && (isStylesheetLink || tagName === 'image' || tagName === 'use' || tagName === 'feimage'))
+      || (attributeName === 'xlink:href' && (tagName === 'image' || tagName === 'use' || tagName === 'feimage'))
+    ) {
+      value = snapshot.resolve(value, baseUrl);
+    } else if (PUBLIC_CAPTURE_CLONE_CSS_ATTRIBUTES.has(attributeName)) {
+      value = attributeName === 'background'
+        ? snapshot.resolve(value, baseUrl)
+        : snapshot.rewriteCss(value, baseUrl);
+    }
+    cloneElement.setAttributeNS(attribute.namespaceURI, attribute.name, value);
+  }
+  if (tagName === 'style') {
+    cloneElement.textContent = snapshot.rewriteCss(sourceElement.textContent ?? '', baseUrl);
+  } else {
+    for (const child of Array.from(source.childNodes)) {
+      const childClone = clonePublicCaptureNode(child, doc, snapshot, runtime);
+      if (childClone) cloneElement.appendChild(childClone);
+    }
+  }
+  if (sourceElement.tagName.toLowerCase() === 'template' && 'content' in sourceElement && 'content' in cloneElement) {
+    const sourceTemplate = sourceElement as HTMLTemplateElement;
+    const cloneTemplate = cloneElement as HTMLTemplateElement;
+    for (const child of Array.from(sourceTemplate.content.childNodes)) {
+      const childClone = clonePublicCaptureNode(child, doc, snapshot, runtime);
+      if (childClone) cloneTemplate.content.appendChild(childClone);
+    }
+  }
+  if ('disabled' in sourceElement && 'disabled' in cloneElement) {
+    (cloneElement as HTMLLinkElement | HTMLStyleElement).disabled = Boolean(
+      (sourceElement as HTMLLinkElement | HTMLStyleElement).disabled,
+    );
+  }
+  const sourceShadow = sourceElement.shadowRoot;
+  if (sourceShadow) {
+    let cloneShadow = cloneElement.shadowRoot;
+    if (!cloneShadow) {
+      try {
+        cloneShadow = cloneElement.attachShadow({ mode: 'open' });
+      } catch (error) {
+        throw new PublicDeliveryError(
+          'capture-failed',
+          '预览开放 Shadow DOM 无法安全复制，未生成不完整的交付产物。',
+          { cause: error },
+        );
+      }
+    }
+    cloneShadow.replaceChildren();
+    for (const child of Array.from(sourceShadow.childNodes)) {
+      const childClone = clonePublicCaptureNode(child, doc, snapshot, runtime);
+      if (childClone) cloneShadow.appendChild(childClone);
+    }
+    appendReadableAdoptedStyles(sourceShadow, cloneShadow, doc, snapshot);
+  }
+  restorePublicCaptureRuntimeState(sourceElement, cloneElement, runtime);
+  return cloneElement;
+};
+
+const appendOwnerShadowStyles = (
+  source: HTMLElement,
+  target: ShadowRoot,
+  snapshot: PublicCaptureResourceSnapshot,
+) => {
+  const shadows: ShadowRoot[] = [];
+  let owner: Node = source;
+  while (owner.getRootNode) {
+    const root = owner.getRootNode();
+    if (root.nodeType !== 11 || !('host' in root)) break;
+    shadows.push(root as ShadowRoot);
+    owner = (root as ShadowRoot).host;
+  }
+  for (const shadow of shadows.reverse()) {
+    for (const style of Array.from(shadow.querySelectorAll('style'))) {
+      const clone = source.ownerDocument.createElement('style');
+      clone.media = style.media;
+      clone.disabled = style.disabled;
+      clone.textContent = snapshot.rewriteCss(
+        style.textContent ?? '',
+        style.baseURI || source.ownerDocument.baseURI,
+      );
+      target.appendChild(clone);
+    }
+    for (const link of Array.from(shadow.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'))) {
+      const clone = source.ownerDocument.createElement('link');
+      clone.rel = 'stylesheet';
+      clone.href = snapshot.resolve(link.getAttribute('href') ?? link.href, link.baseURI);
+      clone.media = link.media;
+      clone.disabled = link.disabled;
+      target.appendChild(clone);
+    }
+    appendReadableAdoptedStyles(shadow, target, source.ownerDocument, snapshot);
+  }
+};
 
 const createRenderedDocumentCaptureTarget = async (input: PublicDeliveryInput) => {
   const originalFrames = getPublicCapturableIframes(input.previewRoot);
-  const hasExcludedNodes = Boolean(input.previewRoot.querySelector(PUBLIC_DELIVERY_EXCLUDE_SELECTOR));
-  if (originalFrames.length === 0 && !hasExcludedNodes) return null;
   const doc = input.previewRoot.ownerDocument;
   if (!doc.defaultView || !doc.body) {
     throw new PublicDeliveryError('capture-not-ready', '当前环境无法初始化混合内容截图。');
@@ -621,18 +1154,57 @@ const createRenderedDocumentCaptureTarget = async (input: PublicDeliveryInput) =
   const paperColor = getPublicThemePaperColor(input.theme);
   reset.textContent = `:host{all:initial;display:block;width:${captureWidth}px;background:${paperColor};${themeVariables};}*{box-sizing:border-box;}img,svg,canvas,video,table{max-width:100%;}`;
   shadow.appendChild(reset);
-  appendReadableDocumentStyles(doc, shadow);
-
-  const target = input.previewRoot.cloneNode(true) as HTMLElement;
-  target.querySelectorAll(PUBLIC_DELIVERY_EXCLUDE_SELECTOR).forEach(node => node.remove());
-  target.removeAttribute('contenteditable');
-  target.querySelectorAll('[contenteditable]').forEach(node => node.removeAttribute('contenteditable'));
-  const clonedFrames = Array.from(target.querySelectorAll('iframe'));
   const replacements: HTMLImageElement[] = [];
+  let resourceSnapshot: PublicCaptureResourceSnapshot | undefined;
+  let runtimeState: PublicCaptureRuntimeState | undefined;
   try {
+    for (const sourceFrame of originalFrames) {
+      const srcDoc = sourceFrame.getAttribute('srcdoc') ?? sourceFrame.srcdoc ?? '';
+      if (!srcDoc) {
+        throw new PublicDeliveryError('capture-failed', '预览包含尚未完成的 iframe，未生成不完整的交付产物。');
+      }
+      await assertStaticCaptureMarkup(srcDoc);
+    }
+    // Snapshot every non-attribute visual state before awaiting author resource
+    // fetches. The manual clone must preserve the exact click-time bitmap and
+    // form state without ever invoking cloneNode on an author element.
+    runtimeState = createPublicCaptureRuntimeState(input.previewRoot);
+    // Freeze every author-controlled byte before creating any element clone.
+    // Chromium can refetch a loaded image from cloneNode(true) even when the
+    // clone is never connected, so a detached host is not itself isolation.
+    resourceSnapshot = await createPublicCaptureResourceSnapshot(input.previewRoot, input.signal, {
+      includeIframes: false,
+    });
+    appendReadableDocumentStyles(doc, shadow, resourceSnapshot);
+    appendOwnerShadowStyles(input.previewRoot, shadow, resourceSnapshot);
+
+    let targetNode: Node | null;
+    try {
+      targetNode = clonePublicCaptureNode(input.previewRoot, doc, resourceSnapshot, runtimeState);
+    } finally {
+      runtimeState.cleanup();
+      runtimeState = undefined;
+    }
+    const target = targetNode;
+    if (!(target instanceof doc.defaultView.HTMLElement)) {
+      throw new PublicDeliveryError('capture-failed', '预览无法安全复制，未生成不完整的交付产物。');
+    }
+    getPublicComposedCaptureElements(target)
+      .filter(node => node.matches(PUBLIC_DELIVERY_EXCLUDE_SELECTOR))
+      .forEach(node => node.remove());
+    target.removeAttribute('contenteditable');
+    getPublicComposedCaptureElements(target)
+      .filter(node => node.hasAttribute('contenteditable'))
+      .forEach(node => node.removeAttribute('contenteditable'));
+    shadow.appendChild(target);
+    const clonedFrames = getPublicCapturableIframes(target);
     if (clonedFrames.length !== originalFrames.length) {
       throw new PublicDeliveryError('capture-failed', '预览 iframe 数量不一致，未生成不完整的交付产物。');
     }
+    // This is now an idempotent assertion: every resource-bearing attribute was
+    // written with an operation-owned Blob URL during manual clone creation.
+    applyPublicCaptureResourceSnapshot(target, resourceSnapshot, { includeIframes: false });
+
     for (let index = 0; index < clonedFrames.length; index += 1) {
       throwIfCaptureAborted(input.signal);
       const frame = clonedFrames[index];
@@ -662,7 +1234,6 @@ const createRenderedDocumentCaptureTarget = async (input: PublicDeliveryInput) =
     }
 
     target.style.width = `${captureWidth}px`;
-    shadow.appendChild(target);
     doc.body.appendChild(host);
     await waitForCaptureStylesheets(shadow, input.signal);
     throwIfCaptureAborted(input.signal);
@@ -699,13 +1270,17 @@ const createRenderedDocumentCaptureTarget = async (input: PublicDeliveryInput) =
       cleanup: () => {
         host.remove();
         objectUrls.forEach(url => URL.revokeObjectURL(url));
+        resourceSnapshot?.cleanup();
       },
+      resourceSnapshot,
       target,
     };
   } catch (error) {
     host.remove();
     preparedFrames.forEach(prepared => prepared.cleanup());
     objectUrls.forEach(url => URL.revokeObjectURL(url));
+    runtimeState?.cleanup();
+    resourceSnapshot?.cleanup();
     throw error;
   }
 };
@@ -912,12 +1487,26 @@ const captureRegularElementToCanvas = async (
   {
     backgroundColor,
     height,
+    resourceSnapshot,
     signal,
     width,
-  }: { backgroundColor: string; height: number; signal?: AbortSignal; width: number },
+  }: {
+    backgroundColor: string;
+    height: number;
+    resourceSnapshot: PublicCaptureResourceSnapshot;
+    signal?: AbortSignal;
+    width: number;
+  },
 ) => {
   throwIfCaptureAborted(signal);
-  await assertPublicCaptureResourcesReadable(captureTarget, signal);
+  // This function is intentionally limited to the operation-owned raw HTML
+  // iframe. Its source tree was frozen before srcdoc insertion; applying the
+  // snapshot again is an idempotent fail-closed assertion before html2canvas
+  // performs its synchronous document clone. No late onclone callback is
+  // allowed to reintroduce an author URL after timeout cleanup.
+  applyPublicCaptureResourceSnapshot(captureTarget, resourceSnapshot, {
+    materializeDocumentAdoptedStyles: true,
+  });
   const html2canvas = await loadDeliveryHtml2Canvas({
     signal,
     timeoutMessage: '图片引擎加载超时，请检查网络后重试。',
@@ -936,7 +1525,7 @@ const captureRegularElementToCanvas = async (
       scale: PUBLIC_CAPTURE_SCALE,
       scrollX: view?.scrollX ?? 0,
       scrollY: view?.scrollY ?? 0,
-      useCORS: true,
+      useCORS: false,
       width,
       windowHeight: Math.max(height, doc.documentElement?.scrollHeight ?? 0, view?.innerHeight ?? 0),
       windowWidth: Math.max(width, doc.documentElement?.scrollWidth ?? 0, view?.innerWidth ?? 0),
@@ -951,12 +1540,23 @@ const captureIsolatedElementToCanvas = async (
   {
     backgroundColor,
     height,
+    resourceSnapshot,
     signal,
     width,
-  }: { backgroundColor: string; height: number; signal?: AbortSignal; width: number },
+  }: {
+    backgroundColor: string;
+    height: number;
+    resourceSnapshot: PublicCaptureResourceSnapshot;
+    signal?: AbortSignal;
+    width: number;
+  },
 ) => {
   throwIfCaptureAborted(signal);
-  await assertPublicCaptureResourcesReadable(captureTarget, signal);
+  // createRenderedDocumentCaptureTarget already froze and rewrote this
+  // detached clone before its host entered the document. Re-apply only as an
+  // idempotent assertion; the screenshot callbacks never need author URLs.
+  applyPublicCaptureResourceSnapshot(captureTarget, resourceSnapshot, { includeIframes: false });
+  await waitForPreviewAssets(captureTarget, signal);
   const { createContext, destroyContext, domToCanvas } = await loadDeliveryModernScreenshot({
     signal,
     timeoutMessage: '图片引擎加载超时，请检查网络后重试。',
@@ -965,6 +1565,7 @@ const captureIsolatedElementToCanvas = async (
     () => createContext(captureTarget, {
       autoDestruct: false,
       backgroundColor,
+      fetchFn: resourceSnapshot.fetchFrozenImage,
       fetch: {
         placeholderImage: PUBLIC_CAPTURE_FAILED_RESOURCE_PLACEHOLDER,
         requestInit: {
@@ -1062,26 +1663,20 @@ export const capturePublicPreviewPng = async (input: PublicDeliveryInput): Promi
   }
 
   const isolatedCapture = await createRenderedDocumentCaptureTarget(input);
-  const captureTarget = isolatedCapture?.target ?? input.previewRoot;
+  const captureTarget = isolatedCapture.target;
 
   try {
     await waitForPreviewAssets(captureTarget, input.signal);
     input.assertCurrent?.();
     const { height, width } = getCaptureSize(captureTarget);
     validateCaptureSize({ height, width });
-    const canvas = isolatedCapture
-      ? await captureIsolatedElementToCanvas(captureTarget, {
-          backgroundColor,
-          height,
-          signal: input.signal,
-          width,
-        })
-      : await captureRegularElementToCanvas(captureTarget, {
-          backgroundColor,
-          height,
-          signal: input.signal,
-          width,
-        });
+    const canvas = await captureIsolatedElementToCanvas(captureTarget, {
+      backgroundColor,
+      height,
+      resourceSnapshot: isolatedCapture.resourceSnapshot,
+      signal: input.signal,
+      width,
+    });
     try {
       input.assertCurrent?.();
       const blob = await canvasToPngBlob(canvas, { signal: input.signal });
@@ -1095,6 +1690,6 @@ export const capturePublicPreviewPng = async (input: PublicDeliveryInput): Promi
     if (error instanceof PublicDeliveryError) throw error;
     throw new PublicDeliveryError('capture-failed', '图片生成失败，请检查预览内容后重试。', { cause: error });
   } finally {
-    isolatedCapture?.cleanup();
+    isolatedCapture.cleanup();
   }
 };

@@ -24,7 +24,7 @@ test('AI modify applies only to an unchanged source and exact selection', () => 
 
 test('AI generate adopts only after the slash source snapshot is unchanged', () => {
   const source = '# Title\n/AI';
-  const snapshot = { source, range: { start: source.indexOf('/AI'), end: source.length } };
+  const snapshot = { source, sourceKind: 'markdown' as const, range: { start: source.indexOf('/AI'), end: source.length } };
   assert.equal(applyPublicAiGenerateResult(source, snapshot, '\nGenerated\n'), '# Title\nGenerated');
   assert.throws(() => applyPublicAiGenerateResult('# Changed\n/AI', snapshot, 'Generated'), PublicAiStaleSourceError);
 });
@@ -33,7 +33,7 @@ test('AI provider errors remain explicit without exposing request contents', () 
   const labels = {
     failed: 'failed', missing: 'missing', unauthorized: 'unauthorized', notFound: 'not-found',
     rateLimited: 'rate-limited', server: 'server', network: 'network', invalid: 'invalid',
-    timeout: 'timeout', cancelled: 'cancelled', tooLarge: 'too-large',
+    timeout: 'timeout', cancelled: 'cancelled', tooLarge: 'too-large', privacyBlocked: 'privacy-blocked',
   } as Parameters<typeof getPublicAiRequestErrorMessage>[1];
   assert.equal(getPublicAiRequestErrorMessage({ code: 'missing_config' }, labels), 'missing');
   assert.equal(getPublicAiRequestErrorMessage({ code: 'unauthorized' }, labels), 'unauthorized');
@@ -46,13 +46,15 @@ test('AI provider errors remain explicit without exposing request contents', () 
   assert.equal(getPublicAiRequestErrorMessage({ code: 'timeout' }, labels), 'timeout');
   assert.equal(getPublicAiRequestErrorMessage({ code: 'aborted' }, labels), 'cancelled');
   assert.equal(getPublicAiRequestErrorMessage({ code: 'input_too_large' }, labels), 'too-large');
+  assert.equal(getPublicAiRequestErrorMessage({ code: 'privacy_unsafe_input' }, labels), 'privacy-blocked');
+  assert.equal(getPublicAiRequestErrorMessage({ code: 'privacy_unsafe_response' }, labels), 'privacy-blocked');
 });
 
 test('AI panel maps a locally detected empty adapter result to the explicit invalid-response message', () => {
   const labels = {
     failed: 'failed', missing: 'missing', unauthorized: 'unauthorized', notFound: 'not-found',
     rateLimited: 'rate-limited', server: 'server', network: 'network', invalid: 'invalid',
-    timeout: 'timeout', cancelled: 'cancelled', tooLarge: 'too-large',
+    timeout: 'timeout', cancelled: 'cancelled', tooLarge: 'too-large', privacyBlocked: 'privacy-blocked',
   } as Parameters<typeof getPublicAiRequestErrorMessage>[1];
   assert.throws(
     () => ensurePublicAiResponseText('  '),

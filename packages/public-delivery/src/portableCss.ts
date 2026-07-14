@@ -1,3 +1,5 @@
+import { findPublicCssImportOccurrences } from './captureResourceScanner';
+
 export type PortableCssUrlOccurrence = {
   end: number;
   start: number;
@@ -110,61 +112,5 @@ export const findPortableCssUrlOccurrences = (cssText: string) => {
 };
 
 export const findPortableCssImportOccurrences = (cssText: string) => {
-  const occurrences: PortableCssImportOccurrence[] = [];
-  let index = 0;
-  while (index < cssText.length) {
-    const character = cssText[index];
-    if (character === '"' || character === "'") {
-      index = skipQuotedValue(cssText, index);
-      continue;
-    }
-    if (character === '/' && cssText[index + 1] === '*') {
-      const end = cssText.indexOf('*/', index + 2);
-      index = end === -1 ? cssText.length : end + 2;
-      continue;
-    }
-    if (cssText.slice(index, index + 7).toLowerCase() !== '@import' || /[-\w]/u.test(cssText[index + 7] ?? '')) {
-      index += 1;
-      continue;
-    }
-    const start = index;
-    index += 7;
-    while (/\s/u.test(cssText[index] ?? '')) index += 1;
-    let value = '';
-    const urlOccurrence = readUrlFunction(cssText, index);
-    if (urlOccurrence) {
-      value = urlOccurrence.value;
-      index = urlOccurrence.end;
-    } else if (cssText[index] === '"' || cssText[index] === "'") {
-      const quote = cssText[index];
-      const valueStart = index + 1;
-      const quotedEnd = skipQuotedValue(cssText, index);
-      if (quotedEnd === cssText.length && cssText[cssText.length - 1] !== quote) continue;
-      value = decodePortableCssEscapes(cssText.slice(valueStart, Math.max(valueStart, quotedEnd - 1)));
-      index = quotedEnd;
-    } else {
-      continue;
-    }
-    const conditionStart = index;
-    let parentheses = 0;
-    while (index < cssText.length) {
-      if (cssText[index] === '"' || cssText[index] === "'") {
-        index = skipQuotedValue(cssText, index);
-        continue;
-      }
-      if (cssText[index] === '(') parentheses += 1;
-      else if (cssText[index] === ')' && parentheses > 0) parentheses -= 1;
-      else if (cssText[index] === ';' && parentheses === 0) break;
-      index += 1;
-    }
-    if (cssText[index] !== ';') continue;
-    occurrences.push({
-      start,
-      end: index + 1,
-      value,
-      condition: cssText.slice(conditionStart, index),
-    });
-    index += 1;
-  }
-  return occurrences;
+  return findPublicCssImportOccurrences(cssText) as readonly PortableCssImportOccurrence[];
 };

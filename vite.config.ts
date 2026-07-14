@@ -3,6 +3,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { CAPABILITY_DEFINITIONS } from './packages/core/src/oss-capabilities.js';
 import { resolveBuildConfig } from './scripts/build-config.mjs';
+import { createOssBundleBudgetPlugin, resolveOssManualChunk } from './scripts/oss-bundle-budget.mjs';
 
 const buildConfig = resolveBuildConfig({ projectDir: __dirname, env: process.env });
 const buildProfileArtifact = {
@@ -34,12 +35,17 @@ export default defineConfig({
         });
       },
     },
+    createOssBundleBudgetPlugin(),
   ],
   build: {
     outDir: buildConfig.outDir,
     target: 'esnext',
     sourcemap: false,
     modulePreload: false,
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: { manualChunks: resolveOssManualChunk },
+    },
   },
   resolve: { alias: {
     '@morndraft/core/oss-public': path.resolve(__dirname, 'packages/core/src/oss-public.ts'),

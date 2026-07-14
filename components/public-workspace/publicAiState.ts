@@ -1,7 +1,8 @@
-import type { PublicTextSelection } from './types';
+import type { PublicAiSourceKind, PublicTextSelection } from './types';
 
 export type PublicAiGenerateSnapshot = {
   source: string;
+  sourceKind: PublicAiSourceKind;
   range: { start: number; end: number };
 };
 

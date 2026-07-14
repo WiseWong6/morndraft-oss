@@ -1,5 +1,11 @@
 import type React from 'react';
 import type {
+  PublicAiAction as SharedPublicAiAction,
+  PublicAiAdapter as SharedPublicAiAdapter,
+  PublicAiSourceKind as SharedPublicAiSourceKind,
+  PublicAiSourceRange as SharedPublicAiSourceRange,
+} from '@morndraft/features-personal/ai';
+import type {
   PublicDeliveryAdapter,
   PublicDeliveryContentType,
   PublicDeliveryTheme,
@@ -30,18 +36,10 @@ export interface PublicImportAdapter {
   importFiles(files: readonly File[]): Promise<ImportedDocument>;
 }
 
-export type PublicAiAction = 'generate' | 'modify' | 'summarize' | 'fix';
-
-export interface PublicAiAdapter {
-  request(input: {
-    action: PublicAiAction;
-    instruction?: string;
-    source?: string;
-    selectedText?: string;
-    visibleText?: string;
-    signal?: AbortSignal;
-  }): Promise<{ text: string; finishReason?: string }>;
-}
+export type PublicAiAction = SharedPublicAiAction;
+export type PublicAiAdapter = SharedPublicAiAdapter;
+export type PublicAiSourceKind = SharedPublicAiSourceKind;
+export type PublicAiSourceRange = SharedPublicAiSourceRange;
 
 export type PublicSyntaxEntry = {
   id: string;
@@ -60,6 +58,8 @@ export type PublicTextSelection = {
   start: number;
   end: number;
   text: string;
+  /** Set only when text came from a rendered DOM selection, not a source editor. */
+  visibleText?: string;
   sourceText?: string;
   source: string;
 };

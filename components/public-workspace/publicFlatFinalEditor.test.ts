@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getPublicMornDraftInsertEntries } from '@morndraft/core/oss-public';
+import {
+  createMornDraftFlatSourceEditMap,
+  getPublicMornDraftInsertEntries,
+} from '@morndraft/core/oss-public';
 import {
   isPublicMornDraftFlatHtml,
   patchPublicMornDraftFlatHtml,
   updatePublicFlatDraftValue,
 } from './PublicFlatFinalEditor';
+import { parsePublicMornDraftFlatHtml } from './publicMornDraftFlat';
 
 test('flat field changes use a captured value instead of a deferred DOM event', () => {
   const previous = { '$.title': 'Before', '$.items[0].label': 'Keep' };
@@ -32,6 +36,18 @@ test('all 30 canonical public flat entries keep structured Final editing', () =>
   for (const entry of entries) {
     const html = entry.source.replace(/^```html\n/u, '').replace(/\n```$/u, '');
     assert.equal(isPublicMornDraftFlatHtml(html), true, entry.id);
+    const structure = parsePublicMornDraftFlatHtml(html);
+    assert.ok(structure?.component && typeof structure.component === 'object', entry.id);
+    const sourceMap = createMornDraftFlatSourceEditMap(
+      JSON.stringify(structure.component, null, 2),
+    ) as Record<string, { value?: unknown }>;
+    const editablePath = Object.entries(sourceMap).find(([path, item]) => (
+      typeof item.value === 'string' && path !== '$.layout' && path !== '$.variant'
+    ))?.[0];
+    assert.ok(editablePath, `${entry.id} has no editable string field`);
+    const patched = patchPublicMornDraftFlatHtml(html, editablePath, `edited-${entry.id}`);
+    assert.ok(patched, `${entry.id} did not write its field back`);
+    assert.match(patched, new RegExp(`edited-${entry.id}`, 'u'), entry.id);
   }
 });
 

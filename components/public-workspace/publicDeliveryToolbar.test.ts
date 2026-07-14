@@ -22,6 +22,7 @@ test('delivery surfaces the clipboard fallback supplied by the public adapter', 
 
 test('delivery invalidates and aborts a stale action when source identity changes', async () => {
   const source = await readFile(new URL('PublicDeliveryToolbar.tsx', import.meta.url), 'utf8');
+  assert.match(source, /useEffect\(\(\) => \{[\s\S]*?actionGenerationRef\.current \+= 1;/u);
   assert.match(source, /actionGenerationRef\.current \+= 1;[\s\S]*?actionAbortRef\.current\?\.abort\(\);/u);
   assert.match(source, /\[documentEpoch, source, theme, title\]/u);
   assert.match(source, /const assertCurrent = \(\) => \{[\s\S]*?sourceRef\.current !== requestedSource[\s\S]*?themeRef\.current !== requestedTheme[\s\S]*?titleRef\.current !== requestedTitle/u);

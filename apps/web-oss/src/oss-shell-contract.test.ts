@@ -13,6 +13,7 @@ const read = (relativePath: string) => readFileSync(new URL(relativePath, import
 test('OSS entry mounts an independent public shell without commercial imports', () => {
   const entry = read('./index.ts');
   const shell = read('./OssShell.tsx');
+  const deliveryAdapter = read('./publicDeliveryAdapter.ts');
   const workspace = read('../../../components/public-workspace/PublicWorkspace.tsx');
   const publicDialog = read('../../../components/public-workspace/PublicDialog.tsx');
   const preview = read('../../../components/public-workspace/PublicFinalPreview.tsx');
@@ -23,7 +24,9 @@ test('OSS entry mounts an independent public shell without commercial imports', 
   assert.match(shell, /data-oss-shell="public"/);
   assert.match(shell, /<PublicWorkspace/);
   assert.match(shell, /createPublicAiAdapter/);
-  assert.match(shell, /createBrowserPublicDeliveryAdapter/);
+  assert.doesNotMatch(shell, /createBrowserPublicDeliveryAdapter/);
+  assert.match(shell, /import\('\.\/publicDeliveryAdapter'\)/);
+  assert.match(deliveryAdapter, /createBrowserPublicDeliveryAdapter/);
   assert.match(shell, /<PublicAiSettingsForm/);
   assert.match(shell, /deliveryAdapter=\{deliveryAdapter\}/);
   assert.match(shell, /onAiSettingsOpen=\{openAiSettings\}/);
@@ -63,6 +66,7 @@ test('OSS document routing keeps HTML in an explicit sandbox path', () => {
     fence: {
       opening: '```html',
       closing: '```',
+      marker: '```',
       openingLineBreak: '\n',
       closingLineBreak: '\n',
     },
@@ -80,6 +84,7 @@ test('OSS Mermaid policy sandboxes rendering and strictly sanitizes executable S
   assert.match(security, /securityLevel: 'strict'/);
   assert.match(security, /htmlLabels: false/);
   assert.match(diagram, /sandbox=""/);
+  assert.match(diagram, /import\('\.\/publicMermaidSecurity'\)/);
   assert.doesNotMatch(diagram, /dangerouslySetInnerHTML/);
   assert.throws(
     () => sanitizePublicMermaidSvg('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),

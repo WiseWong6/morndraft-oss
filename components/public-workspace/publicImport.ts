@@ -3,7 +3,11 @@ import {
   compressPublicImportImage,
   PublicImageCompressionError,
 } from './publicImageCompression';
-import { PUBLIC_IMPORT_LIMITS } from './publicImportContract';
+import {
+  PUBLIC_IMPORT_LIMITS,
+  PUBLIC_IMPORT_MAX_EXPANDED_SOURCE_LENGTH,
+  PUBLIC_IMPORT_MAX_IMAGE_REPLACEMENTS,
+} from './publicImportContract';
 export { PUBLIC_IMPORT_LIMITS } from './publicImportContract';
 
 export const PUBLIC_IMPORT_ACCEPT = [
@@ -13,6 +17,8 @@ export const PUBLIC_IMPORT_ACCEPT = [
 
 export type PublicImportErrorCode =
   | 'batch-too-large'
+  | 'document-too-complex'
+  | 'duplicate-image-name'
   | 'empty-import'
   | 'file-too-large'
   | 'multiple-documents'
@@ -105,7 +111,7 @@ export const resolvePublicImageDataUrl = async (file: File) => {
 };
 
 const getDecodedLocalImageBasename = (rawReference: string) => {
-  const reference = rawReference.trim().replace(/^<|>$/gu, '');
+  const reference = rawReference.trim();
   if (
     !reference || reference.startsWith('/') || reference.startsWith('\\') ||
     reference.startsWith('//') || /^[a-z][a-z\d+.-]*:/iu.test(reference)
@@ -122,26 +128,308 @@ const getDecodedLocalImageBasename = (rawReference: string) => {
   return normalized.split('/').filter(Boolean).at(-1) ?? null;
 };
 
-const isMatchingLocalImageReference = (reference: string, fileName: string) => (
-  getDecodedLocalImageBasename(reference)?.normalize('NFC').toLocaleLowerCase('en-US') ===
-  fileName.normalize('NFC').toLocaleLowerCase('en-US')
-);
+const normalizePublicImageName = (value: string) => value.normalize('NFC').toLocaleLowerCase('en-US');
+const getLocalImageReferenceKey = (reference: string) => {
+  const basename = getDecodedLocalImageBasename(reference);
+  return basename ? normalizePublicImageName(basename) : null;
+};
 
-const replaceLocalImageReferences = (source: string, fileName: string, dataUrl: string) => source
-  .replace(
-    /(!\[[^\]\r\n]*\]\(\s*)(<[^>\r\n]+>|[^\s)\r\n]+)(\s*(?:["'][^"'\r\n]*["'])?\))/giu,
-    (match, prefix: string, reference: string, suffix: string) => (
-      isMatchingLocalImageReference(reference, fileName) ? `${prefix}${dataUrl}${suffix}` : match
-    ),
+type PublicSourceReplacement = { end: number; start: number; value: string };
+type PublicImageReferenceResolver = (reference: string) => string | null;
+type PublicMarkdownImageScanMetrics = { maxSourceLength: number; parseCalls: number; steps: number };
+type PublicMarkdownToken = {
+  _tokenizer?: { events: PublicMarkdownEvent[] };
+  contentType?: string;
+  end: { offset?: number };
+  next?: PublicMarkdownToken;
+  previous?: PublicMarkdownToken;
+  start: { offset?: number };
+  type: string;
+};
+type PublicMarkdownEvent = ['enter' | 'exit', PublicMarkdownToken, unknown];
+
+type PublicMarkdownRuntime = {
+  decodeString(value: string): string;
+  parse: typeof import('micromark')['parse'];
+  postprocess: typeof import('micromark')['postprocess'];
+  preprocess: typeof import('micromark')['preprocess'];
+};
+let publicMarkdownRuntime: Promise<PublicMarkdownRuntime> | undefined;
+const loadPublicMarkdownRuntime = () => {
+  publicMarkdownRuntime ??= Promise.all([
+    import('micromark'),
+    import('micromark-util-decode-string'),
+  ]).then(([micromark, decoder]) => ({
+    decodeString: decoder.decodeString,
+    parse: micromark.parse,
+    postprocess: micromark.postprocess,
+    preprocess: micromark.preprocess,
+  }));
+  return publicMarkdownRuntime;
+};
+
+const getPublicMarkdownBudgetContext = (documentEvents: readonly PublicMarkdownEvent[]) => {
+  const flowEventLists = new Set<PublicMarkdownEvent[]>();
+  for (const [phase, token] of documentEvents) {
+    if (phase === 'enter' && token.type === 'chunkFlow' && token._tokenizer) {
+      flowEventLists.add(token._tokenizer.events);
+    }
+  }
+  const visited = new Set<PublicMarkdownToken>();
+  const blocks: Array<Array<{ end: number; start: number }>> = [];
+  const inertBlockRangeKeys = new Set<string>();
+  const inertBlockRanges: Array<readonly [number, number]> = [];
+  for (const flowEvents of flowEventLists) {
+    for (const [phase, token] of flowEvents) {
+      if (
+        phase === 'enter' &&
+        (token.type === 'codeFenced' || token.type === 'codeIndented' || token.type === 'htmlFlow')
+      ) {
+        const start = token.start.offset;
+        const end = token.end.offset;
+        const key = `${start}:${end}`;
+        if (start !== undefined && end !== undefined && end > start && !inertBlockRangeKeys.has(key)) {
+          inertBlockRangeKeys.add(key);
+          inertBlockRanges.push([start, end]);
+        }
+      }
+      if (phase !== 'enter' || token.type !== 'chunkText' || token.contentType !== 'text' || visited.has(token)) {
+        continue;
+      }
+      let first = token;
+      while (first.previous) first = first.previous;
+      const segments: Array<{ end: number; start: number }> = [];
+      for (let current: PublicMarkdownToken | undefined = first; current; current = current.next) {
+        if (visited.has(current)) break;
+        visited.add(current);
+        const start = current.start.offset;
+        const end = current.end.offset;
+        if (start !== undefined && end !== undefined && end > start) segments.push({ start, end });
+      }
+      if (segments.length > 0) blocks.push(segments);
+    }
+  }
+  inertBlockRanges.sort((left, right) => left[0] - right[0]);
+  return {
+    inertBlockRanges: Uint32Array.from(inertBlockRanges.flat()),
+    inlineBlocks: blocks,
+  };
+};
+
+const replaceMarkdownImageReferences = async (
+  source: string,
+  resolveReference: PublicImageReferenceResolver,
+  metrics?: PublicMarkdownImageScanMetrics,
+) => {
+  if (!source.includes('![')) {
+    if (metrics) metrics.steps = source.length;
+    return source;
+  }
+  if (metrics) {
+    metrics.maxSourceLength = Math.max(metrics.maxSourceLength, source.length);
+    metrics.parseCalls += 1;
+  }
+  const budget = await import('./publicImportMarkdownBudget');
+  try {
+    budget.assertPublicMarkdownDocumentShapeBudget(source);
+  } catch (error) {
+    if (error instanceof budget.PublicMarkdownImageDelimiterBudgetError) {
+      throw new PublicImportError('document-too-complex', error.message);
+    }
+    throw error;
+  }
+  const { decodeString, parse, postprocess, preprocess } = await loadPublicMarkdownRuntime();
+  const documentEvents = parse().document().write(preprocess()(source, undefined, true));
+  try {
+    const { inertBlockRanges, inlineBlocks } = getPublicMarkdownBudgetContext(
+      documentEvents as unknown as PublicMarkdownEvent[],
+    );
+    const inlineParser = parse();
+    const inlineHtmlRanges = budget.getPublicMarkdownInlineHtmlRanges(
+      source,
+      inlineBlocks,
+      (candidate, htmlStart) => inlineParser.text().write([candidate, null]).some(([phase, token]) => (
+        phase === 'enter' && token.type === 'htmlText' &&
+        token.start.offset === htmlStart && token.end.offset === candidate.length
+      )),
+    );
+    const steps = budget.assertPublicMarkdownImageDelimiterBudget(
+      source,
+      inlineBlocks,
+      inlineHtmlRanges,
+      inertBlockRanges,
+    );
+    if (metrics) metrics.steps = steps;
+  } catch (error) {
+    if (error instanceof budget.PublicMarkdownImageDelimiterBudgetError) {
+      throw new PublicImportError('document-too-complex', error.message);
+    }
+    throw error;
+  }
+  const events = postprocess(documentEvents);
+  if (metrics) metrics.steps += events.length;
+  const referencedLabels = new Set<string>();
+  const definitions: Array<{ destination: Omit<PublicSourceReplacement, 'value'>; label: string }> = [];
+  const replacements: PublicSourceReplacement[] = [];
+  const addReplacement = (replacement: PublicSourceReplacement) => {
+    if (replacements.length >= PUBLIC_IMPORT_MAX_IMAGE_REPLACEMENTS) {
+      throw new PublicImportError(
+        'document-too-complex',
+        `Markdown source exceeds the ${PUBLIC_IMPORT_MAX_IMAGE_REPLACEMENTS}-image-reference safety limit.`,
+      );
+    }
+    replacements.push(replacement);
+  };
+  const imageStack: Array<{ direct: boolean; label: string; reference: string }> = [];
+  const definitionStack: Array<{ destination: Omit<PublicSourceReplacement, 'value'> | null; label: string }> = [];
+  const normalizeIdentifier = (value: string) => decodeString(value)
+    .replace(/[\t\n\r ]+/gu, ' ')
+    .trim()
+    .toLowerCase()
+    .toUpperCase();
+  const getRange = (token: { start: { offset?: number }; end: { offset?: number } }) => {
+    const start = token.start.offset;
+    const end = token.end.offset;
+    return start === undefined || end === undefined ? null : { start, end };
+  };
+
+  for (const [phase, token] of events) {
+    if (phase === 'enter' && token.type === 'image') {
+      imageStack.push({ direct: false, label: '', reference: '' });
+      continue;
+    }
+    const image = imageStack.at(-1);
+    if (phase === 'enter' && image && token.type === 'labelText') {
+      const range = getRange(token);
+      if (range) image.label = source.slice(range.start, range.end);
+    } else if (phase === 'enter' && image && token.type === 'referenceString') {
+      const range = getRange(token);
+      if (range) image.reference = source.slice(range.start, range.end);
+    } else if (phase === 'enter' && image && token.type === 'resourceDestinationString') {
+      image.direct = true;
+      const range = getRange(token);
+      const value = range && range.end > range.start
+        ? resolveReference(decodeString(source.slice(range.start, range.end)))
+        : null;
+      if (range && value) addReplacement({ ...range, value });
+    } else if (phase === 'exit' && token.type === 'image') {
+      const completed = imageStack.pop();
+      if (completed && !completed.direct) {
+        const label = normalizeIdentifier(completed.reference || completed.label);
+        if (label) referencedLabels.add(label);
+      }
+      continue;
+    }
+
+    if (phase === 'enter' && token.type === 'definition') {
+      definitionStack.push({ destination: null, label: '' });
+      continue;
+    }
+    const definition = definitionStack.at(-1);
+    if (phase === 'enter' && definition && token.type === 'definitionLabelString') {
+      const range = getRange(token);
+      if (range) definition.label = normalizeIdentifier(source.slice(range.start, range.end));
+    } else if (phase === 'enter' && definition && token.type === 'definitionDestinationString') {
+      definition.destination = getRange(token);
+    } else if (phase === 'exit' && token.type === 'definition') {
+      const completed = definitionStack.pop();
+      if (completed?.label && completed.destination) definitions.push({
+        destination: completed.destination,
+        label: completed.label,
+      });
+    }
+  }
+
+  const seenDefinitions = new Set<string>();
+  for (const definition of definitions) {
+    if (seenDefinitions.has(definition.label)) continue;
+    seenDefinitions.add(definition.label);
+    const rawDestination = source.slice(definition.destination.start, definition.destination.end);
+    const value = referencedLabels.has(definition.label)
+      ? resolveReference(decodeString(rawDestination))
+      : null;
+    if (value) addReplacement({ ...definition.destination, value });
+  }
+  if (replacements.length === 0) return source;
+  replacements.sort((left, right) => left.start - right.start);
+  let expandedLength = source.length;
+  let budgetCursor = 0;
+  for (const replacement of replacements) {
+    if (replacement.start < budgetCursor) continue;
+    expandedLength += replacement.value.length - (replacement.end - replacement.start);
+    if (expandedLength > PUBLIC_IMPORT_MAX_EXPANDED_SOURCE_LENGTH) {
+      throw new PublicImportError(
+        'document-too-complex',
+        `Imported Source would exceed the ${PUBLIC_IMPORT_MAX_EXPANDED_SOURCE_LENGTH}-character expansion limit.`,
+      );
+    }
+    budgetCursor = replacement.end;
+  }
+  const chunks: string[] = [];
+  let sourceCursor = 0;
+  for (const replacement of replacements) {
+    if (replacement.start < sourceCursor) continue;
+    chunks.push(source.slice(sourceCursor, replacement.start), replacement.value);
+    sourceCursor = replacement.end;
+  }
+  chunks.push(source.slice(sourceCursor));
+  return chunks.join('');
+};
+
+/** Test-only complexity probe; production calls do not allocate metrics. */
+export const inspectPublicMarkdownImageReferenceWorkForTest = (source: string) => {
+  const metrics: PublicMarkdownImageScanMetrics = { maxSourceLength: 0, parseCalls: 0, steps: 0 };
+  return replaceMarkdownImageReferences(
+    source,
+    reference => getLocalImageReferenceKey(reference) === 'hero.png' ? 'data:image/png;base64,AA==' : null,
+    metrics,
   )
-  .replace(
-    /((?:src|href)\s*=\s*)(["'])([^"']+)\2/giu,
-    (match, prefix: string, quote: string, reference: string) => (
-      isMatchingLocalImageReference(reference, fileName)
-        ? `${prefix}${quote}${dataUrl}${quote}`
-        : match
-    ),
+    .then(result => ({ changed: result !== source, scanSteps: metrics.steps }));
+};
+
+/** Test-only batch probe; verifies parsers never receive already-expanded data URLs. */
+export const inspectPublicBatchImageReferenceWorkForTest = async (
+  source: string,
+  fileNames: readonly string[],
+  replacementLength: number,
+) => {
+  const replacements = new Map(fileNames.map((name, index) => [
+    normalizePublicImageName(name),
+    `data:image/png;base64,${String(index).padStart(2, '0')}${'A'.repeat(replacementLength)}`,
+  ]));
+  const metrics: PublicMarkdownImageScanMetrics = { maxSourceLength: 0, parseCalls: 0, steps: 0 };
+  const result = await replaceMarkdownImageReferences(
+    source,
+    reference => {
+      const key = getLocalImageReferenceKey(reference);
+      return key ? replacements.get(key) ?? null : null;
+    },
+    metrics,
   );
+  return { maxSourceLength: metrics.maxSourceLength, outputLength: result.length, parseCalls: metrics.parseCalls };
+};
+
+const replaceLocalImageReferences = async (
+  source: string,
+  resolveReference: PublicImageReferenceResolver,
+  documentExtension: string,
+) => {
+  if (documentExtension === 'md' || documentExtension === 'markdown' || documentExtension === 'txt') {
+    return replaceMarkdownImageReferences(source, resolveReference);
+  }
+  if (documentExtension === 'html' || documentExtension === 'htm') {
+    const html = await import('./publicImportHtml');
+    try {
+      return await html.replacePublicHtmlImageReferences(source, resolveReference);
+    } catch (error) {
+      if (error instanceof html.PublicHtmlImageReferenceBudgetError) {
+        throw new PublicImportError('document-too-complex', error.message);
+      }
+      throw error;
+    }
+  }
+  return source;
+};
 
 const validateFiles = (files: readonly File[]) => {
   const limits = PUBLIC_IMPORT_LIMITS;
@@ -150,11 +438,22 @@ const validateFiles = (files: readonly File[]) => {
   if (files.reduce((total, file) => total + file.size, 0) > limits.maxTotalBytes) {
     throw new PublicImportError('batch-too-large', 'The selected files exceed the 20 MiB batch limit.');
   }
+  const imageNames = new Set<string>();
   for (const file of files) {
     const kind = getFileKind(file);
     if (kind === 'unsupported') throw new PublicImportError('unsupported-file-type', `${file.name} is not supported.`);
     if (isText(file) && file.size > limits.maxTextFileBytes) throw new PublicImportError('file-too-large', `${file.name} exceeds the 2 MiB text limit.`);
-    if (isImage(file) && file.size > limits.maxImageFileBytes) throw new PublicImportError('file-too-large', `${file.name} exceeds the image limit.`);
+    if (isImage(file)) {
+      if (file.size > limits.maxImageFileBytes) throw new PublicImportError('file-too-large', `${file.name} exceeds the image limit.`);
+      const normalizedName = normalizePublicImageName(file.name);
+      if (imageNames.has(normalizedName)) {
+        throw new PublicImportError(
+          'duplicate-image-name',
+          `Multiple selected images are named ${file.name}; local references would be ambiguous.`,
+        );
+      }
+      imageNames.add(normalizedName);
+    }
   }
 };
 
@@ -169,15 +468,25 @@ export const buildPublicImportedDocument = async (files: readonly File[]): Promi
   await Promise.all(documents.map(assertReadableTextFile));
 
   let source = documents.length === 1 ? await documents[0].text() : '';
-  const unattachedImages: string[] = [];
+  const documentExtension = documents[0] ? getExtension(documents[0].name) : '';
+  const resolvedImages: Array<{ dataUrl: string; file: File; key: string }> = [];
   for (const image of images) {
     const dataUrl = await resolvePublicImageDataUrl(image);
-    const replaced = replaceLocalImageReferences(source, image.name, dataUrl);
-    if (replaced === source) unattachedImages.push(`![${sanitizeAlt(image.name)}](${dataUrl})`);
-    source = replaced;
+    resolvedImages.push({ dataUrl, file: image, key: normalizePublicImageName(image.name) });
   }
+  const resolvedByKey = new Map(resolvedImages.map(image => [image.key, image]));
+  const referencedKeys = new Set<string>();
+  if (source && resolvedImages.length > 0) source = await replaceLocalImageReferences(source, (reference) => {
+    const key = getLocalImageReferenceKey(reference);
+    const resolved = key ? resolvedByKey.get(key) : undefined;
+    if (!resolved) return null;
+    referencedKeys.add(resolved.key);
+    return resolved.dataUrl;
+  }, documentExtension);
+  const unattachedImages = resolvedImages
+    .filter(image => !referencedKeys.has(image.key))
+    .map(image => `![${sanitizeAlt(image.file.name)}](${image.dataUrl})`);
   if (unattachedImages.length > 0) {
-    const documentExtension = documents[0] ? getExtension(documents[0].name) : '';
     const canAppendMarkdown = documents.length === 0 || documentExtension === 'md' || documentExtension === 'markdown' || documentExtension === 'txt';
     if (!canAppendMarkdown) {
       throw new PublicImportError(
@@ -185,7 +494,19 @@ export const buildPublicImportedDocument = async (files: readonly File[]): Promi
         'Every attached image must already be referenced by a non-Markdown document.',
       );
     }
-    source = [source.trim(), ...unattachedImages].filter(Boolean).join('\n\n');
+    const attachments = unattachedImages.join('\n\n');
+    if (!source) {
+      if (attachments.length > PUBLIC_IMPORT_MAX_EXPANDED_SOURCE_LENGTH) {
+        throw new PublicImportError('document-too-complex', 'Imported Source exceeds the expansion limit.');
+      }
+      source = attachments;
+    } else {
+      const separator = source.endsWith('\n\n') ? '' : source.endsWith('\n') ? '\n' : '\n\n';
+      if (source.length + separator.length + attachments.length > PUBLIC_IMPORT_MAX_EXPANDED_SOURCE_LENGTH) {
+        throw new PublicImportError('document-too-complex', 'Imported Source exceeds the expansion limit.');
+      }
+      source = `${source}${separator}${attachments}`;
+    }
   }
   if (!source.trim()) throw new PublicImportError('empty-import', 'The selected files did not contain importable content.');
   const suggestedTitle = documents[0]?.name.replace(/\.[^.]+$/u, '') || images[0]?.name.replace(/\.[^.]+$/u, '');

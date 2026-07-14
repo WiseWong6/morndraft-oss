@@ -15,6 +15,7 @@ export type PublicDocument = {
   fence?: {
     opening: string;
     closing: string;
+    marker: string;
     openingLineBreak: '\n' | '\r\n';
     closingLineBreak: '\n' | '\r\n';
   };
@@ -57,6 +58,7 @@ const parseStandaloneFence = (source: string): PublicDocument | null => {
     fence: {
       opening: parsed.opening,
       closing: parsed.closing,
+      marker: parsed.marker,
       openingLineBreak: parsed.openingLineBreak as '\n' | '\r\n',
       closingLineBreak: parsed.closingLineBreak as '\n' | '\r\n',
     },
@@ -107,9 +109,30 @@ export const getPublicContentType = (source: string): PublicContentType => {
   return embeddedKinds.size > 0 ? 'mixed' : 'markdown';
 };
 
+const getCollisionSafePublicFenceMarker = (marker: string, content: string) => {
+  let longestClosingRun = marker.length - 1;
+  for (const rawLine of content.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (line.length < marker.length || line[0] !== marker[0]) continue;
+    if ([...line].every(character => character === marker[0])) {
+      longestClosingRun = Math.max(longestClosingRun, line.length);
+    }
+  }
+  return marker[0].repeat(longestClosingRun + 1);
+};
+
+const replaceFirstExactMarker = (value: string, marker: string, replacement: string) => {
+  const index = value.indexOf(marker);
+  return index < 0 ? null : `${value.slice(0, index)}${replacement}${value.slice(index + marker.length)}`;
+};
+
 export const serializePublicDocumentEdit = (document: PublicDocument, content: string) => {
   if (!document.fence) return content;
-  return `${document.fence.opening}${document.fence.openingLineBreak}${content}${document.fence.closingLineBreak}${document.fence.closing}`;
+  const marker = getCollisionSafePublicFenceMarker(document.fence.marker, content);
+  const opening = replaceFirstExactMarker(document.fence.opening, document.fence.marker, marker);
+  const closing = replaceFirstExactMarker(document.fence.closing, document.fence.marker, marker);
+  if (opening === null || closing === null) return content;
+  return `${opening}${document.fence.openingLineBreak}${content}${document.fence.closingLineBreak}${closing}`;
 };
 
 export const getPublicDocumentContentOffset = (_source: string, document: PublicDocument) => (
@@ -202,7 +225,15 @@ export const replacePublicFenceSegmentContent = (
   const closingStart = source.lastIndexOf('\n', segment.end - 1);
   if (openingEnd < segment.start || closingStart < openingEnd || closingStart > segment.end) return null;
   const closingLineBreakStart = source[closingStart - 1] === '\r' ? closingStart - 1 : closingStart;
-  return `${source.slice(0, openingEnd + 1)}${nextContent}${source.slice(closingLineBreakStart)}`;
+  const marker = getCollisionSafePublicFenceMarker(segment.marker, nextContent);
+  const openingLine = source.slice(segment.start, openingEnd);
+  const closingLineEnd = source.indexOf('\n', closingStart + 1);
+  const safeClosingLineEnd = closingLineEnd < 0 ? source.length : closingLineEnd;
+  const closingLine = source.slice(closingStart + 1, safeClosingLineEnd);
+  const nextOpeningLine = replaceFirstExactMarker(openingLine, segment.marker, marker);
+  const nextClosingLine = replaceFirstExactMarker(closingLine, segment.marker, marker);
+  if (nextOpeningLine === null || nextClosingLine === null) return null;
+  return `${source.slice(0, segment.start)}${nextOpeningLine}${source.slice(openingEnd, openingEnd + 1)}${nextContent}${source.slice(closingLineBreakStart, closingStart + 1)}${nextClosingLine}${source.slice(safeClosingLineEnd)}`;
 };
 
 export const findPublicSlashTrigger = (source: string, cursor: number) => {

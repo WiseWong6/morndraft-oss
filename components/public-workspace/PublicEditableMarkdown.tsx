@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useContext, useMemo, useRef, useState } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -16,10 +16,37 @@ type MarkdownRenderNode = {
   children?: readonly MarkdownRenderNode[];
 };
 
+type PublicEditableMarkdownRenderContext = {
+  editable: boolean;
+  onSelectionChange?(selection: PublicTextSelection | null): void;
+  onSourcePatch(next: string): void;
+  segmentEnd: number;
+  segmentStart: number;
+  source: string;
+};
+
+const PublicEditableMarkdownContext = React.createContext<PublicEditableMarkdownRenderContext | null>(null);
+
 const PUBLIC_REVERSIBLE_MARKDOWN_TAGS = new Set([
   'a', 'blockquote', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
   'li', 'p', 'strong', 'td', 'th',
 ]);
+
+const PUBLIC_NESTED_EDITABLE_BLOCK_TAGS = new Set([
+  'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'p', 'td', 'th',
+]);
+
+/**
+ * Browsers focus the outer owner when contentEditable elements are nested.
+ * Loose lists and blockquotes contain paragraph elements, so the container
+ * must stay structural while its innermost reversible block owns editing.
+ */
+export const hasPublicMarkdownNestedEditableBlock = (
+  node: MarkdownRenderNode | null | undefined,
+): boolean => (node?.children ?? []).some((child) => (
+  (child.type === 'element' && typeof child.tagName === 'string' && PUBLIC_NESTED_EDITABLE_BLOCK_TAGS.has(child.tagName))
+  || hasPublicMarkdownNestedEditableBlock(child)
+));
 
 /**
  * Final can only edit DOM whose visible text maps back to Markdown without
@@ -45,7 +72,40 @@ const getChildContentPosition = (node: { children?: Array<{ position?: MarkdownP
   return { start: positioned[0].start, end: positioned[positioned.length - 1].end };
 };
 
-const PUBLIC_LOCAL_IMAGE_DATA_URL = /^data:image\/(?:avif|gif|jpeg|png|webp);base64,[a-z0-9+/=\s]+$/iu;
+const PUBLIC_LOCAL_IMAGE_DATA_URL = /^data:image\/(?:avif|gif|jpeg|png|webp);base64,(?:[a-z0-9+/=\s]|%[0-9a-f]{2})+$/iu;
+
+const PUBLIC_EDITABLE_DOM_BLOCK_TAGS = new Set([
+  'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DIV', 'FOOTER', 'HEADER',
+  'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'MAIN', 'NAV', 'P', 'PRE', 'SECTION',
+]);
+
+/**
+ * contentEditable creates block elements for Enter and BR elements for a soft
+ * line break. textContent concatenates those nodes and would silently turn
+ * `First<div>Second` into `FirstSecond`; serialize their Markdown meaning
+ * before applying the source patch.
+ */
+const readPublicEditableDomText = (root: HTMLElement, multilineCode = false) => {
+  const readNode = (node: Node): string => {
+    if (node.nodeType === 3) return node.nodeValue ?? '';
+    if (node.nodeType !== 1) return '';
+    const element = node as HTMLElement;
+    if (element.tagName === 'BR') return multilineCode ? '\n' : '  \n';
+    let result = '';
+    for (const child of element.childNodes) {
+      if (
+        child.nodeType === 1 &&
+        PUBLIC_EDITABLE_DOM_BLOCK_TAGS.has((child as HTMLElement).tagName) &&
+        result && !(multilineCode ? result.endsWith('\n') : result.endsWith('\n\n'))
+      ) {
+        result += multilineCode ? '\n' : result.endsWith('\n') ? '\n' : '\n\n';
+      }
+      result += readNode(child);
+    }
+    return result;
+  };
+  return readNode(root);
+};
 
 export const transformPublicMarkdownUrl = (url: string) => (
   PUBLIC_LOCAL_IMAGE_DATA_URL.test(url) ? url : defaultUrlTransform(url)
@@ -60,7 +120,8 @@ type PublicEditableBlockProps = {
   segmentEnd: number;
   source: string;
   editable: boolean;
-  reversible: boolean;
+  sourceReversible: boolean;
+  canOwnEdit: boolean;
   onSourcePatch(next: string): void;
   onSelectionChange?(selection: PublicTextSelection | null): void;
 };
@@ -74,7 +135,8 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
   segmentEnd,
   source,
   editable,
-  reversible,
+  sourceReversible,
+  canOwnEdit,
   onSourcePatch,
   onSelectionChange,
 }) => {
@@ -83,7 +145,7 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
   const relativeStart = position?.start?.offset;
   const relativeEnd = position?.end?.offset;
   const canPatch = Number.isInteger(relativeStart) && Number.isInteger(relativeEnd);
-  const canEditBlock = editable && canPatch && reversible;
+  const canEditBlock = editable && canPatch && sourceReversible && canOwnEdit;
 
   const restoreControlledChildren = () => {
     // A changed key remounts the host subtree from React's source-controlled
@@ -101,7 +163,7 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
       onSelectionChange(null);
       return;
     }
-    if (!reversible) {
+    if (!sourceReversible) {
       event.stopPropagation();
       onSelectionChange(null);
       return;
@@ -135,6 +197,7 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
     onSelectionChange(resolved ? {
       ...resolved,
       text: visibleSelection,
+      visibleText: visibleSelection,
       source,
     } : null);
   };
@@ -145,7 +208,7 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
     contentEditable: canEditBlock,
     'data-public-final-editable': canEditBlock ? 'true' : undefined,
     'data-public-final-block': canPatch ? 'true' : undefined,
-    'data-public-final-reversible': canPatch ? String(reversible) : undefined,
+    'data-public-final-reversible': canPatch ? String(sourceReversible) : undefined,
     'data-public-source-start': canPatch ? segmentStart + (relativeStart ?? 0) : undefined,
     'data-public-source-end': canPatch ? segmentStart + (relativeEnd ?? 0) : undefined,
     'data-public-segment-start': canPatch ? segmentStart : undefined,
@@ -155,7 +218,7 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
       if (!canEditBlock) return;
       focusSnapshotRef.current = {
         source,
-        visibleText: event.currentTarget.textContent ?? '',
+        visibleText: readPublicEditableDomText(event.currentTarget, tag === 'code'),
       };
     },
     onBlur: (event: React.FocusEvent<HTMLElement>) => {
@@ -166,7 +229,7 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
         restoreControlledChildren();
         return;
       }
-      const nextVisibleText = event.currentTarget.textContent ?? '';
+      const nextVisibleText = readPublicEditableDomText(event.currentTarget, tag === 'code');
       const next = patchPublicMarkdownVisibleText({
         source,
         range: {
@@ -176,16 +239,115 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
         previousVisibleText: snapshot.visibleText,
         nextVisibleText,
       });
+      // contentEditable has already mutated this host subtree outside React.
+      // Remount only the block that owned the edit before reconciling the new
+      // Markdown AST; sibling blocks keep their DOM identity and click target.
+      restoreControlledChildren();
       if (next === null) {
-        restoreControlledChildren();
         return;
       }
       if (next !== source) onSourcePatch(next);
+    },
+    onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229 || tag === 'code') return;
+      // Final owns one reversible Markdown block at a time. Treat Enter as a
+      // commit instead of letting contentEditable create DIV/BR descendants
+      // that can escape a list, heading, or table cell source boundary. Fenced
+      // code remains intentionally multiline, and IME confirmation Enter stays
+      // owned by the browser composition session.
+      event.preventDefault();
+      event.currentTarget.blur();
     },
     onMouseUp: updateRenderedSelection,
     onKeyUp: updateRenderedSelection,
   }, children);
 };
+
+const PublicContextEditableBlock: React.FC<{
+  tag: EditableTag;
+  className?: string;
+  children: React.ReactNode;
+  node: MarkdownRenderNode | null | undefined;
+  position: MarkdownPosition;
+}> = ({ tag, className, children, node, position }) => {
+  const context = useContext(PublicEditableMarkdownContext);
+  if (!context) throw new Error('Public editable Markdown block requires its render context.');
+  return (
+    <PublicEditableBlock
+      tag={tag}
+      className={className}
+      position={position}
+      segmentStart={context.segmentStart}
+      segmentEnd={context.segmentEnd}
+      source={context.source}
+      editable={context.editable}
+      sourceReversible={isPublicMarkdownNodeSafelyEditable(node)}
+      canOwnEdit={!hasPublicMarkdownNestedEditableBlock(node)}
+      onSourcePatch={context.onSourcePatch}
+      onSelectionChange={context.onSelectionChange}
+    >
+      {children}
+    </PublicEditableBlock>
+  );
+};
+
+const renderPublicEditableBlock = (
+  tag: EditableTag,
+  node: MarkdownRenderNode | null | undefined,
+  position: MarkdownPosition,
+  children: React.ReactNode,
+  className?: string,
+) => (
+  <PublicContextEditableBlock
+    tag={tag}
+    className={className}
+    node={node}
+    position={position}
+  >
+    {children}
+  </PublicContextEditableBlock>
+);
+
+const PublicContextCode: React.FC<{
+  children: React.ReactNode;
+  className?: string;
+  node: MarkdownRenderNode | null | undefined;
+}> = ({ children, className, node }) => {
+  const context = useContext(PublicEditableMarkdownContext);
+  if (!context) throw new Error('Public editable Markdown code requires its render context.');
+  const relativeStart = (node as { position?: MarkdownPosition } | null | undefined)?.position?.start?.offset;
+  const relativeEnd = (node as { position?: MarkdownPosition } | null | undefined)?.position?.end?.offset;
+  const nodeSource = Number.isInteger(relativeStart) && Number.isInteger(relativeEnd)
+    ? context.source.slice(
+      context.segmentStart + (relativeStart ?? 0),
+      context.segmentStart + (relativeEnd ?? 0),
+    )
+    : '';
+  // react-markdown does not expose an `inline` flag. Inspect the exact source
+  // range so an unlabelled fenced block remains editable while inline code —
+  // including triple-backtick code spans — stays owned by its parent block.
+  const isFenced = /^ {0,3}(?:`{3,}|~{3,})[^\r\n]*(?:\r\n|\r|\n)/u.test(nodeSource);
+  return isFenced
+    ? renderPublicEditableBlock('code', node, (node as { position?: MarkdownPosition } | null | undefined)?.position, children, className)
+    : <code className={className}>{children}</code>;
+};
+
+const PUBLIC_MARKDOWN_COMPONENTS: Components = {
+  blockquote: ({ node, children, className }) => renderPublicEditableBlock('blockquote', node, node?.position, children, className),
+  code: ({ node, children, className }) => <PublicContextCode node={node} className={className}>{children}</PublicContextCode>,
+  h1: ({ node, children, className }) => renderPublicEditableBlock('h1', node, node?.position, children, className),
+  h2: ({ node, children, className }) => renderPublicEditableBlock('h2', node, node?.position, children, className),
+  h3: ({ node, children, className }) => renderPublicEditableBlock('h3', node, node?.position, children, className),
+  h4: ({ node, children, className }) => renderPublicEditableBlock('h4', node, node?.position, children, className),
+  h5: ({ node, children, className }) => renderPublicEditableBlock('h5', node, node?.position, children, className),
+  h6: ({ node, children, className }) => renderPublicEditableBlock('h6', node, node?.position, children, className),
+  li: ({ node, children, className }) => renderPublicEditableBlock('li', node, getChildContentPosition(node), children, className),
+  p: ({ node, children, className }) => renderPublicEditableBlock('p', node, node?.position, children, className),
+  td: ({ node, children, className }) => renderPublicEditableBlock('td', node, getChildContentPosition(node), children, className),
+  th: ({ node, children, className }) => renderPublicEditableBlock('th', node, getChildContentPosition(node), children, className),
+};
+
+const PUBLIC_MARKDOWN_REMARK_PLUGINS = [remarkGfm];
 
 export const PublicEditableMarkdown: React.FC<{
   content: string;
@@ -196,48 +358,26 @@ export const PublicEditableMarkdown: React.FC<{
   onSelectionChange?(selection: PublicTextSelection | null): void;
 }> = ({ content, segmentStart, source, editable, onSourcePatch, onSelectionChange }) => {
   const segmentEnd = segmentStart + content.length;
-  const components = useMemo<Components>(() => {
-    const renderEditable = (
-      tag: EditableTag,
-      node: MarkdownRenderNode | null | undefined,
-      position: MarkdownPosition,
-      children: React.ReactNode,
-      className?: string,
-    ) => (
-      <PublicEditableBlock
-        tag={tag}
-        className={className}
-        position={position}
-        segmentStart={segmentStart}
-        segmentEnd={segmentEnd}
-        source={source}
-        editable={editable}
-        reversible={isPublicMarkdownNodeSafelyEditable(node)}
-        onSourcePatch={onSourcePatch}
-        onSelectionChange={onSelectionChange}
-      >
-        {children}
-      </PublicEditableBlock>
-    );
-    return {
-      blockquote: ({ node, children, className }) => renderEditable('blockquote', node, node?.position, children, className),
-      code: ({ node, children, className }) => className?.includes('language-')
-        ? renderEditable('code', node, node?.position, children, className)
-        : <code className={className}>{children}</code>,
-      h1: ({ node, children, className }) => renderEditable('h1', node, node?.position, children, className),
-      h2: ({ node, children, className }) => renderEditable('h2', node, node?.position, children, className),
-      h3: ({ node, children, className }) => renderEditable('h3', node, node?.position, children, className),
-      h4: ({ node, children, className }) => renderEditable('h4', node, node?.position, children, className),
-      h5: ({ node, children, className }) => renderEditable('h5', node, node?.position, children, className),
-      h6: ({ node, children, className }) => renderEditable('h6', node, node?.position, children, className),
-      li: ({ node, children, className }) => renderEditable('li', node, getChildContentPosition(node), children, className),
-      p: ({ node, children, className }) => renderEditable('p', node, node?.position, children, className),
-      td: ({ node, children, className }) => renderEditable('td', node, getChildContentPosition(node), children, className),
-      th: ({ node, children, className }) => renderEditable('th', node, getChildContentPosition(node), children, className),
-    };
-  }, [editable, onSelectionChange, onSourcePatch, segmentEnd, segmentStart, source]);
+  const context = useMemo<PublicEditableMarkdownRenderContext>(() => ({
+    editable,
+    onSelectionChange,
+    onSourcePatch,
+    segmentEnd,
+    segmentStart,
+    source,
+  }), [editable, onSelectionChange, onSourcePatch, segmentEnd, segmentStart, source]);
 
-  return <ReactMarkdown components={components} remarkPlugins={[remarkGfm]} urlTransform={transformPublicMarkdownUrl}>{content}</ReactMarkdown>;
+  return (
+    <PublicEditableMarkdownContext.Provider value={context}>
+      <ReactMarkdown
+        components={PUBLIC_MARKDOWN_COMPONENTS}
+        remarkPlugins={PUBLIC_MARKDOWN_REMARK_PLUGINS}
+        urlTransform={transformPublicMarkdownUrl}
+      >
+        {content}
+      </ReactMarkdown>
+    </PublicEditableMarkdownContext.Provider>
+  );
 };
 
 const getPublicFinalBlock = (node: Node | null): HTMLElement | null => {
@@ -344,5 +484,12 @@ export const resolvePublicMarkdownDomSelection = (
     start === null || end === null || end <= start || !text.trim()
     || !isRangeCoveredByReversibleMarkdownBlocks(root, range)
   ) return null;
-  return { start, end, text, sourceText: source.slice(start, end), source };
+  return {
+    start,
+    end,
+    text,
+    visibleText: text,
+    sourceText: source.slice(start, end),
+    source,
+  };
 };

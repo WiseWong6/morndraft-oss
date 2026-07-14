@@ -6,6 +6,8 @@ import { PublicFinalPreview } from './PublicFinalPreview';
 import { resolvePublicMarkdownDomSelection } from './PublicEditableMarkdown';
 import { PublicSourceEditor } from './PublicSourceEditor';
 import { PUBLIC_IMPORT_ACCEPT, PublicImportError } from './publicImport';
+import { getPublicContentType } from './publicDocument';
+import { getPublicAiSourceKindForContentType } from './publicAiContext';
 import { getPublicFlatInsertEntries, getPublicSyntaxEntries } from './publicShowcase';
 import { usePublicWorkspaceController } from './publicWorkspaceController';
 import type {
@@ -96,6 +98,12 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
   const [textSelection, setTextSelection] = useState<PublicTextSelection | null>(null);
   const [generateIntent, setGenerateIntent] = useState<PublicAiGenerateIntent | null>(null);
   const [importState, setImportState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; message?: string }>({ kind: 'idle' });
+  useEffect(() => {
+    // A parent document/source transition invalidates the controller token.
+    // Clear a now-stale busy indicator as well, otherwise the import button
+    // can remain disabled after navigating away during a slow local decode.
+    setImportState(current => current.kind === 'busy' ? { kind: 'idle' } : current);
+  }, [documentEpoch, source]);
   const forwardSourceChange = useCallback((next: string, meta?: SourceChangeMeta) => {
     if (!meta) return;
     setImportState(current => current.kind === 'busy' ? { kind: 'idle' } : current);
@@ -123,6 +131,10 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
   const workspaceClassName = useMemo(() => (
     `md-public-workspace md-public-workspace--${theme}${isDragging ? ' is-dragging' : ''}`
   ), [isDragging, theme]);
+  const publicAiSourceKind = useMemo(
+    () => getPublicAiSourceKindForContentType(getPublicContentType(source)),
+    [source],
+  );
   const closeMenus = useCallback(() => {
     if (moreMenuRef.current) moreMenuRef.current.open = false;
     if (syntaxMenuRef.current) syntaxMenuRef.current.open = false;
@@ -371,6 +383,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
         <PublicAiPanel
           adapter={aiAdapter}
           source={source}
+          sourceKind={publicAiSourceKind}
           documentEpoch={documentEpoch}
           locale={locale}
           selection={textSelection}

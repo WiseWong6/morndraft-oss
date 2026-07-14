@@ -3,6 +3,8 @@ import {
   PublicDialog,
   PublicWorkspace,
   createLocalPublicImportAdapter,
+  type PublicDeliveryAdapter,
+  type PublicDeliveryInput,
   type PublicWorkspaceLocale,
   type PublicWorkspaceTheme,
   type SourceChangeMeta,
@@ -14,11 +16,24 @@ import {
   readPublicAiConfig,
   type PublicAiConfig,
 } from '@morndraft/features-personal/ai';
-import { createBrowserPublicDeliveryAdapter } from '@morndraft/public-delivery';
 import './oss-shell.css';
 
 const LOCALE_KEY = 'morndraft.oss.locale';
 const THEME_KEY = 'morndraft.oss.theme';
+
+type PublicDeliveryAction = 'copyImage' | 'downloadImage' | 'downloadPdf' | 'downloadHtml';
+
+const runPublicDeliveryAction = async (action: PublicDeliveryAction, input: PublicDeliveryInput) => {
+  const { runBrowserPublicDeliveryAction } = await import('./publicDeliveryAdapter');
+  await runBrowserPublicDeliveryAction(action, input);
+};
+
+const createLazyPublicDeliveryAdapter = (): PublicDeliveryAdapter => ({
+  copyImage: (input) => runPublicDeliveryAction('copyImage', input),
+  downloadImage: (input) => runPublicDeliveryAction('downloadImage', input),
+  downloadPdf: (input) => runPublicDeliveryAction('downloadPdf', input),
+  downloadHtml: (input) => runPublicDeliveryAction('downloadHtml', input),
+});
 
 const INITIAL_SOURCE = `# MornDraft Open Source
 
@@ -59,7 +74,7 @@ export const OssShell: React.FC = () => {
   const [aiConfig, setAiConfig] = useState<PublicAiConfig>(() => readPublicAiConfig());
   const importAdapter = useMemo(() => createLocalPublicImportAdapter(), []);
   const aiAdapter = useMemo(() => createPublicAiAdapter(), []);
-  const deliveryAdapter = useMemo(() => createBrowserPublicDeliveryAdapter(), []);
+  const deliveryAdapter = useMemo(() => createLazyPublicDeliveryAdapter(), []);
 
   const openAiSettings = useCallback(() => {
     setAiConfig(readPublicAiConfig());

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 import { PDFDocument } from 'pdf-lib';
 import {
   PublicDeliveryError,
+  PUBLIC_DYNAMIC_CAPTURE_HTML_MAX_BYTES,
   buildOpaqueSandboxIframe,
   buildImagePdfBlob,
   buildPortableDocument,
@@ -185,6 +187,7 @@ const makeStreamingResponse = (
   chunks: readonly (number | Uint8Array)[],
   onBlob: () => void,
   onCancel?: () => void,
+  contentType?: string,
 ) => {
   let nextChunk = 0;
   return {
@@ -207,11 +210,16 @@ const makeStreamingResponse = (
         releaseLock: () => undefined,
       }),
     },
-    headers: new Headers(),
+    headers: new Headers(contentType ? { 'content-type': contentType } : undefined),
     ok: true,
     type: 'basic',
   } as unknown as Response;
 };
+
+const makeStreamingStylesheetResponse = (
+  chunks: readonly Uint8Array[],
+  onBlob: () => void,
+) => makeStreamingResponse(chunks, onBlob, undefined, 'text/css; charset=utf-8');
 
 const makeMediaParsingStyleSheetConstructor = (onReplace?: (cssText: string) => void) => (
   class FakeConstructableStyleSheet {
@@ -379,51 +387,187 @@ test('buildPublicStandaloneHtml strips supported HTML fence info strings before 
   assert.doesNotMatch(html, /```html preview/u);
 });
 
-test('image capture fails closed for dynamic HTML that cannot match the sandboxed Final', () => {
-  assert.equal(hasPublicDynamicCaptureMarkup('<main><h1>Static</h1></main>'), false);
-  assert.equal(hasPublicDynamicCaptureMarkup('<!-- example: <script>ignored()</script> -->'), false);
-  assert.equal(hasPublicDynamicCaptureMarkup('<!-- note --!><script>window.__ran=1</script>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<!--><script>window.__ran=1</script>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<!---><script>window.__ran=1</script>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<!-----><script>window.__ran=1</script>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<!------><script>window.__ran=1</script>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<!-----!><script>window.__ran=1</script>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<!--<!--><script>window.__ran=1</script>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<!--<!---><script>window.__ran=1</script>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<!-- --- <script>ignored()</script> -->'), false);
-  assert.equal(hasPublicDynamicCaptureMarkup('<!-- nested <! example <script>ignored()</script> -->'), false);
-  assert.equal(hasPublicDynamicCaptureMarkup("<!'<a><script>window.__ran=1</script>"), true);
-  assert.equal(hasPublicDynamicCaptureMarkup("<?'<a><script>window.__ran=1</script>"), true);
-  assert.equal(hasPublicDynamicCaptureMarkup("<!'<script ignored><main>Static</main>"), false);
-  assert.equal(hasPublicDynamicCaptureMarkup('<style>/* <script>ignored()</script> */</style><main>Static</main>'), false);
-  assert.equal(hasPublicDynamicCaptureMarkup('<style>.note::before{content:"</stylex><script>ignored()</script>"}</style><main>Static</main>'), false);
-  assert.equal(hasPublicDynamicCaptureMarkup(`<style>${'İ'.repeat(9)}</style><script>window.__ran=1</script>`), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<style>.note{color:red}</style><script>window.__ran=1</script>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<script>document.body.append("dynamic")</script>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<svg onload="draw()"></svg>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<canvas></canvas>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<details><summary>Toggle</summary>State</details>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<input value="initial">'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<p contenteditable>Mutable</p>'), true);
-  assert.equal(hasPublicDynamicCaptureMarkup('<a href="javascript:run()">run</a>'), true);
+test('image capture uses the browser document tree and fails closed for dynamic markup', async () => {
+  const cases = [
+    ['<main><h1>Static</h1></main>', false],
+    ['<!-- example: <script>ignored()</script> -->', false],
+    ['<!-- note --!><script>window.__ran=1</script>', true],
+    ['<!--><script>window.__ran=1</script>', true],
+    ['<!---><script>window.__ran=1</script>', true],
+    ['<!-----><script>window.__ran=1</script>', true],
+    ['<!------><script>window.__ran=1</script>', true],
+    ['<!-----!><script>window.__ran=1</script>', true],
+    ['<!--<!--><script>window.__ran=1</script>', true],
+    ['<!--<!---><script>window.__ran=1</script>', true],
+    ['<!-- --- <script>ignored()</script> -->', false],
+    ['<!-- nested <! example <script>ignored()</script> -->', false],
+    ["<!'<a><script>window.__ran=1</script>", true],
+    ["<?'<a><script>window.__ran=1</script>", true],
+    ["<!'<script ignored><main>Static</main>", false],
+    ['< a <script>window.__ran=1</script>', true],
+    ['<style!><script>window.__ran=1</script>', true],
+    ['<styleİ><script>window.__ran=1</script>', true],
+    ['<style\0><script>window.__ran=1</script>', true],
+    ['<style>/* <script>ignored()</script> */</style><main>Static</main>', false],
+    ['<style>.note::before{content:"</stylex><script>ignored()</script>"}</style><main>Static</main>', false],
+    [`<style>${'İ'.repeat(9)}</style><script>window.__ran=1</script>`, true],
+    ['<style>.note{color:red}</style><script>window.__ran=1</script>', true],
+    ['<script>document.body.append("dynamic")</script>', true],
+    ['<svg onload="draw()"></svg>', true],
+    ['<canvas></canvas>', true],
+    ['<details><summary>Toggle</summary>State</details>', true],
+    ['<input value="initial">', true],
+    ['<p contenteditable>Mutable</p>', true],
+    ['<button popovertarget="native-popover">Toggle</button><div id="native-popover" popover>State</div>', true],
+    ['<button commandfor="native-target" command="--custom-command">Invoke</button><div id="native-target">State</div>', true],
+    ['<a href="javascript:run()">run</a>', true],
+    ['<a href="jav&#x61;script:run()">run</a>', true],
+    ['<a href="j\nav\rascript\t:run()">run</a>', true],
+    ['<form action="vb&#115;cript:run()"></form>', true],
+    ['<a href="https://safe.example" href="javascript:run()">safe first attribute wins</a>', false],
+    ['<a href="javascript:run()" href="https://safe.example">unsafe first attribute wins</a>', true],
+  ] as const;
+
+  for (const [html, expected] of cases) {
+    assert.equal(await hasPublicDynamicCaptureMarkup(html), expected, html);
+  }
 });
 
-test('dynamic HTML scanning handles long tag spacing without regular-expression backtracking', () => {
-  const spacing = ' '.repeat(100_000);
-  assert.equal(hasPublicDynamicCaptureMarkup(`<${spacing}main>Static</main>`), false);
-  assert.equal(hasPublicDynamicCaptureMarkup(`<${spacing}script>run()</script>`), true);
-  assert.equal(
-    hasPublicDynamicCaptureMarkup(`<style>${'İ'.repeat(100_000)}</style><script>run()</script>`),
-    true,
+test('dynamic capture traverses templates, foreign namespaces, refreshes, and animation sources', async () => {
+  const dynamicCases = [
+    '<template><script>run()</script></template>',
+    '<template shadowrootmode="open"><button onclick="run()">Run</button></template>',
+    '<noscript><img src="https://author.example/noscript.png"></noscript>',
+    '<head><noscript><link rel="stylesheet" href="https://author.example/noscript.css"></noscript></head>',
+    '<meta http-equiv="refresh" content="0;url=https://example.test">',
+    '<marquee>moving</marquee>',
+    '<progress>indeterminate progress</progress>',
+    '<svg><animate attributeName="x" from="0" to="1"/></svg>',
+    '<svg><animateMotion path="M0 0L1 1"/></svg>',
+    '<svg><animateTransform attributeName="transform"/></svg>',
+    '<svg><set attributeName="fill" to="red"/></svg>',
+    '<svg><discard begin="1s"/></svg>',
+    '<svg><a xlink:href="jav&#x61;script:run()">run</a></svg>',
+    '<math><mi onclick="run()">x</mi></math>',
+    '<math><mtext><script>run()</script></mtext></math>',
+    '<math><mtext><a href="jav&#x61;script:run()">run</a></mtext></math>',
+    '<style>@keyframes pulse{to{opacity:.5}}</style>',
+    '<style>@-webkit-keyframes pulse{to{opacity:.5}}</style>',
+    '<style>@-moz-keyframes pulse{to{opacity:.5}}</style>',
+    '<style>@-o-\\6b eyframes pulse{to{opacity:.5}}</style>',
+    '<style>@-acme-keyframes pulse{to{opacity:.5}}</style>',
+    '<style>@key\\66rames pulse{to{opacity:.5}}</style>',
+    '<style>@starting-style{.box{opacity:0}}</style>',
+    '<style>@START/**/ING-STYLE{.box{opacity:0}}</style>',
+    '<style>@st\\61 rting-style{.box{opacity:0}}</style>',
+    '<style>.box{animation: pulse 1s}</style>',
+    '<style>.box{ani/**/mation-name:pulse}</style>',
+    '<style>.box{-moz-animation:pulse 1s}</style>',
+    '<style>.box{-o-\\61nimation-name:pulse}</style>',
+    '<style>.box{-acme-animation-delay:1s}</style>',
+    '<main style="\\61 nimation-duration:1s">moving</main>',
+  ];
+  for (const html of dynamicCases) {
+    assert.equal(await hasPublicDynamicCaptureMarkup(html), true, html);
+  }
+
+  const staticCases = [
+    '<template shadowrootmode="open"><p>Static template</p></template>',
+    '<meta http-equiv="content-type" content="text/html;charset=utf-8">',
+    '<style>/* animation: pulse 1s; @keyframes pulse{} */</style>',
+    '<style>/* @starting-style{.box{opacity:0}} */</style>',
+    '<style>.note::before{content:"@starting-style{opacity:0}"}</style>',
+    '<style>/* -moz-animation: pulse 1s; @-moz-keyframes pulse{} */</style>',
+    '<style>.note::before{content:"animation: pulse; -moz-animation:pulse; @-moz-keyframes fake{}"}</style>',
+    '<style>.box{--animation:pulse;--vendor-animation-name:pulse}</style>',
+    '<style>.animation:hover{color:red}</style>',
+    '<style>@import url("data:text/css,.box%7Banimation:pulse%201s%7D");</style>',
+    '<style>@\\69mport "https://example.test/theme.css";</style>',
+    '<link rel="stylesheet" href="data:text/css,.box%7Banimation:pulse%201s%7D">',
+    '<link rel="alternate STYLESHEET" href="https://example.test/theme.css">',
+    '<main style="color:red">Static</main>',
+    '<button type="button">Static button</button>',
+    '<button data-popover="static" data-popovertarget="static" data-command="static" data-commandfor="static">Static data</button>',
+    '<meter min="0" max="1" value="0.5">Static meter</meter>',
+    '<a href="https://example.test/javascript:demo">Static link</a>',
+  ];
+  for (const html of staticCases) {
+    assert.equal(await hasPublicDynamicCaptureMarkup(html), false, html);
+  }
+});
+
+test('dynamic HTML parsing is lazy, bounded to 2 MiB, and stays linear on large static input', async () => {
+  const dynamicSource = await readFile(new URL('dynamicMarkup.ts', import.meta.url), 'utf8');
+  const captureSource = await readFile(new URL('capture.ts', import.meta.url), 'utf8');
+  assert.match(dynamicSource, /parse5ModulePromise \?\?= import\('parse5'\)/u);
+  assert.doesNotMatch(dynamicSource, /import\s+\{[^}]*parse[^}]*\}\s+from\s+['"]parse5['"]/u);
+  assert.match(dynamicSource, /parse\(html, \{ scriptingEnabled: true \}\)/u);
+  assert.match(dynamicSource, /catch \{\s*return true;/u);
+  assert.match(captureSource, /await assertStaticCaptureMarkup\(html\)/u);
+  assert.ok(
+    captureSource.indexOf('await assertStaticCaptureMarkup(html)')
+      < captureSource.indexOf("ownerDocument.createElement('iframe')"),
+    'the fail-closed gate must run before allocating capture resources',
   );
+
+  const wrapperBytes = Buffer.byteLength('<main></main>');
+  const maximumStaticHtml = `<main>${'x'.repeat(PUBLIC_DYNAMIC_CAPTURE_HTML_MAX_BYTES - wrapperBytes)}</main>`;
+  const startedAt = performance.now();
+  assert.equal(await hasPublicDynamicCaptureMarkup(maximumStaticHtml), false);
+  const elapsed = performance.now() - startedAt;
+  assert.ok(elapsed < 1_500, `2 MiB static parse took ${elapsed.toFixed(1)}ms`);
+
+  const oversizedHtml = `${maximumStaticHtml}<p>oversized-html-tail</p>`;
+  assert.equal(
+    await hasPublicDynamicCaptureMarkup(oversizedHtml),
+    true,
+    'oversized raw HTML must fail closed before capture',
+  );
+  const downloadableHtml = await buildPublicStandaloneHtml(makeInput({
+    contentType: 'html',
+    source: oversizedHtml,
+  }));
+  assert.match(downloadableHtml, /data-morndraft-public-standalone="raw-html"/u);
+  assert.match(downloadableHtml, /oversized-html-tail/u, 'the capture cap must not block HTML download');
+  assert.equal(
+    await hasPublicDynamicCaptureMarkup('界'.repeat(Math.floor(PUBLIC_DYNAMIC_CAPTURE_HTML_MAX_BYTES / 3) + 1)),
+    true,
+    'the cap is UTF-8 bytes rather than UTF-16 code units',
+  );
+
+  const wideStaticHtml = `<main>${'<i></i>'.repeat(150_000)}</main>`;
+  assert.ok(Buffer.byteLength(wideStaticHtml) < PUBLIC_DYNAMIC_CAPTURE_HTML_MAX_BYTES);
+  assert.equal(
+    await hasPublicDynamicCaptureMarkup(wideStaticHtml),
+    false,
+    'a wide static tree must not hit the JavaScript spread-argument limit',
+  );
+  assert.doesNotMatch(dynamicSource, /pending\.push\(\.\.\./u);
 });
 
 test('capture pairs only non-excluded source iframes with the cloned delivery tree', () => {
-  const excludedContainer = {};
-  const excludedFrame = { closest: () => excludedContainer };
-  const includedFrame = { closest: () => null };
+  const excludedContainer = {
+    children: [] as unknown[],
+    matches: (selector: string) => selector === '[data-morndraft-delivery-exclude]',
+    parentElement: null,
+    tagName: 'DIV',
+  };
+  const excludedFrame = {
+    children: [],
+    matches: () => false,
+    parentElement: excludedContainer,
+    tagName: 'IFRAME',
+  };
+  excludedContainer.children.push(excludedFrame);
+  const includedFrame = {
+    children: [],
+    matches: () => false,
+    parentElement: null,
+    tagName: 'IFRAME',
+  };
   const root = {
-    querySelectorAll: () => [excludedFrame, includedFrame],
+    children: [excludedContainer, includedFrame],
+    nodeType: 9,
   } as unknown as ParentNode;
 
   assert.deepEqual(getPublicCapturableIframes(root), [includedFrame]);
@@ -524,13 +668,13 @@ test('capture preflight follows CORS-readable stylesheet imports recursively', a
       const url = String(input);
       requests.push(url);
       if (url === 'https://assets.example/theme.css') {
-        return makeStreamingResponse(
+        return makeStreamingStylesheetResponse(
           [encoder.encode('@import "./nested.css" screen;\n.preview { color: black; }')],
           () => assert.fail('stylesheet preflight must stream instead of blob()'),
         );
       }
       if (url === 'https://assets.example/nested.css') {
-        return makeStreamingResponse(
+        return makeStreamingStylesheetResponse(
           [encoder.encode('.nested { color: inherit; }')],
           () => assert.fail('stylesheet preflight must stream instead of blob()'),
         );
@@ -547,7 +691,7 @@ test('capture preflight follows CORS-readable stylesheet imports recursively', a
   ]);
 });
 
-test('capture preflight skips inactive fetched imports after layer and supports prefixes', async () => {
+test('capture preflight freezes every fetched import regardless of capture media changes', async () => {
   const requests: string[] = [];
   const encoder = new TextEncoder();
   const root = makeCaptureResourceRoot(
@@ -556,28 +700,28 @@ test('capture preflight skips inactive fetched imports after layer and supports 
       const url = String(input);
       requests.push(url);
       if (url === 'https://assets.example/theme.css') {
-        return makeStreamingResponse(
+        return makeStreamingStylesheetResponse(
           [encoder.encode([
             "@import './print.css' print;",
             "@import './layered-print.css' layer(foo) supports(display:grid) print;",
             "@import './screen.css' screen;",
             "@import './unconditional.css';",
-            "@import './malformed.css' supports(display:grid;",
           ].join('\n'))],
           () => assert.fail('stylesheet preflight must stream instead of blob()'),
         );
       }
       if (
-        url === 'https://assets.example/screen.css'
+        url === 'https://assets.example/print.css'
+        || url === 'https://assets.example/layered-print.css'
+        || url === 'https://assets.example/screen.css'
         || url === 'https://assets.example/unconditional.css'
-        || url === 'https://assets.example/malformed.css'
       ) {
-        return makeStreamingResponse(
+        return makeStreamingStylesheetResponse(
           [],
           () => assert.fail('stylesheet preflight must stream instead of blob()'),
         );
       }
-      throw new Error(`inactive import must not be requested: ${url}`);
+      throw new Error(`unexpected import: ${url}`);
     },
     {
       cssStyleSheetConstructor: makeImportIgnoringStyleSheetConstructor(),
@@ -588,9 +732,10 @@ test('capture preflight skips inactive fetched imports after layer and supports 
   await assertPublicCaptureResourcesReadable(root);
   assert.deepEqual(requests, [
     'https://assets.example/theme.css',
+    'https://assets.example/print.css',
+    'https://assets.example/layered-print.css',
     'https://assets.example/screen.css',
     'https://assets.example/unconditional.css',
-    'https://assets.example/malformed.css',
   ]);
 });
 
@@ -603,13 +748,13 @@ test('capture preflight conservatively follows fetched imports without CSSOM', a
       const url = String(input);
       requests.push(url);
       if (url === 'https://assets.example/theme.css') {
-        return makeStreamingResponse(
+        return makeStreamingStylesheetResponse(
           [encoder.encode("@import './print.css' print;")],
           () => assert.fail('stylesheet preflight must stream instead of blob()'),
         );
       }
       if (url === 'https://assets.example/print.css') {
-        return makeStreamingResponse(
+        return makeStreamingStylesheetResponse(
           [],
           () => assert.fail('stylesheet preflight must stream instead of blob()'),
         );
@@ -643,7 +788,7 @@ test('capture preflight fails closed when a linked or imported stylesheet has no
     async (input) => {
       const url = String(input);
       if (url === 'https://assets.example/theme.css') {
-        return makeStreamingResponse(
+        return makeStreamingStylesheetResponse(
           [encoder.encode('@import "https://no-cors.example/nested.css";')],
           () => assert.fail('stylesheet preflight must stream instead of blob()'),
         );
@@ -658,7 +803,7 @@ test('capture preflight fails closed when a linked or imported stylesheet has no
   );
 });
 
-test('capture preflight ignores inactive stylesheet resources but still blocks active screen CSS', async () => {
+test('capture preflight freezes disabled and inactive stylesheets before clone state can change', async () => {
   const inactiveRequests: string[] = [];
   const disabledSheet = {
     cssRules: [],
@@ -678,7 +823,8 @@ test('capture preflight ignores inactive stylesheet resources but still blocks a
     [],
     async input => {
       inactiveRequests.push(String(input));
-      throw new TypeError('Inactive stylesheets must not be fetched.');
+      if (String(input).endsWith('.png')) return new Response(ONE_PIXEL_PNG);
+      return new Response('', { headers: { 'content-type': 'text/css' } });
     },
     {
       documentStyleSheets: [disabledSheet, printSheet],
@@ -695,7 +841,13 @@ test('capture preflight ignores inactive stylesheet resources but still blocks a
   );
 
   await assertPublicCaptureResourcesReadable(inactiveRoot);
-  assert.deepEqual(inactiveRequests, []);
+  assert.deepEqual(new Set(inactiveRequests), new Set([
+    'https://no-cors.example/disabled.css',
+    'https://no-cors.example/print-sheet.css',
+    'https://no-cors.example/print-link.css',
+    'https://no-cors.example/print-import.css',
+    'https://no-cors.example/print.png',
+  ]));
 
   const activeRequests: string[] = [];
   const activeRoot = makeCaptureResourceRoot(
@@ -718,7 +870,7 @@ test('capture preflight ignores inactive stylesheet resources but still blocks a
   assert.deepEqual(activeRequests, ['https://no-cors.example/screen.css']);
 });
 
-test('capture preflight respects nested CSSOM media groups', async () => {
+test('capture preflight freezes resources in every nested CSSOM media group', async () => {
   const printAsset = 'https://no-cors.example/nested-print.png';
   const printRule = {
     cssRules: [{ cssText: `.print{background:url("${printAsset}")}` }],
@@ -741,7 +893,7 @@ test('capture preflight respects nested CSSOM media groups', async () => {
     [],
     async input => {
       inactiveRequests.push(String(input));
-      throw new TypeError('Inactive nested media resources must not be fetched.');
+      return new Response(ONE_PIXEL_PNG);
     },
     {
       documentStyleSheets: [printDocumentSheet],
@@ -754,7 +906,7 @@ test('capture preflight respects nested CSSOM media groups', async () => {
   );
 
   await assertPublicCaptureResourcesReadable(inactiveRoot);
-  assert.deepEqual(inactiveRequests, []);
+  assert.deepEqual(inactiveRequests, [printAsset]);
 
   const screenAsset = 'https://no-cors.example/nested-screen.png';
   const activeRequests: string[] = [];
@@ -786,7 +938,7 @@ test('capture preflight respects nested CSSOM media groups', async () => {
   assert.deepEqual(activeRequests, [screenAsset]);
 });
 
-test('capture preflight parses fetched CSS against active media and fails closed without CSSOM', async () => {
+test('capture preflight freezes fetched CSS assets across every media branch', async () => {
   const encoder = new TextEncoder();
   const StyleSheetConstructor = makeMediaParsingStyleSheetConstructor();
   const printStylesheet = 'https://assets.example/external-print.css';
@@ -798,12 +950,13 @@ test('capture preflight parses fetched CSS against active media and fails closed
       const url = String(input);
       printRequests.push(url);
       if (url === printStylesheet) {
-        return makeStreamingResponse(
+        return makeStreamingStylesheetResponse(
           [encoder.encode(`@media print{.asset{background:url("${printAsset}")}}`)],
           () => assert.fail('stylesheet preflight must stream instead of blob()'),
         );
       }
-      throw new TypeError('Inactive print assets must not be fetched.');
+      if (url === printAsset) return new Response(ONE_PIXEL_PNG);
+      throw new TypeError('Unexpected print resource.');
     },
     {
       cssStyleSheetConstructor: StyleSheetConstructor,
@@ -812,7 +965,7 @@ test('capture preflight parses fetched CSS against active media and fails closed
   );
 
   await assertPublicCaptureResourcesReadable(printRoot);
-  assert.deepEqual(printRequests, [printStylesheet]);
+  assert.deepEqual(printRequests, [printStylesheet, printAsset]);
 
   const screenStylesheet = 'https://assets.example/external-screen.css';
   const screenAsset = 'https://no-cors.example/external-screen.png';
@@ -823,7 +976,7 @@ test('capture preflight parses fetched CSS against active media and fails closed
       const url = String(input);
       screenRequests.push(url);
       if (url === screenStylesheet) {
-        return makeStreamingResponse(
+        return makeStreamingStylesheetResponse(
           [encoder.encode(`@media screen{.asset{background:url("${screenAsset}")}}`)],
           () => assert.fail('stylesheet preflight must stream instead of blob()'),
         );
@@ -849,7 +1002,7 @@ test('capture preflight parses fetched CSS against active media and fails closed
       const url = String(input);
       fallbackRequests.push(url);
       if (url === printStylesheet) {
-        return makeStreamingResponse(
+        return makeStreamingStylesheetResponse(
           [encoder.encode(`@media print{.asset{background:url("${printAsset}")}}`)],
           () => assert.fail('stylesheet preflight must stream instead of blob()'),
         );
@@ -878,7 +1031,7 @@ test('capture preflight caches fetched CSS but parses it once per document media
     const url = String(input);
     requests.push(url);
     if (url === stylesheetUrl) {
-      return makeStreamingResponse(
+      return makeStreamingStylesheetResponse(
         [encoder.encode(cssText)],
         () => assert.fail('stylesheet preflight must stream instead of blob()'),
       );
@@ -938,7 +1091,10 @@ test('capture preflight covers URL-bearing SVG paint, filter, clipping, and curs
     [],
     async (input) => {
       requests.push(String(input));
-      return makeStreamingResponse([], () => assert.fail('resource preflight must stream instead of blob()'));
+      return makeStreamingResponse(
+        [ONE_PIXEL_PNG],
+        () => assert.fail('resource preflight must stream instead of blob()'),
+      );
     },
     {
       computedValues: {
@@ -1038,6 +1194,27 @@ test('capture engine owns library cleanup, strict frame readiness, and one opera
   assert.match(source, /finally \{[\s\S]*?destroyContext\(context\)/u);
   assert.match(source, /\.html2canvas-container[\s\S]*?__SANDBOX__/u);
   assert.match(source, /quarantineLateNodes/u);
+  assert.doesNotMatch(source, /\bonclone\s*:/u, 'html2canvas must never see author URLs before a late onclone');
+  assert.match(
+    source,
+    /createPublicCaptureRuntimeState\(input\.previewRoot\)[\s\S]*?createPublicCaptureResourceSnapshot\(input\.previewRoot[\s\S]*?appendReadableDocumentStyles\(doc, shadow, resourceSnapshot\)[\s\S]*?clonePublicCaptureNode\(input\.previewRoot, doc, resourceSnapshot, runtimeState\)[\s\S]*?shadow\.appendChild\(target\)[\s\S]*?applyPublicCaptureResourceSnapshot\(target, resourceSnapshot,[\s\S]*?doc\.body\.appendChild\(host\)/u,
+    'runtime and resource snapshots must exist before any operation element or copied owner style is created',
+  );
+  assert.doesNotMatch(
+    source,
+    /(?:source|style|link)\.cloneNode\(/u,
+    'fetch-triggering author nodes must be rebuilt from frozen attributes instead of cloneNode',
+  );
+  assert.match(
+    source,
+    /context\.drawImage\(sourceCanvas[\s\S]*?context\.getImageData\(0, 0, 1, 1\)[\s\S]*?context\.drawImage\(canvasState\.bitmap/u,
+    'canvas pixels must cross an origin-clean operation-owned bitmap instead of disappearing during manual clone',
+  );
+  assert.match(source, /input\.indeterminate = inputState\.indeterminate/u);
+  assert.match(source, /textarea\.textContent = textareaState\.value[\s\S]*?textarea\.value = textareaState\.value/u);
+  assert.match(source, /option\.toggleAttribute\('selected', selected\)[\s\S]*?option\.selected = selected/u);
+  assert.match(source, /target\.toggleAttribute\('open', openState\.open\)/u);
+  assert.match(source, /tagName === 'video' \|\| tagName === 'audio'/u);
   assert.match(source, /validateCaptureOperationSize\(\[\.\.\.preparedFrames, finalSize\]\)/u);
   assert.match(
     source,

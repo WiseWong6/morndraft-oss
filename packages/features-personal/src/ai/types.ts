@@ -2,6 +2,13 @@ export type PublicAiModelRole = 'generate' | 'modify' | 'summarize';
 
 export type PublicAiAction = PublicAiModelRole | 'fix';
 
+export type PublicAiSourceKind = 'html' | 'markdown' | 'text';
+
+export type PublicAiSourceRange = {
+  start: number;
+  end: number;
+};
+
 export type PublicAiConfig = {
   apiKey: string;
   baseUrl: string;
@@ -9,15 +16,55 @@ export type PublicAiConfig = {
   persistApiKey: boolean;
 };
 
-export type PublicAiRequest = {
-  action: PublicAiAction;
+type PublicAiRequestBase = {
   diagnostic?: string;
   instruction?: string;
   signal?: AbortSignal;
-  source?: string;
-  selectedText?: string;
-  visibleText?: string;
 };
+
+type PublicAiSourceRequestBase = PublicAiRequestBase & {
+  range: PublicAiSourceRange;
+  source: string;
+  sourceKind: PublicAiSourceKind;
+  /** Accepted only for compatibility and ignored in favor of source + range. */
+  selectedText?: string;
+  visibleText?: never;
+};
+
+type PublicAiGenerateOrSummarizeRequest = PublicAiSourceRequestBase & {
+  action: 'generate' | 'summarize';
+  patchRange?: never;
+};
+
+type PublicAiModifyRequest = PublicAiSourceRequestBase & {
+  action: 'modify';
+  /** Mutation range; `range` remains the independent privacy selection. */
+  patchRange: PublicAiSourceRange;
+};
+
+type PublicAiFixRequest = PublicAiRequestBase & {
+  action: 'fix';
+  range?: never;
+  source: string;
+  sourceKind: PublicAiSourceKind;
+  selectedText?: never;
+  visibleText?: never;
+};
+
+type PublicAiVisibleSummaryRequest = PublicAiRequestBase & {
+  action: 'summarize';
+  range?: never;
+  source?: never;
+  sourceKind?: never;
+  selectedText?: never;
+  visibleText: string;
+};
+
+export type PublicAiRequest =
+  | PublicAiGenerateOrSummarizeRequest
+  | PublicAiModifyRequest
+  | PublicAiFixRequest
+  | PublicAiVisibleSummaryRequest;
 
 export type PublicAiResult = {
   finishReason?: string;
@@ -38,6 +85,8 @@ export type PublicAiErrorCode =
   | 'missing_config'
   | 'model_not_found'
   | 'network_error'
+  | 'privacy_unsafe_input'
+  | 'privacy_unsafe_response'
   | 'rate_limited'
   | 'server_error'
   | 'storage_error'

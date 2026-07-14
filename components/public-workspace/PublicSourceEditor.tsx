@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { applyPublicInsert, findPublicSlashTrigger } from './publicDocument';
 import type { PublicFlatInsertEntry, PublicTextSelection, PublicWorkspaceLocale, SourceChangeMeta } from './types';
 
@@ -40,6 +40,8 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const latestSourceRef = useRef(source);
+  const renderedSourceRef = useRef(source);
+  const insertOperationRef = useRef(0);
   const [slashTrigger, setSlashTrigger] = useState<SlashTrigger | null>(null);
   const [insertError, setInsertError] = useState('');
   const entries = useMemo(() => [MARKDOWN_TABLE_ENTRY, ...flatInsertEntries], [flatInsertEntries]);
@@ -52,9 +54,19 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
     ));
   }, [entries, slashTrigger]);
 
-  useEffect(() => {
+  // Keep async insertions pinned to the exact committed controlled value that
+  // opened the menu. A layout effect runs before browser input can target the
+  // new tree, without mutating refs during a render React may later discard.
+  useLayoutEffect(() => {
+    if (renderedSourceRef.current === source) return;
+    renderedSourceRef.current = source;
     latestSourceRef.current = source;
+    insertOperationRef.current += 1;
   }, [source]);
+
+  useEffect(() => () => {
+    insertOperationRef.current += 1;
+  }, []);
 
   const updateSlashTrigger = (next: string, cursor: number | null) => {
     setSlashTrigger(cursor === null ? null : findPublicSlashTrigger(next, cursor));
@@ -68,6 +80,7 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
 
   const handleChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const next = event.currentTarget.value;
+    insertOperationRef.current += 1;
     latestSourceRef.current = next;
     setInsertError('');
     onSourceChange(next, { origin });
@@ -76,9 +89,14 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
 
   const insertEntry = async (entry: PublicFlatInsertEntry) => {
     if (!slashTrigger) return;
+    const requestSource = latestSourceRef.current;
+    const requestTrigger = slashTrigger;
+    const operation = insertOperationRef.current + 1;
+    insertOperationRef.current = operation;
     try {
       const insertion = await resolveEntrySource(entry);
-      const result = applyPublicInsert(latestSourceRef.current, slashTrigger, insertion);
+      if (insertOperationRef.current !== operation || latestSourceRef.current !== requestSource) return;
+      const result = applyPublicInsert(requestSource, requestTrigger, insertion);
       latestSourceRef.current = result.source;
       setSlashTrigger(null);
       onSourceChange(result.source, { origin: 'insert' });
@@ -87,6 +105,7 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
         textareaRef.current?.setSelectionRange(result.cursor, result.cursor);
       });
     } catch {
+      if (insertOperationRef.current !== operation || latestSourceRef.current !== requestSource) return;
       setInsertError(locale === 'zh' ? '无法插入这个组件。' : 'Unable to insert this component.');
     }
   };

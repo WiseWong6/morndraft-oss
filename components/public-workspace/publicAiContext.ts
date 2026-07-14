@@ -1,14 +1,18 @@
-import type { PublicAiAction } from './types';
 import {
-  PUBLIC_AI_OMITTED_LOCAL_IMAGE_DATA,
-  collectPublicAiLocalImageDataUrlSpans,
-  omitPublicAiLocalImageDataUrls,
-  type PublicAiRedactedSpan,
+  PUBLIC_AI_MAX_INSTRUCTION_CHARS,
+  PUBLIC_AI_MAX_SELECTION_CHARS,
+  PublicAiError,
+  getPublicAiSourceKindForContentType,
+  hasPublicAiUnsafeHtmlSource,
+  inspectPublicAiSourceRangePrivacy,
+  type PublicAiAction,
+  type PublicAiRequest,
+  type PublicAiSourceKind,
+  type PublicAiSourceRange,
 } from '@morndraft/features-personal/ai';
 
-export const PUBLIC_AI_MAX_INSTRUCTION_CHARS = 4_000;
-export const PUBLIC_AI_MAX_SELECTED_TEXT_CHARS = 24_000;
-export const PUBLIC_AI_MAX_SOURCE_CONTEXT_CHARS = 24_000;
+export { PUBLIC_AI_MAX_INSTRUCTION_CHARS };
+export const PUBLIC_AI_MAX_SELECTED_TEXT_CHARS = PUBLIC_AI_MAX_SELECTION_CHARS;
 
 export class PublicAiInputTooLargeError extends Error {
   readonly code = 'input_too_large';
@@ -19,68 +23,109 @@ export class PublicAiInputTooLargeError extends Error {
   }
 }
 
-const sanitizeSourceSlice = (
-  source: string,
-  start: number,
-  end: number,
-  spans: readonly PublicAiRedactedSpan[],
-) => {
-  let cursor = start;
-  let sanitized = '';
-  for (const span of spans) {
-    if (span.end <= start) continue;
-    if (span.start >= end) break;
-    sanitized += source.slice(cursor, Math.max(cursor, span.start));
-    sanitized += PUBLIC_AI_OMITTED_LOCAL_IMAGE_DATA;
-    cursor = Math.max(cursor, Math.min(end, span.end));
-  }
-  return sanitized + source.slice(cursor, end);
-};
+export { getPublicAiSourceKindForContentType };
 
-export const buildPublicAiBoundedSourceContext = (
-  source: string,
-  range: { start: number; end: number },
-) => {
-  if (
-    !Number.isInteger(range.start) || !Number.isInteger(range.end)
-    || range.start < 0 || range.end < range.start || range.end > source.length
-  ) throw new Error('invalid_ai_source_range');
-  const beforeBudget = Math.floor(PUBLIC_AI_MAX_SOURCE_CONTEXT_CHARS / 2);
-  const afterBudget = PUBLIC_AI_MAX_SOURCE_CONTEXT_CHARS - beforeBudget;
-  const beforeStart = Math.max(0, range.start - beforeBudget);
-  const afterEnd = Math.min(source.length, range.end + afterBudget);
-  const spans = collectPublicAiLocalImageDataUrlSpans(source);
-  const before = sanitizeSourceSlice(source, beforeStart, range.start, spans);
-  const after = sanitizeSourceSlice(source, range.end, afterEnd, spans);
-  return [
-    beforeStart > 0 ? '[earlier source omitted]' : '',
-    before ? `Context before:\n${before}` : '',
-    after ? `Context after:\n${after}` : '',
-    afterEnd < source.length ? '[later source omitted]' : '',
-  ].filter(Boolean).join('\n\n');
-};
-
-export type PublicAiBoundedRequestInput = {
-  action: Extract<PublicAiAction, 'generate' | 'modify' | 'summarize'>;
+type PublicAiBoundedRequestBase = {
   instruction?: string;
-  range?: { start: number; end: number };
-  selectedText?: string;
-  source?: string;
 };
 
-export const buildPublicAiBoundedRequest = (input: PublicAiBoundedRequestInput) => {
-  const instruction = input.instruction?.trim() ?? '';
-  if (instruction.length > PUBLIC_AI_MAX_INSTRUCTION_CHARS) throw new PublicAiInputTooLargeError();
-  const selectedText = omitPublicAiLocalImageDataUrls(input.selectedText ?? '');
-  if (selectedText.length > PUBLIC_AI_MAX_SELECTED_TEXT_CHARS) throw new PublicAiInputTooLargeError();
-  if (input.action === 'summarize') {
-    return { action: input.action, selectedText } as const;
+export type PublicAiBoundedRequestInput = PublicAiBoundedRequestBase & (
+  | {
+      action: Extract<PublicAiAction, 'generate' | 'modify' | 'summarize'>;
+      patchRange?: PublicAiSourceRange;
+      range: PublicAiSourceRange;
+      source: string;
+      sourceKind: PublicAiSourceKind;
+      visibleText?: never;
+    }
+  | {
+      action: 'summarize';
+      range?: never;
+      source?: never;
+      sourceKind?: never;
+      visibleText: string;
+    }
+);
+
+export type PublicAiSelectionRequestInput = PublicAiBoundedRequestBase & {
+  action: Extract<PublicAiAction, 'modify' | 'summarize'>;
+  /** Independent mutation range; defaults to the authoritative selection. */
+  patchRange?: PublicAiSourceRange;
+  range: PublicAiSourceRange;
+  source: string;
+  sourceKind: PublicAiSourceKind;
+  /** Trusted DOM-visible selection; required for raw HTML summaries. */
+  visibleText?: string;
+};
+
+export const buildPublicAiBoundedRequest = (input: PublicAiBoundedRequestInput): PublicAiRequest => {
+  const rawInstruction = input.instruction ?? '';
+  if (rawInstruction.length > PUBLIC_AI_MAX_INSTRUCTION_CHARS) throw new PublicAiInputTooLargeError();
+  const instruction = rawInstruction.trim();
+  if (input.source === undefined || !input.range) {
+    if (input.action !== 'summarize') throw new Error('missing_ai_source_context');
+    const visibleText = input.visibleText ?? '';
+    if (visibleText.length > PUBLIC_AI_MAX_SELECTED_TEXT_CHARS) throw new PublicAiInputTooLargeError();
+    return { action: input.action, instruction, visibleText } as const;
   }
-  if (input.source === undefined || !input.range) throw new Error('missing_ai_source_context');
+  if (input.range.end - input.range.start > PUBLIC_AI_MAX_SELECTED_TEXT_CHARS) {
+    throw new PublicAiInputTooLargeError();
+  }
+  if (input.action === 'modify') {
+    const patchRange = input.patchRange ?? input.range;
+    if (patchRange.end - patchRange.start > PUBLIC_AI_MAX_SELECTED_TEXT_CHARS) {
+      throw new PublicAiInputTooLargeError();
+    }
+    return {
+      action: 'modify',
+      instruction,
+      patchRange,
+      range: input.range,
+      source: input.source,
+      sourceKind: input.sourceKind,
+    } as const;
+  }
   return {
     action: input.action,
     instruction,
-    selectedText: input.action === 'modify' ? selectedText : undefined,
-    source: buildPublicAiBoundedSourceContext(input.source, input.range),
+    range: input.range,
+    source: input.source,
+    sourceKind: input.sourceKind,
   } as const;
+};
+
+export const buildPublicAiSelectionRequest = (
+  input: PublicAiSelectionRequestInput,
+): PublicAiRequest => {
+  // Validate the authoritative source range before any visible-only downgrade.
+  // A caller-controlled visibleText payload must never bypass an intersecting
+  // local resource span, even though raw HTML summaries omit Source afterward.
+  inspectPublicAiSourceRangePrivacy(input.source, input.range);
+  if (input.action === 'modify') {
+    inspectPublicAiSourceRangePrivacy(input.source, input.patchRange ?? input.range);
+  }
+  if (
+    input.action === 'summarize'
+    && hasPublicAiUnsafeHtmlSource(input.source, input.sourceKind)
+  ) {
+    if (!input.visibleText?.trim()) {
+      throw new PublicAiError(
+        'privacy_unsafe_input',
+        'Raw HTML summaries require a trusted visible-text selection.',
+      );
+    }
+    return buildPublicAiBoundedRequest({
+      action: 'summarize',
+      instruction: input.instruction,
+      visibleText: input.visibleText,
+    });
+  }
+  return buildPublicAiBoundedRequest({
+    action: input.action,
+    instruction: input.instruction,
+    patchRange: input.patchRange,
+    range: input.range,
+    source: input.source,
+    sourceKind: input.sourceKind,
+  });
 };

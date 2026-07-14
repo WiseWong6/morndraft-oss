@@ -16,11 +16,6 @@ import {
 import { PublicSourceEditor } from './PublicSourceEditor';
 import { PublicEditableMarkdown } from './PublicEditableMarkdown';
 import {
-  createPublicMermaidSandboxDocument,
-  extractPublicMermaidSandboxSvg,
-  getPublicMermaidConfig,
-} from './publicMermaidSecurity';
-import {
   assertPublicMermaidSourceBudget,
   createLatestOnlyPublicMermaidRenderer,
 } from './publicMermaidQueue';
@@ -134,10 +129,16 @@ const PublicMermaidPreview: React.FC<{
     }
     const renderer = createLatestOnlyPublicMermaidRenderer({
       render: async (input: { source: string; theme: PublicWorkspaceTheme }) => {
-        const mermaid = (await import('mermaid')).default;
-        mermaid.initialize(getPublicMermaidConfig(input.theme));
+        const [{ default: mermaid }, security] = await Promise.all([
+          import('mermaid'),
+          import('./publicMermaidSecurity'),
+        ]);
+        mermaid.initialize(security.getPublicMermaidConfig(input.theme));
         const rendered = await mermaid.render(`md-public-mermaid-${mermaidRenderSequence += 1}`, input.source);
-        return createPublicMermaidSandboxDocument(extractPublicMermaidSandboxSvg(rendered.svg), input.theme);
+        return security.createPublicMermaidSandboxDocument(
+          security.extractPublicMermaidSandboxSvg(rendered.svg),
+          input.theme,
+        );
       },
       onResult: setSrcDoc,
       onError: () => setError(true),
@@ -222,7 +223,17 @@ const PublicMixedPreview: React.FC<{
         if (language === 'mermaid') {
           return <PublicMermaidPreview key={`mermaid-${index}`} source={segment.content} errorLabel={labels.mermaidError} theme={theme} />;
         }
-        return <pre key={`code-${index}`}><code className={language ? `language-${language}` : undefined}>{segment.content}</code></pre>;
+        return (
+          <PublicEditableMarkdown
+            key={`code-${index}`}
+            content={source.slice(segment.start, segment.end)}
+            segmentStart={segment.start}
+            source={source}
+            editable={editable}
+            onSourcePatch={onSourcePatch}
+            onSelectionChange={onSelectionChange}
+          />
+        );
       })}
     </div>
   );
@@ -291,9 +302,9 @@ export const PublicFinalPreview: React.FC<PublicFinalPreviewProps> = ({
 
   const handleInnerSelection = (selection: PublicTextSelection | null) => {
     onSelectionChange?.(selection ? {
+      ...selection,
       start: editableContentOffset + selection.start,
       end: editableContentOffset + selection.end,
-      text: selection.text,
       source,
     } : null);
   };

@@ -46,6 +46,7 @@ const PUBLIC_MODULE_SOURCE_PREFIXES = Object.freeze([
 export const PUBLIC_DELIVERY_RUNTIME_DEPENDENCIES = Object.freeze([
   'html2canvas',
   'modern-screenshot',
+  'parse5',
   'pdf-lib',
 ]);
 const PUBLIC_DELIVERY_SOURCE_PREFIX = 'packages/public-delivery/src/';

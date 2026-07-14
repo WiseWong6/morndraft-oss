@@ -23,16 +23,24 @@ export {
 export type { PublicAiConfigStorage, PublicAiSettingsSaveErrorKind } from './config';
 export {
   PUBLIC_AI_DEFAULT_TIMEOUT_MS,
+  PUBLIC_AI_MAX_INSTRUCTION_CHARS,
+  PUBLIC_AI_MAX_SELECTION_CHARS,
+  PUBLIC_AI_MAX_SOURCE_CONTEXT_CHARS,
   createPublicAiAdapter,
+  inspectPublicAiSourceRangePrivacy,
   publicAiAdapter,
 } from './client';
 export type { PublicAiAdapterOptions } from './client';
 export {
   PUBLIC_AI_OMITTED_LOCAL_IMAGE_DATA,
+  PUBLIC_AI_MAX_RAW_SOURCE_CODE_UNITS,
+  PUBLIC_AI_MAX_REDACTED_SPANS,
   collectPublicAiLocalImageDataUrlSpans,
+  collectPublicAiSensitiveDataSpans,
   omitPublicAiLocalImageDataUrls,
 } from './redact';
-export type { PublicAiRedactedSpan } from './redact';
+export type { PublicAiRedactedSpan, PublicAiSensitiveDataSpan } from './redact';
+export { getPublicAiSourceKindForContentType, hasPublicAiUnsafeHtmlSource } from './sourceKind';
 export { PublicAiSettingsForm } from './PublicAiSettingsForm';
 export type { PublicAiSettingsFormProps } from './PublicAiSettingsForm';
 export {
@@ -46,4 +54,6 @@ export type {
   PublicAiModelRole,
   PublicAiRequest,
   PublicAiResult,
+  PublicAiSourceKind,
+  PublicAiSourceRange,
 } from './types';

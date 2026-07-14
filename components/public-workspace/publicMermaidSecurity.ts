@@ -1,3 +1,7 @@
+import {
+  isPublicCssFragmentReference,
+  scanPublicCssResources,
+} from '@morndraft/public-delivery';
 import type { PublicWorkspaceTheme } from './types';
 
 const ALLOWED_TAGS = new Set([
@@ -20,21 +24,243 @@ const ALLOWED_ATTRIBUTES = new Set([
   'vector-effect', 'version', 'viewbox', 'width', 'x', 'x1', 'x2', 'xmlns', 'y', 'y1', 'y2',
 ]);
 const SAFE_FRAGMENT = /^#[A-Za-z_][A-Za-z0-9_.:-]*$/u;
-const SAFE_FRAGMENT_URL = /^url\(\s*['"]?#[A-Za-z_][A-Za-z0-9_.:-]*['"]?\s*\)$/iu;
 const URL_ATTRIBUTES = new Set(['clip-path', 'fill', 'filter', 'marker-end', 'marker-mid', 'marker-start', 'mask', 'stroke']);
 export const PUBLIC_MERMAID_MAX_SVG_LENGTH = 2_000_000;
 const MAX_SANDBOX_PAYLOAD_LENGTH = 3_000_000;
 
+const isCssWhitespace = (value: string) => value === ' ' || value === '\n' || value === '\r' || value === '\t' || value === '\f';
+const isCssIdentifierCharacter = (value: string) => {
+  const code = value.charCodeAt(0);
+  return (code >= 0x30 && code <= 0x39)
+    || (code >= 0x41 && code <= 0x5a)
+    || (code >= 0x61 && code <= 0x7a)
+    || value === '-' || value === '_' || code >= 0x80;
+};
+const toAsciiLower = (value: string) => {
+  let normalized = '';
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    normalized += code >= 0x41 && code <= 0x5a ? String.fromCharCode(code + 0x20) : value[index];
+  }
+  return normalized;
+};
+const skipCssComment = (css: string, start: number) => {
+  const end = css.indexOf('*/', start + 2);
+  return end < 0 ? css.length : end + 2;
+};
+const skipCssString = (css: string, start: number) => {
+  const quote = css[start];
+  let index = start + 1;
+  while (index < css.length) {
+    if (css[index] === quote) return index + 1;
+    if (css[index] !== '\\') {
+      index += 1;
+      continue;
+    }
+    index += 1;
+    if (css[index] === '\r' && css[index + 1] === '\n') index += 2;
+    else if (index < css.length) index += 1;
+  }
+  return css.length;
+};
+const readCssEscape = (css: string, start: number) => {
+  let index = start + 1;
+  let hex = '';
+  while (index < css.length && hex.length < 6 && /[0-9a-f]/iu.test(css[index])) {
+    hex += css[index];
+    index += 1;
+  }
+  if (hex) {
+    if (css[index] === '\r' && css[index + 1] === '\n') index += 2;
+    else if (index < css.length && isCssWhitespace(css[index])) index += 1;
+    const codePoint = Number.parseInt(hex, 16);
+    const validCodePoint = codePoint !== 0
+      && codePoint <= 0x10ffff
+      && !(codePoint >= 0xd800 && codePoint <= 0xdfff);
+    return {
+      next: index,
+      value: String.fromCodePoint(validCodePoint ? codePoint : 0xfffd),
+    };
+  }
+  if (index >= css.length) return { next: index, value: '' };
+  if (css[index] === '\n' || css[index] === '\r' || css[index] === '\f') {
+    return {
+      next: css[index] === '\r' && css[index + 1] === '\n' ? index + 2 : index + 1,
+      value: '',
+    };
+  }
+  return { next: index + 1, value: css[index] };
+};
+const readCssIdentifier = (css: string, start: number) => {
+  let index = start;
+  let value = '';
+  while (index < css.length) {
+    if (css.startsWith('/*', index)) {
+      index = skipCssComment(css, index);
+      continue;
+    }
+    if (css[index] === '\\') {
+      const escaped = readCssEscape(css, index);
+      value += escaped.value;
+      index = escaped.next;
+      continue;
+    }
+    if (!isCssIdentifierCharacter(css[index])) break;
+    value += css[index];
+    index += 1;
+  }
+  return { next: index, value: toAsciiLower(value) };
+};
+const skipCssIgnorable = (css: string, start: number) => {
+  let index = start;
+  while (index < css.length) {
+    if (isCssWhitespace(css[index])) index += 1;
+    else if (css.startsWith('/*', index)) index = skipCssComment(css, index);
+    else break;
+  }
+  return index;
+};
+const isVendorPrefixedCssName = (name: string, suffix: string, allowSubproperties: boolean) => {
+  if (!name.startsWith('-') || name.startsWith('--')) return false;
+  const marker = `-${suffix}`;
+  const markerIndex = name.indexOf(marker, 2);
+  if (markerIndex < 2) return false;
+  const remainder = name.slice(markerIndex + marker.length);
+  return remainder === '' || (allowSubproperties && remainder.startsWith('-'));
+};
+const isAnimationProperty = (name: string) => (
+  name === 'animation'
+  || name.startsWith('animation-')
+  || isVendorPrefixedCssName(name, 'animation', true)
+);
+const isKeyframesRule = (name: string) => (
+  name === 'keyframes'
+  || isVendorPrefixedCssName(name, 'keyframes', false)
+);
+
+const skipCssAtRule = (css: string, start: number) => {
+  let index = start;
+  while (index < css.length) {
+    if (css.startsWith('/*', index)) {
+      index = skipCssComment(css, index);
+      continue;
+    }
+    if (css[index] === '"' || css[index] === "'") {
+      index = skipCssString(css, index);
+      continue;
+    }
+    if (css[index] === ';') return index + 1;
+    if (css[index] !== '{') {
+      index += 1;
+      continue;
+    }
+    let depth = 1;
+    index += 1;
+    while (index < css.length && depth > 0) {
+      if (css.startsWith('/*', index)) index = skipCssComment(css, index);
+      else if (css[index] === '"' || css[index] === "'") index = skipCssString(css, index);
+      else {
+        if (css[index] === '{') depth += 1;
+        else if (css[index] === '}') depth -= 1;
+        index += 1;
+      }
+    }
+    return index;
+  }
+  return index;
+};
+
+const skipCssDeclaration = (css: string, start: number) => {
+  let index = start;
+  let parentheses = 0;
+  while (index < css.length) {
+    if (css.startsWith('/*', index)) {
+      index = skipCssComment(css, index);
+      continue;
+    }
+    if (css[index] === '"' || css[index] === "'") {
+      index = skipCssString(css, index);
+      continue;
+    }
+    if (css[index] === '(' || css[index] === '[') parentheses += 1;
+    else if ((css[index] === ')' || css[index] === ']') && parentheses > 0) parentheses -= 1;
+    else if (parentheses === 0 && css[index] === ';') return index + 1;
+    else if (parentheses === 0 && css[index] === '}') return index;
+    index += 1;
+  }
+  return index;
+};
+
+/**
+ * Mermaid includes animation keyframes in every generated flowchart and can
+ * activate them through user-authored edge/class styles. Remove both the
+ * definitions and every animation declaration with a monotonic CSS scan so
+ * the live scriptless renderer and its capture source are provably static.
+ */
+export const staticizePublicMermaidCss = (css: string, allowRootDeclarations = false) => {
+  let copyStart = 0;
+  let index = 0;
+  let declarationBoundary = allowRootDeclarations;
+  let output = '';
+  while (index < css.length) {
+    if (css.startsWith('/*', index)) {
+      index = skipCssComment(css, index);
+      continue;
+    }
+    if (css[index] === '"' || css[index] === "'") {
+      index = skipCssString(css, index);
+      declarationBoundary = false;
+      continue;
+    }
+    if (css[index] === '@') {
+      const ruleStart = skipCssIgnorable(css, index + 1);
+      const rule = readCssIdentifier(css, ruleStart);
+      if (isKeyframesRule(rule.value)) {
+        output += css.slice(copyStart, index);
+        index = skipCssAtRule(css, rule.next);
+        copyStart = index;
+        declarationBoundary = false;
+        continue;
+      }
+      index = Math.max(rule.next, index + 1);
+      declarationBoundary = false;
+      continue;
+    }
+    if (css[index] === '\\' || isCssIdentifierCharacter(css[index])) {
+      const propertyStart = index;
+      const property = readCssIdentifier(css, index);
+      const separator = skipCssIgnorable(css, property.next);
+      if (declarationBoundary && css[separator] === ':' && isAnimationProperty(property.value)) {
+        output += css.slice(copyStart, propertyStart);
+        index = skipCssDeclaration(css, separator + 1);
+        copyStart = index;
+        declarationBoundary = true;
+        continue;
+      }
+      index = Math.max(property.next, index + 1);
+      declarationBoundary = false;
+      continue;
+    }
+    if (css[index] === '{' || css[index] === ';') declarationBoundary = true;
+    else if (!isCssWhitespace(css[index])) declarationBoundary = false;
+    index += 1;
+  }
+  return output + css.slice(copyStart);
+};
+
 const isSafeCss = (value: string) => {
   if (/expression\s*\(|javascript\s*:|@import\b|behavior\s*:|-moz-binding\s*:/iu.test(value)) return false;
-  return (value.match(/url\([^)]*\)/giu) ?? []).every((candidate) => SAFE_FRAGMENT_URL.test(candidate));
+  const scan = scanPublicCssResources(value);
+  return !scan.malformed && scan.imports.length === 0 && scan.occurrences.every(occurrence => (
+    occurrence.kind === 'url' && isPublicCssFragmentReference(occurrence.value)
+  ));
 };
 
 const isSafeValue = (name: string, value: string) => {
   if (name.startsWith('on')) return false;
   if (name === 'href') return SAFE_FRAGMENT.test(value);
   if (name === 'style') return isSafeCss(value);
-  if (URL_ATTRIBUTES.has(name) && /url\s*\(/iu.test(value)) return SAFE_FRAGMENT_URL.test(value);
+  if (URL_ATTRIBUTES.has(name)) return isSafeCss(value);
   return !/(?:javascript|data|vbscript)\s*:/iu.test(value);
 };
 
@@ -50,11 +276,15 @@ const validateSvgText = (svg: string) => {
       const name = attribute[1].toLowerCase();
       if (!name || name === '/') continue;
       const value = attribute[2] ?? attribute[3] ?? attribute[4] ?? '';
+      if (name === 'style' && staticizePublicMermaidCss(value, true) !== value) {
+        throw new Error('Mermaid SVG contains dynamic CSS.');
+      }
       if ((!ALLOWED_ATTRIBUTES.has(name) && !name.startsWith('data-')) || !isSafeValue(name, value)) {
         throw new Error(`Mermaid SVG contains a forbidden ${name} attribute.`);
       }
     }
   }
+  if (staticizePublicMermaidCss(svg) !== svg) throw new Error('Mermaid SVG contains dynamic CSS.');
   if (!isSafeCss(svg)) throw new Error('Mermaid SVG contains an unsafe CSS reference.');
   return svg;
 };
@@ -72,13 +302,24 @@ export const sanitizePublicMermaidSvg = (svg: string) => {
       element.remove();
       continue;
     }
-    if (tag === 'style' && !isSafeCss(element.textContent ?? '')) {
-      element.remove();
-      continue;
+    if (tag === 'style') {
+      const staticCss = staticizePublicMermaidCss(element.textContent ?? '');
+      if (!isSafeCss(staticCss)) {
+        element.remove();
+        continue;
+      }
+      element.textContent = staticCss;
     }
     for (const attribute of [...element.attributes]) {
       const name = attribute.name.toLowerCase();
-      if ((!ALLOWED_ATTRIBUTES.has(name) && !name.startsWith('data-')) || !isSafeValue(name, attribute.value)) element.removeAttribute(attribute.name);
+      const value = name === 'style'
+        ? staticizePublicMermaidCss(attribute.value, true)
+        : attribute.value;
+      if ((!ALLOWED_ATTRIBUTES.has(name) && !name.startsWith('data-')) || !isSafeValue(name, value)) {
+        element.removeAttribute(attribute.name);
+      } else if (value !== attribute.value) {
+        element.setAttribute(attribute.name, value);
+      }
     }
   }
   return new XMLSerializer().serializeToString(root);

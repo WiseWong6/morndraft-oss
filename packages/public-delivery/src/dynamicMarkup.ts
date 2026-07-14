@@ -1,13 +1,61 @@
 const PUBLIC_DYNAMIC_ELEMENTS = new Set([
   'audio', 'canvas', 'details', 'dialog', 'embed', 'iframe', 'input',
-  'object', 'script', 'select', 'textarea', 'video',
+  'marquee', 'object', 'progress', 'script', 'select', 'textarea', 'video',
 ]);
 
 const PUBLIC_DYNAMIC_URL_ATTRIBUTES = new Set([
   'action', 'formaction', 'href', 'src', 'xlink:href',
 ]);
 
-const isHtmlWhitespace = (character: string | undefined) => (
+const PUBLIC_DYNAMIC_STATE_ATTRIBUTES = new Set([
+  'command', 'commandfor', 'popover', 'popovertarget', 'popovertargetaction',
+]);
+
+const PUBLIC_SVG_DYNAMIC_ELEMENTS = new Set([
+  'animate', 'animatemotion', 'animatetransform', 'discard', 'set',
+]);
+
+const HTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
+export const PUBLIC_DYNAMIC_CAPTURE_HTML_MAX_BYTES = 2 * 1024 * 1024;
+
+type ParsedAttribute = {
+  name: string;
+  namespace?: string;
+  prefix?: string;
+  value: string;
+};
+
+type ParsedNode = {
+  attrs?: ParsedAttribute[];
+  childNodes?: ParsedNode[];
+  content?: ParsedNode;
+  namespaceURI?: string;
+  nodeName: string;
+  tagName?: string;
+  value?: string;
+};
+
+type Parse5Module = typeof import('parse5');
+
+let parse5ModulePromise: Promise<Parse5Module> | undefined;
+
+const loadParse5 = () => {
+  parse5ModulePromise ??= import('parse5');
+  return parse5ModulePromise;
+};
+
+const toAsciiLower = (value: string) => {
+  let normalized = '';
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    normalized += String.fromCharCode(code >= 0x41 && code <= 0x5a ? code + 0x20 : code);
+  }
+  return normalized;
+};
+
+const isCssWhitespace = (character: string | undefined) => (
   character === ' '
   || character === '\t'
   || character === '\n'
@@ -15,265 +63,302 @@ const isHtmlWhitespace = (character: string | undefined) => (
   || character === '\r'
 );
 
-const isAsciiLetter = (character: string | undefined) => {
-  const code = character?.charCodeAt(0) ?? 0;
-  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
-};
-
-const isTagNameCharacter = (character: string | undefined) => {
-  const code = character?.charCodeAt(0) ?? 0;
-  return isAsciiLetter(character)
-    || (code >= 48 && code <= 57)
-    || character === '_'
-    || character === ':'
-    || character === '-';
-};
-
-const toAsciiLowerCodeUnit = (code: number) => (
-  code >= 0x41 && code <= 0x5a ? code + 0x20 : code
+const isCssHexDigit = (character: string | undefined) => (
+  character !== undefined && (
+    (character >= '0' && character <= '9')
+    || (character >= 'A' && character <= 'F')
+    || (character >= 'a' && character <= 'f')
+  )
 );
 
-const startsWithAsciiCaseInsensitive = (value: string, candidate: string, start: number) => {
-  if (start < 0 || start + candidate.length > value.length) return false;
-  for (let offset = 0; offset < candidate.length; offset += 1) {
-    if (toAsciiLowerCodeUnit(value.charCodeAt(start + offset)) !== candidate.charCodeAt(offset)) {
-      return false;
+const isCssIdentifierCodePoint = (character: string | undefined) => {
+  if (!character) return false;
+  const code = character.charCodeAt(0);
+  return (
+    (code >= 0x30 && code <= 0x39)
+    || (code >= 0x41 && code <= 0x5a)
+    || (code >= 0x61 && code <= 0x7a)
+    || code >= 0x80
+    || character === '-'
+    || character === '_'
+  );
+};
+
+const skipCssComment = (css: string, start: number) => {
+  const end = css.indexOf('*/', start + 2);
+  return end === -1 ? css.length : end + 2;
+};
+
+const skipCssString = (css: string, start: number) => {
+  const quote = css[start];
+  let index = start + 1;
+  while (index < css.length) {
+    if (css[index] === quote) return index + 1;
+    if (css[index] !== '\\') {
+      index += 1;
+      continue;
     }
+    index += 1;
+    if (css[index] === '\r' && css[index + 1] === '\n') index += 2;
+    else if (index < css.length) index += 1;
   }
-  return true;
+  return css.length;
 };
 
-const readTagOpening = (html: string, tagStart: number) => {
-  let index = tagStart + 1;
-  while (isHtmlWhitespace(html[index])) index += 1;
-  const closing = html[index] === '/';
-  if (closing) index += 1;
-  while (isHtmlWhitespace(html[index])) index += 1;
-  if (!isAsciiLetter(html[index])) return null;
-  const nameStart = index;
-  index += 1;
-  while (isTagNameCharacter(html[index])) index += 1;
-  return {
-    attributesStart: index,
-    closing,
-    name: html.slice(nameStart, index).toLowerCase(),
-  };
-};
-
-const findTagEnd = (html: string, start: number) => {
-  let quote = '';
-  for (let index = start; index < html.length; index += 1) {
-    const character = html[index];
-    if (quote) {
-      if (character === quote) quote = '';
-    } else if (character === '"' || character === "'") quote = character;
-    else if (character === '>') return index;
+const readCssEscape = (css: string, start: number) => {
+  let index = start + 1;
+  if (index >= css.length) return { next: index, value: '\uFFFD' };
+  if (isCssHexDigit(css[index])) {
+    const hexStart = index;
+    while (index < css.length && index - hexStart < 6 && isCssHexDigit(css[index])) index += 1;
+    const parsed = Number.parseInt(css.slice(hexStart, index), 16);
+    if (css[index] === '\r' && css[index + 1] === '\n') index += 2;
+    else if (isCssWhitespace(css[index])) index += 1;
+    const validCodePoint = parsed !== 0 && parsed <= 0x10ffff && !(parsed >= 0xd800 && parsed <= 0xdfff);
+    return {
+      next: index,
+      value: String.fromCodePoint(validCodePoint ? parsed : 0xfffd),
+    };
   }
-  return html.length;
+  if (css[index] === '\r' && css[index + 1] === '\n') return { next: index + 2, value: '' };
+  if (css[index] === '\n' || css[index] === '\f' || css[index] === '\r') {
+    return {
+      next: css[index] === '\r' && css[index + 1] === '\n' ? index + 2 : index + 1,
+      value: '',
+    };
+  }
+  return { next: index + 1, value: css[index] };
 };
 
-const findBogusCommentEnd = (html: string, start: number) => {
-  const end = html.indexOf('>', start);
-  return end === -1 ? html.length : end + 1;
-};
-
-type HtmlCommentState =
-  | 'comment'
-  | 'end'
-  | 'end-bang'
-  | 'end-dash'
-  | 'less-than'
-  | 'less-than-bang'
-  | 'less-than-bang-dash'
-  | 'less-than-bang-dash-dash'
-  | 'start'
-  | 'start-dash';
-
-const findHtmlCommentEnd = (html: string, start: number) => {
+const readCssIdentifier = (css: string, start: number) => {
   let index = start;
-  let state: HtmlCommentState = 'start';
-  while (index < html.length) {
-    const character = html[index];
-    if (state === 'start') {
-      if (character === '>') return index + 1;
-      state = character === '-' ? 'start-dash' : 'comment';
-      index += 1;
+  let value = '';
+  while (index < css.length) {
+    if (css.startsWith('/*', index)) {
+      index = skipCssComment(css, index);
       continue;
     }
-    if (state === 'start-dash') {
-      if (character === '>') return index + 1;
-      state = character === '-' ? 'end' : 'comment';
-      index += 1;
+    if (css[index] === '\\') {
+      const escaped = readCssEscape(css, index);
+      value += escaped.value;
+      index = escaped.next;
       continue;
     }
-    if (state === 'comment') {
-      state = character === '<'
-        ? 'less-than'
-        : character === '-'
-          ? 'end-dash'
-          : 'comment';
-      index += 1;
-      continue;
-    }
-    if (state === 'less-than') {
-      if (character === '!') {
-        state = 'less-than-bang';
-        index += 1;
-      } else if (character === '<') {
-        index += 1;
-      } else {
-        state = 'comment';
-      }
-      continue;
-    }
-    if (state === 'less-than-bang') {
-      if (character === '-') {
-        state = 'less-than-bang-dash';
-        index += 1;
-      } else {
-        state = 'comment';
-      }
-      continue;
-    }
-    if (state === 'less-than-bang-dash') {
-      if (character === '-') {
-        state = 'less-than-bang-dash-dash';
-        index += 1;
-      } else {
-        state = 'end-dash';
-      }
-      continue;
-    }
-    if (state === 'less-than-bang-dash-dash') {
-      state = 'end';
-      continue;
-    }
-    if (state === 'end-dash') {
-      if (character === '-') {
-        state = 'end';
-        index += 1;
-      } else {
-        state = 'comment';
-      }
-      continue;
-    }
-    if (state === 'end') {
-      if (character === '>') return index + 1;
-      if (character === '-') {
-        index += 1;
-      } else if (character === '!') {
-        state = 'end-bang';
-        index += 1;
-      } else {
-        state = 'comment';
-      }
-      continue;
-    }
-    if (character === '>') return index + 1;
-    if (character === '-') {
-      state = 'end-dash';
-      index += 1;
-    } else {
-      state = 'comment';
-    }
+    if (!isCssIdentifierCodePoint(css[index])) break;
+    value += css[index];
+    index += 1;
   }
-  return -1;
+  return { next: index, value: toAsciiLower(value) };
 };
 
-const findRawTextEndTag = (html: string, tagName: string, start: number) => {
-  let searchFrom = start;
-  while (searchFrom < html.length) {
-    const candidate = html.indexOf('<', searchFrom);
-    if (candidate === -1) return -1;
-    const nameStart = candidate + 2;
-    if (
-      html[candidate + 1] === '/'
-      && startsWithAsciiCaseInsensitive(html, tagName, nameStart)
-    ) {
-      const boundary = html[nameStart + tagName.length];
-      if (isHtmlWhitespace(boundary) || boundary === '/' || boundary === '>') return candidate;
+const skipCssIgnorable = (css: string, start: number) => {
+  let index = start;
+  while (index < css.length) {
+    if (isCssWhitespace(css[index])) {
+      index += 1;
+      continue;
     }
-    searchFrom = candidate + 1;
+    if (css.startsWith('/*', index)) {
+      index = skipCssComment(css, index);
+      continue;
+    }
+    break;
   }
-  return -1;
+  return index;
 };
 
-const hasDynamicAttribute = (attributes: string) => {
+const isVendorPrefixedCssName = (name: string, suffix: string, allowSubproperties: boolean) => {
+  if (!name.startsWith('-') || name.startsWith('--')) return false;
+  const marker = `-${suffix}`;
+  const markerIndex = name.indexOf(marker, 2);
+  if (markerIndex < 2) return false;
+  const remainder = name.slice(markerIndex + marker.length);
+  return remainder === '' || (allowSubproperties && remainder.startsWith('-'));
+};
+
+const isAnimationProperty = (name: string) => (
+  name === 'animation'
+  || name.startsWith('animation-')
+  || isVendorPrefixedCssName(name, 'animation', true)
+);
+
+const isDynamicAtRule = (name: string) => (
+  name === 'keyframes'
+  || name === 'starting-style'
+  || isVendorPrefixedCssName(name, 'keyframes', false)
+);
+
+/**
+ * Scan CSS tokens without regular-expression lookarounds or backtracking.
+ * Comments are removed as CSS syntax requires, while quoted strings stay inert.
+ */
+const hasDynamicCss = (css: string, allowRootDeclarations: boolean) => {
   let index = 0;
-  while (index < attributes.length) {
-    while (/\s|\//u.test(attributes[index] ?? '')) index += 1;
-    const nameStart = index;
-    while (index < attributes.length && !/[\s=/>]/u.test(attributes[index])) index += 1;
-    if (index === nameStart) {
-      index += 1;
+  let declarationBoundary = allowRootDeclarations;
+  while (index < css.length) {
+    if (css.startsWith('/*', index)) {
+      index = skipCssComment(css, index);
       continue;
     }
-    const name = attributes.slice(nameStart, index).toLowerCase();
-    while (/\s/u.test(attributes[index] ?? '')) index += 1;
-    let value = '';
-    if (attributes[index] === '=') {
-      index += 1;
-      while (/\s/u.test(attributes[index] ?? '')) index += 1;
-      const quote = attributes[index];
-      if (quote === '"' || quote === "'") {
-        index += 1;
-        const valueStart = index;
-        while (index < attributes.length && attributes[index] !== quote) index += 1;
-        value = attributes.slice(valueStart, index);
-        if (attributes[index] === quote) index += 1;
-      } else {
-        const valueStart = index;
-        while (index < attributes.length && !/[\s>]/u.test(attributes[index])) index += 1;
-        value = attributes.slice(valueStart, index);
-      }
+    if (css[index] === '"' || css[index] === "'") {
+      index = skipCssString(css, index);
+      declarationBoundary = false;
+      continue;
     }
-    if (name === 'contenteditable' || /^on[a-z][\w:-]*$/u.test(name)) return true;
-    const normalizedUrlValue = Array.from(value, character => (
-      (character.codePointAt(0) ?? 0) <= 0x20 ? '' : character
-    )).join('');
+    if (css[index] === '@') {
+      const ruleStart = skipCssIgnorable(css, index + 1);
+      const rule = readCssIdentifier(css, ruleStart);
+      if (isDynamicAtRule(rule.value)) return true;
+      index = Math.max(rule.next, index + 1);
+      declarationBoundary = false;
+      continue;
+    }
+    if (css[index] === '\\' || isCssIdentifierCodePoint(css[index])) {
+      const property = readCssIdentifier(css, index);
+      const separator = skipCssIgnorable(css, property.next);
+      if (
+        declarationBoundary
+        && css[separator] === ':'
+        && isAnimationProperty(property.value)
+      ) return true;
+      index = Math.max(property.next, index + 1);
+      declarationBoundary = false;
+      continue;
+    }
+    if (css[index] === '{' || css[index] === ';') declarationBoundary = true;
+    else if (!isCssWhitespace(css[index])) declarationBoundary = false;
+    index += 1;
+  }
+  return false;
+};
+
+export const hasPublicDynamicCaptureCss = (css: string, allowRootDeclarations = false) => (
+  hasDynamicCss(css, allowRootDeclarations)
+);
+
+const getUtf8ByteLengthAtMost = (value: string, maximum: number) => {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x7f) bytes += 1;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+    if (bytes > maximum) return bytes;
+  }
+  return bytes;
+};
+
+const normalizeExecutableUrl = (value: string) => {
+  let normalized = '';
+  for (const character of value) {
+    if ((character.codePointAt(0) ?? 0) > 0x20) normalized += character;
+  }
+  return toAsciiLower(normalized);
+};
+
+const getAttributeName = (attribute: ParsedAttribute) => {
+  const name = toAsciiLower(attribute.name);
+  return attribute.prefix ? `${toAsciiLower(attribute.prefix)}:${name}` : name;
+};
+
+const hasDynamicAttribute = (attributes: readonly ParsedAttribute[]) => {
+  for (const attribute of attributes) {
+    const name = getAttributeName(attribute);
+    const eventStart = name.charCodeAt(2);
+    if (
+      name === 'contenteditable'
+      || PUBLIC_DYNAMIC_STATE_ATTRIBUTES.has(name)
+      || (name.startsWith('on') && eventStart >= 0x61 && eventStart <= 0x7a)
+    ) return true;
+    if (name === 'style' && hasDynamicCss(attribute.value, true)) return true;
     if (
       PUBLIC_DYNAMIC_URL_ATTRIBUTES.has(name)
-      && /^(?:javascript|vbscript):/iu.test(normalizedUrlValue)
-    ) return true;
+    ) {
+      const normalizedUrl = normalizeExecutableUrl(attribute.value);
+      if (normalizedUrl.startsWith('javascript:') || normalizedUrl.startsWith('vbscript:')) return true;
+    }
+  }
+  return false;
+};
+
+const getTextContent = (node: ParsedNode) => {
+  const pending: ParsedNode[] = [];
+  const initialChildren = node.childNodes ?? [];
+  for (let index = initialChildren.length - 1; index >= 0; index -= 1) {
+    pending.push(initialChildren[index]);
+  }
+  let text = '';
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) continue;
+    if (typeof current.value === 'string') text += current.value;
+    const children = current.childNodes ?? [];
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push(children[index]);
+    }
+  }
+  return text;
+};
+
+const hasDynamicTree = (document: ParsedNode) => {
+  const pending: ParsedNode[] = [document];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (!node) continue;
+    if (node.tagName) {
+      const tagName = toAsciiLower(node.tagName);
+      const namespace = node.namespaceURI;
+      const attributes = node.attrs ?? [];
+      if (PUBLIC_DYNAMIC_ELEMENTS.has(tagName)) return true;
+      // The live Final iframe permits scripts, while the capture iframe does
+      // not. HTML noscript therefore changes from raw text into active markup
+      // on the second browser parse and could reveal unfrozen author URLs.
+      if (namespace === HTML_NAMESPACE && tagName === 'noscript') return true;
+      if (namespace === SVG_NAMESPACE && PUBLIC_SVG_DYNAMIC_ELEMENTS.has(tagName)) return true;
+      if (hasDynamicAttribute(attributes)) return true;
+      if (
+        namespace === HTML_NAMESPACE
+        && tagName === 'meta'
+        && attributes.some(attribute => (
+          getAttributeName(attribute) === 'http-equiv'
+          && normalizeExecutableUrl(attribute.value) === 'refresh'
+        ))
+      ) return true;
+      if (tagName === 'style' && hasDynamicCss(getTextContent(node), false)) return true;
+    }
+    if (node.content) pending.push(node.content);
+    const children = node.childNodes ?? [];
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push(children[index]);
+    }
   }
   return false;
 };
 
 /**
- * Detect markup whose live sandbox can diverge from a deterministic bitmap.
- * This scanner follows HTML comment and style raw-text boundaries so examples
- * and CSS comments that merely contain "<script>" are not treated as nodes.
+ * Parse the same complete document shape used by iframe srcdoc, then reject
+ * markup whose live sandbox can change after the static capture snapshot.
+ * Import and parser failures fail closed; parse5 stays outside the entry chunk.
  */
-export const hasPublicDynamicCaptureMarkup = (html: string) => {
-  let index = 0;
-  while (index < html.length) {
-    const tagStart = html.indexOf('<', index);
-    if (tagStart === -1) return false;
-    if (html.startsWith('<!--', tagStart)) {
-      const commentEnd = findHtmlCommentEnd(html, tagStart + 4);
-      if (commentEnd === -1) return false;
-      index = commentEnd;
-      continue;
-    }
-    if (html[tagStart + 1] === '!' || html[tagStart + 1] === '?') {
-      index = findBogusCommentEnd(html, tagStart + 2);
-      continue;
-    }
-    const opening = readTagOpening(html, tagStart);
-    if (!opening) {
-      index = tagStart + 1;
-      continue;
-    }
-    const tagEnd = findTagEnd(html, opening.attributesStart);
-    if (!opening.closing && PUBLIC_DYNAMIC_ELEMENTS.has(opening.name)) return true;
-    if (!opening.closing && hasDynamicAttribute(html.slice(opening.attributesStart, tagEnd))) return true;
-    if (!opening.closing && opening.name === 'style') {
-      const styleEnd = findRawTextEndTag(html, 'style', Math.min(tagEnd + 1, html.length));
-      if (styleEnd === -1) return false;
-      index = styleEnd;
-      continue;
-    }
-    index = Math.min(tagEnd + 1, html.length);
+export const hasPublicDynamicCaptureMarkup = async (html: string) => {
+  if (getUtf8ByteLengthAtMost(html, PUBLIC_DYNAMIC_CAPTURE_HTML_MAX_BYTES) > PUBLIC_DYNAMIC_CAPTURE_HTML_MAX_BYTES) {
+    return true;
   }
-  return false;
+  try {
+    const { parse } = await loadParse5();
+    const document = parse(html, { scriptingEnabled: true }) as ParsedNode;
+    return hasDynamicTree(document);
+  } catch {
+    return true;
+  }
 };

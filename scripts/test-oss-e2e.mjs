@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global Buffer, HTMLButtonElement, Navigator, URL, clearTimeout, console, document, fetch, localStorage, navigator, process, sessionStorage, setTimeout, window */
+/* global AbortController, Buffer, Element, HTMLButtonElement, Navigator, URL, clearTimeout, console, document, fetch, localStorage, navigator, process, requestAnimationFrame, sessionStorage, setTimeout, window */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -96,6 +96,18 @@ const waitForFrameWithSelector = async (page, selector, timeoutMs = 5_000) => {
     await page.waitForTimeout(50);
   }
   throw new Error(`Timed out waiting for portable frame selector: ${selector}`);
+};
+
+const waitForFrameWithUrl = async (page, pattern, timeoutMs = 5_000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const frame = page.frames().find(candidate => (
+      candidate !== page.mainFrame() && pattern.test(candidate.url())
+    ));
+    if (frame) return frame;
+    await page.waitForTimeout(50);
+  }
+  throw new Error(`Timed out waiting for portable frame URL: ${pattern}`);
 };
 
 const decodeHtmlAttribute = (value) => value
@@ -200,18 +212,143 @@ const createDeliveryFixtureServer = () => {
   const slowCssDelayMs = 850;
   const requests = {
     activeMediaImage: 0,
+    cloneImage: 0,
+    escapedImportCss: 0,
+    invalidCssEncoding: 0,
+    invalidCssMime: 0,
+    invalidFont: 0,
+    invalidRaster: 0,
     mediaContextCss: 0,
     inactivePrintImage: 0,
     noCorsCss: 0,
     noCorsImage: 0,
+    noscriptCss: 0,
+    noscriptImage: 0,
+    proactiveLinkImage: 0,
     slowCss: 0,
+    slowImage: 0,
   };
   const noCorsPng = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/wn4GBgYGJAQoAHgQCAU0OBRsAAAAASUVORK5CYII=',
     'base64',
   );
+  const activeMediaPng = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGNUPZ7xn4GBgYGJAQoAIyUCV0FmzREAAAAASUVORK5CYII=',
+    'base64',
+  );
+  const invalidRaster = Buffer.from([
+    0xff, 0xd8,
+    0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x11, 0x00,
+    0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+    0x00, 0xff, 0xd9,
+  ]);
+  const invalidFont = Buffer.alloc(44);
+  invalidFont.write('wOFF', 0, 'ascii');
+  invalidFont.writeUInt32BE(44, 8);
+  invalidFont.writeUInt16BE(1, 12);
+  const invalidCssEncoding = Buffer.concat([
+    Buffer.from('.invalid-css-encoding{color:rgb(31, 117, 199)}', 'utf8'),
+    Buffer.from([0xff]),
+  ]);
   const server = createServer((request, response) => {
     const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1');
+    if (requestUrl.pathname === '/escaped-import.css') {
+      requests.escapedImportCss += 1;
+      response.writeHead(200, {
+        'access-control-allow-origin': '*',
+        'cache-control': 'no-store',
+        'content-type': 'text/css; charset=utf-8',
+      });
+      response.end('.escaped-import-card{color:rgb(23, 87, 145)}');
+      return;
+    }
+    if (requestUrl.pathname === '/proactive-link.png') {
+      requests.proactiveLinkImage += 1;
+      response.writeHead(200, {
+        'access-control-allow-origin': '*',
+        'cache-control': 'no-store',
+        'content-length': activeMediaPng.byteLength,
+        'content-type': 'image/png',
+      });
+      response.end(activeMediaPng);
+      return;
+    }
+    if (requestUrl.pathname === '/clone-image.png') {
+      requests.cloneImage += 1;
+      response.writeHead(200, {
+        'access-control-allow-origin': '*',
+        'cache-control': 'no-store',
+        'content-length': activeMediaPng.byteLength,
+        'content-type': 'image/png',
+      });
+      response.end(activeMediaPng);
+      return;
+    }
+    if (requestUrl.pathname === '/noscript-image.png') {
+      requests.noscriptImage += 1;
+      response.writeHead(200, {
+        'access-control-allow-origin': '*',
+        'cache-control': 'no-store',
+        'content-length': activeMediaPng.byteLength,
+        'content-type': 'image/png',
+      });
+      response.end(activeMediaPng);
+      return;
+    }
+    if (requestUrl.pathname === '/noscript-style.css') {
+      requests.noscriptCss += 1;
+      response.writeHead(200, {
+        'access-control-allow-origin': '*',
+        'cache-control': 'no-store',
+        'content-type': 'text/css; charset=utf-8',
+      });
+      response.end('.noscript-control{color:rgb(73, 29, 181)}');
+      return;
+    }
+    if (requestUrl.pathname === '/invalid-raster.jpg') {
+      requests.invalidRaster += 1;
+      response.writeHead(200, {
+        'access-control-allow-origin': '*',
+        'cache-control': 'no-store',
+        'content-length': invalidRaster.byteLength,
+        'content-type': 'image/jpeg',
+      });
+      response.end(invalidRaster);
+      return;
+    }
+    if (requestUrl.pathname === '/invalid-font.woff') {
+      requests.invalidFont += 1;
+      response.writeHead(200, {
+        'access-control-allow-origin': '*',
+        'cache-control': 'no-store',
+        'content-length': invalidFont.byteLength,
+        'content-type': 'font/woff',
+      });
+      response.end(invalidFont);
+      return;
+    }
+    if (requestUrl.pathname === '/invalid-css-mime.css') {
+      requests.invalidCssMime += 1;
+      response.writeHead(200, {
+        'access-control-allow-origin': '*',
+        'cache-control': 'no-store',
+        'content-type': 'text/plain; charset=utf-8',
+        'x-content-type-options': 'nosniff',
+      });
+      response.end('.invalid-css-mime{color:rgb(191, 47, 83)}');
+      return;
+    }
+    if (requestUrl.pathname === '/invalid-css-encoding.css') {
+      requests.invalidCssEncoding += 1;
+      response.writeHead(200, {
+        'access-control-allow-origin': '*',
+        'cache-control': 'no-store',
+        'content-length': invalidCssEncoding.byteLength,
+        'content-type': 'text/css; charset=utf-8',
+      });
+      response.end(invalidCssEncoding);
+      return;
+    }
     if (requestUrl.pathname === '/media-context.css') {
       requests.mediaContextCss += 1;
       response.writeHead(200, {
@@ -222,24 +359,26 @@ const createDeliveryFixtureServer = () => {
       response.end([
         'html,body{margin:0;min-height:480px;background:#102030}',
         'body{display:grid;place-items:center}',
-        '.media-context-card{width:240px;height:140px;background:#cc3366 url("./active-media.svg") center/cover no-repeat}',
+        '.media-context-card{width:240px;height:140px;background:#cc3366 url("./active-media.png") center/cover no-repeat}',
         '@media print{.media-context-card{background-image:url("./inactive-print.png?source=linked")}}',
       ].join(''));
       return;
     }
-    if (requestUrl.pathname === '/active-media.svg') {
+    if (requestUrl.pathname === '/active-media.png') {
       requests.activeMediaImage += 1;
       response.writeHead(200, {
         'access-control-allow-origin': '*',
         'cache-control': 'no-store',
-        'content-type': 'image/svg+xml; charset=utf-8',
+        'content-length': activeMediaPng.byteLength,
+        'content-type': 'image/png',
       });
-      response.end('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="14" viewBox="0 0 24 14"><rect width="24" height="14" fill="#25c768"/></svg>');
+      response.end(activeMediaPng);
       return;
     }
     if (requestUrl.pathname === '/inactive-print.png') {
       requests.inactivePrintImage += 1;
       response.writeHead(200, {
+        'access-control-allow-origin': '*',
         'cache-control': 'no-store',
         'content-length': noCorsPng.byteLength,
         'content-type': 'image/png',
@@ -259,6 +398,17 @@ const createDeliveryFixtureServer = () => {
           'body{margin:0;min-height:480px;display:grid;place-items:center;background:#102030}',
           '.slow-card{width:240px;height:140px;background:#12a4e6}',
         ].join(''));
+      }, slowCssDelayMs);
+      return;
+    }
+    if (requestUrl.pathname === '/slow-image.png') {
+      requests.slowImage += 1;
+      response.setHeader('access-control-allow-origin', '*');
+      response.setHeader('cache-control', 'no-store');
+      response.setHeader('content-type', 'image/png');
+      setTimeout(() => {
+        if (response.destroyed) return;
+        response.end(noCorsPng);
       }, slowCssDelayMs);
       return;
     }
@@ -297,6 +447,7 @@ const installDeliveryResourceAudit = async (page) => {
     const originalRevokeObjectUrl = URL.revokeObjectURL.bind(URL);
     const audit = {
       activeObjectUrls,
+      abortCalls: [],
       added: {
         captureHosts: 0,
         html2canvasContainers: 0,
@@ -304,7 +455,28 @@ const installDeliveryResourceAudit = async (page) => {
         staticCaptureFrames: 0,
       },
       createdObjectUrls: 0,
+      deliveryEvents: [],
+      runtimeSnapshots: [],
+      runtimeErrors: [],
       revokedObjectUrls: 0,
+    };
+    const pushBounded = (items, value) => {
+      items.push(value);
+      if (items.length > 24) items.shift();
+    };
+    const describeDeliveryButtons = () => Array.from(document.querySelectorAll('.md-public-delivery button'))
+      .map((button) => ({
+        disabled: button.disabled,
+        testId: button.getAttribute('data-testid') ?? '',
+        text: button.textContent?.trim() ?? '',
+      }));
+    const originalAbort = AbortController.prototype.abort;
+    AbortController.prototype.abort = function auditedAbort(reason) {
+      pushBounded(audit.abortCalls, {
+        message: reason instanceof Error ? reason.message : String(reason ?? ''),
+        stack: new Error('AbortController.abort audit').stack?.split('\n').slice(1, 7).join('\n') ?? '',
+      });
+      return originalAbort.call(this, reason);
     };
     URL.createObjectURL = (blob) => {
       const value = originalCreateObjectUrl(blob);
@@ -318,6 +490,23 @@ const installDeliveryResourceAudit = async (page) => {
       originalRevokeObjectUrl(value);
     };
     window.__ossDeliveryResourceAudit = audit;
+    window.addEventListener('error', (event) => {
+      pushBounded(audit.runtimeErrors, { kind: 'error', message: String(event.message ?? '') });
+    });
+    window.addEventListener('unhandledrejection', (event) => {
+      pushBounded(audit.runtimeErrors, {
+        kind: 'unhandledrejection',
+        message: event.reason instanceof Error ? event.reason.message : String(event.reason ?? ''),
+      });
+    });
+    document.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target.closest('.md-public-delivery button') : null;
+      if (!target) return;
+      pushBounded(audit.deliveryEvents, {
+        buttons: describeDeliveryButtons(),
+        event: `click:${target.getAttribute('data-testid') ?? ''}`,
+      });
+    }, true);
 
     const selectors = [
       ['captureHosts', '[data-morndraft-public-capture-host="true"]'],
@@ -325,19 +514,61 @@ const installDeliveryResourceAudit = async (page) => {
       ['modernSandboxes', 'iframe[id^="__SANDBOX__"]'],
       ['staticCaptureFrames', 'iframe[sandbox="allow-same-origin"][aria-hidden="true"]'],
     ];
+    const snapshotCaptureRuntimeState = (host) => {
+      const root = host.shadowRoot;
+      const canvas = root?.querySelector('[data-oss-runtime-canvas]');
+      if (!(canvas instanceof window.HTMLCanvasElement)) return;
+      const input = root.querySelector('[data-oss-runtime-input]');
+      const checkbox = root.querySelector('[data-oss-runtime-checkbox]');
+      const textarea = root.querySelector('[data-oss-runtime-textarea]');
+      const select = root.querySelector('[data-oss-runtime-select]');
+      const details = root.querySelector('[data-oss-runtime-details]');
+      let canvasPixel = [];
+      try {
+        canvasPixel = [...canvas.getContext('2d').getImageData(1, 1, 1, 1).data];
+      } catch (error) {
+        canvasPixel = [`error:${error instanceof Error ? error.message : String(error)}`];
+      }
+      pushBounded(audit.runtimeSnapshots, {
+        canvasPixel,
+        checkboxAttribute: checkbox?.hasAttribute('checked') ?? false,
+        checkboxChecked: checkbox instanceof window.HTMLInputElement ? checkbox.checked : null,
+        checkboxIndeterminate: checkbox instanceof window.HTMLInputElement ? checkbox.indeterminate : null,
+        detailsAttribute: details?.hasAttribute('open') ?? false,
+        detailsOpen: details instanceof window.HTMLDetailsElement ? details.open : null,
+        inputAttribute: input?.getAttribute('value') ?? null,
+        inputValue: input instanceof window.HTMLInputElement ? input.value : null,
+        selectedAttributes: select instanceof window.HTMLSelectElement
+          ? Array.from(select.options, option => option.hasAttribute('selected'))
+          : [],
+        selectedValues: select instanceof window.HTMLSelectElement
+          ? Array.from(select.selectedOptions, option => option.value)
+          : [],
+        textareaText: textarea?.textContent ?? null,
+        textareaValue: textarea instanceof window.HTMLTextAreaElement ? textarea.value : null,
+      });
+    };
     const countNode = (node) => {
       if (node.nodeType !== 1) return;
       for (const [key, selector] of selectors) {
         if (node.matches(selector)) audit.added[key] += 1;
         audit.added[key] += node.querySelectorAll(selector).length;
       }
+      if (node.matches('[data-morndraft-public-capture-host="true"]')) {
+        snapshotCaptureRuntimeState(node);
+      }
     };
     const startObserver = () => {
       if (!document.documentElement) return;
       const observer = new window.MutationObserver((records) => {
         records.forEach((record) => record.addedNodes.forEach(countNode));
+        if (records.some((record) => (
+          record.target instanceof Element && record.target.closest('.md-public-delivery')
+        ))) {
+          pushBounded(audit.deliveryEvents, { buttons: describeDeliveryButtons(), event: 'mutation' });
+        }
       });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
+      observer.observe(document.documentElement, { attributes: true, childList: true, subtree: true });
       audit.observer = observer;
     };
     if (document.documentElement) startObserver();
@@ -350,6 +581,7 @@ const readDeliveryResourceAudit = (page) => page.evaluate(() => {
   return {
     activeObjectUrls: audit?.activeObjectUrls.size ?? -1,
     captureHosts: document.querySelectorAll('[data-morndraft-public-capture-host="true"]').length,
+    captureHostsAdded: audit?.added.captureHosts ?? -1,
     createdObjectUrls: audit?.createdObjectUrls ?? -1,
     hiddenDownloadAnchors: document.querySelectorAll('a[download]').length,
     html2canvasContainers: document.querySelectorAll('.html2canvas-container').length,
@@ -357,7 +589,10 @@ const readDeliveryResourceAudit = (page) => page.evaluate(() => {
     modernSandboxes: document.querySelectorAll('iframe[id^="__SANDBOX__"]').length,
     modernSandboxesAdded: audit?.added.modernSandboxes ?? -1,
     revokedObjectUrls: audit?.revokedObjectUrls ?? -1,
+    runtimeSnapshot: audit?.runtimeSnapshots.at(-1) ?? null,
+    runtimeSnapshotCount: audit?.runtimeSnapshots.length ?? -1,
     staticCaptureFrames: document.querySelectorAll('iframe[sandbox="allow-same-origin"][aria-hidden="true"]').length,
+    staticCaptureFramesAdded: audit?.added.staticCaptureFrames ?? -1,
   };
 });
 
@@ -818,7 +1053,7 @@ const runImportFlow = async (page, canonicalFlatSource) => {
   );
 };
 
-const runAiFlow = async (page, mockBaseUrl) => {
+const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
   if (!await page.getByTestId('oss-ai-settings-open').isVisible()) {
     await page.locator('summary').filter({ hasText: /^(More|更多)$/u }).click();
   }
@@ -851,31 +1086,15 @@ const runAiFlow = async (page, mockBaseUrl) => {
   const foldedImagePayloadTail = 'QkFTRTY0TEVBS1RBSUw=';
   const localImageData = `data:image/png;base64,${'A'.repeat(2_000)}\n\t${foldedImagePayloadTail}`;
   const onePixelBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
-  const onePixelImageData = `data:image/png;base64,${onePixelBase64}`;
-  const upperOnePixelImageData = `DATA:IMAGE/PNG;BASE64,${onePixelBase64}`;
   const percentEncodedImagePayloadTail = onePixelBase64.slice(24);
   const percentEncodedImageData = `data:image/png;base64,${onePixelBase64.slice(0, 24)}%0A${percentEncodedImagePayloadTail}`;
-  const parameterizedImageData = `data:image/png;name=PARAM_PRIVATE_SENTINEL;charset=utf-8; base64,${onePixelBase64}`;
-  const svgImageData = 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221%22%20height=%221%22%3E%3Ctext%3ESVG_PRIVATE_TAIL%3C/text%3E%3C/svg%3E';
-  const nonBase64PngData = `data:image/png,${[...Buffer.from(onePixelBase64, 'base64')]
-    .map(byte => `%${byte.toString(16).padStart(2, '0')}`)
-    .join('')}`;
-  const adjacentPrivacyFixture = `${'İ'.repeat(256)}${onePixelImageData}\n${upperOnePixelImageData}\r\n${onePixelImageData}\t${upperOnePixelImageData}`;
-  const privacyImageFence = [
+  const percentEncodedImageFence = [
     '```html',
-    `<!--${adjacentPrivacyFixture}-->`,
     `<img id="oss-percent-encoded-ai-image" src="${percentEncodedImageData}" alt="encoded">`,
-    `<img id="oss-lowercase-ai-image" src="${onePixelImageData}" alt="lowercase">`,
-    `<img id="oss-uppercase-ai-image" src="${upperOnePixelImageData}" alt="uppercase">`,
-    `<img id="oss-parameterized-ai-image" src="${parameterizedImageData}" alt="parameterized">`,
-    `<img id="oss-svg-ai-image" src="${svgImageData}" alt="svg">`,
-    `<img id="oss-non-base64-ai-image" src="${nonBase64PngData}" alt="non-base64">`,
     '```',
   ].join('\n');
-  const sourceBeforeModify = `![local](${localImageData})\n\n${privacyImageFence}\n\nFirst target\n\nSecond repeat repeat repeat`;
-  const browserNormalizedPrivacyImageFence = privacyImageFence.replaceAll('\r\n', '\n');
-  const sourceAfterModify = `![local](${localImageData})\n\n${browserNormalizedPrivacyImageFence}\n\nFirst target\n\nSecond Modified selection from OSS AI repeat repeat`;
-  await sourceEditor.fill(sourceBeforeModify);
+  const rawHtmlSource = `${percentEncodedImageFence}\n\nRaw HTML repeat target`;
+  await sourceEditor.fill(rawHtmlSource);
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
   const percentEncodedImageFrame = await waitForFrameWithSelector(page, '#oss-percent-encoded-ai-image');
   const percentEncodedImage = percentEncodedImageFrame.locator('#oss-percent-encoded-ai-image');
@@ -893,30 +1112,44 @@ const runAiFlow = async (page, mockBaseUrl) => {
     [1, 1],
     'Chromium did not decode the percent-encoded 1x1 PNG fixture.',
   );
-  for (const selector of [
-    '#oss-lowercase-ai-image',
-    '#oss-uppercase-ai-image',
-    '#oss-parameterized-ai-image',
-    '#oss-svg-ai-image',
-    '#oss-non-base64-ai-image',
-  ]) {
-    const image = percentEncodedImageFrame.locator(selector);
-    await image.evaluate((element, label) => new Promise((resolve, reject) => {
-      if (element.complete) {
-        if (element.naturalWidth === 1 && element.naturalHeight === 1) resolve();
-        else reject(new Error(`${label} decoded at ${element.naturalWidth}x${element.naturalHeight}.`));
-        return;
-      }
-      element.addEventListener('load', () => resolve(), { once: true });
-      element.addEventListener('error', () => reject(new Error(`${label} failed to load.`)), { once: true });
-    }), selector);
-    assert.deepEqual(
-      await image.evaluate((element) => [element.naturalWidth, element.naturalHeight]),
-      [1, 1],
-      `Chromium did not decode the ${selector} 1x1 PNG fixture.`,
-    );
-  }
-  let renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'Second repeat repeat repeat' });
+  let renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'Raw HTML repeat target' });
+  await renderedBlock.waitFor({ state: 'visible' });
+  await selectRenderedOccurrence(renderedBlock, 'repeat', 0);
+  const requestsBeforeRawHtmlModify = aiRequests.length;
+  await clickByTestId(page, 'oss-ai-modify');
+  await page.getByTestId('oss-ai-instruction').fill('This raw HTML request must be refused');
+  await page.getByRole('dialog').getByRole('button', { name: /^(Send|发送)$/u }).click();
+  await page.getByRole('dialog').getByRole('alert').filter({ hasText: /stopped|停止/u }).waitFor({ state: 'visible' });
+  assert.equal(
+    aiRequests.length,
+    requestsBeforeRawHtmlModify,
+    'A source-backed raw HTML modify request reached the AI provider.',
+  );
+  await page.getByRole('dialog').getByRole('button', { name: /^(Close|关闭)$/u }).click();
+
+  await sourceMode.click();
+  const percentEncodedImageMarkdown = `![encoded](${percentEncodedImageData})`;
+  const sourceBeforeModify = `![local](${localImageData})\n\n${percentEncodedImageMarkdown}\n\nFirst target\n\nSecond repeat repeat repeat`;
+  const sourceAfterModify = `![local](${localImageData})\n\n${percentEncodedImageMarkdown}\n\nFirst target\n\nSecond Modified selection from OSS AI repeat repeat`;
+  await sourceEditor.fill(sourceBeforeModify);
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  const percentEncodedMarkdownImage = page.locator('img[alt="encoded"]');
+  await percentEncodedMarkdownImage.waitFor({ state: 'visible' });
+  await percentEncodedMarkdownImage.evaluate((image) => new Promise((resolve, reject) => {
+    if (image.complete) {
+      if (image.naturalWidth === 1 && image.naturalHeight === 1) resolve();
+      else reject(new Error(`Percent-encoded Markdown image decoded at ${image.naturalWidth}x${image.naturalHeight}.`));
+      return;
+    }
+    image.addEventListener('load', () => resolve(), { once: true });
+    image.addEventListener('error', () => reject(new Error('Percent-encoded Markdown image failed to load.')), { once: true });
+  }));
+  assert.deepEqual(
+    await percentEncodedMarkdownImage.evaluate((image) => [image.naturalWidth, image.naturalHeight]),
+    [1, 1],
+    'Chromium did not decode the percent-encoded Markdown PNG fixture.',
+  );
+  renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'Second repeat repeat repeat' });
   await renderedBlock.waitFor({ state: 'visible' });
   await selectRenderedOccurrence(renderedBlock, 'repeat', 0);
   await clickByTestId(page, 'oss-ai-modify');
@@ -1067,6 +1300,10 @@ const collectDownloadTimeoutDiagnostics = async (page) => {
         text: safeText(element.textContent),
         visible: visible(element),
       })),
+      abortCalls: (window.__ossDeliveryResourceAudit?.abortCalls ?? []).slice(-12).map((entry) => ({
+        message: safeText(entry.message),
+        stack: safeText(entry.stack, 800),
+      })),
       buttons: Array.from(document.querySelectorAll('.md-public-delivery button')).slice(0, 8).map((button) => ({
         ariaBusy: safeText(button.getAttribute('aria-busy'), 24),
         disabled: button.disabled,
@@ -1086,11 +1323,22 @@ const collectDownloadTimeoutDiagnostics = async (page) => {
         root: dimensions(document.documentElement),
         visibilityState: document.visibilityState,
       },
+      deliveryEvents: (window.__ossDeliveryResourceAudit?.deliveryEvents ?? []).slice(-12),
       html2canvasContainers: document.querySelectorAll('.html2canvas-container').length,
       modernSandboxes: {
         count: modernSandboxes.length,
         frames: modernSandboxes.slice(0, 8).map(describeFrame),
       },
+      previewRenderStates: Array.from(document.querySelectorAll('[data-public-render-state]')).slice(0, 16).map((element) => ({
+        className: safeText(element.className, 120),
+        connected: element.isConnected,
+        state: safeText(element.getAttribute('data-public-render-state'), 24),
+        tagName: element.tagName,
+      })),
+      runtimeErrors: (window.__ossDeliveryResourceAudit?.runtimeErrors ?? []).slice(-12).map((entry) => ({
+        kind: safeText(entry.kind, 40),
+        message: safeText(entry.message),
+      })),
       statuses: statuses.slice(0, 4).map((element) => ({
         text: safeText(element.textContent),
         visible: visible(element),
@@ -1136,6 +1384,8 @@ const assertDownload = async (page, testId, extension, verify) => {
   const content = await readFile(filePath);
   assert.ok(content.byteLength > 32, `${extension} download is unexpectedly empty.`);
   await verify(content);
+  await page.waitForFunction(() => Array.from(document.querySelectorAll('.md-public-delivery button'))
+    .every((button) => button instanceof HTMLButtonElement && !button.disabled));
   return { content, download, filePath };
 };
 
@@ -1214,6 +1464,27 @@ const assertDeliveryFailureWithoutDownload = async (
   }
 };
 
+const assertDynamicDeliveryRejectedBeforeAllocation = async (
+  page,
+  baseline,
+  label,
+  messagePattern = /(?:请下载 HTML|download HTML)/iu,
+) => {
+  const before = await readDeliveryResourceAudit(page);
+  await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-png', messagePattern);
+  await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-pdf', messagePattern);
+  const after = await readDeliveryResourceAudit(page);
+  for (const key of [
+    'captureHostsAdded',
+    'html2canvasContainersAdded',
+    'modernSandboxesAdded',
+    'staticCaptureFramesAdded',
+  ]) {
+    assert.equal(after[key], before[key], `${label} allocated ${key} before rejection.`);
+  }
+  await assertNoActiveDeliveryResources(page, baseline, label);
+};
+
 const replaceSourceAndOpenFinal = async (page, source) => {
   await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
   await page.locator('.md-public-source-editor textarea').first().fill(source);
@@ -1229,6 +1500,74 @@ const runDeliveryHardeningFlow = async (
   consoleErrors,
   baseline,
 ) => {
+  const noscriptMarkup = [
+    '<!doctype html><html><head>',
+    `<noscript><link rel="stylesheet" href="${fixtureBaseUrl}/noscript-style.css"></noscript>`,
+    '</head><body class="noscript-control">',
+    `<noscript><img id="oss-noscript-live-image" src="${fixtureBaseUrl}/noscript-image.png" alt="noscript"></noscript>`,
+    '<main id="oss-noscript-live-marker">Noscript parser boundary</main>',
+    '</body></html>',
+  ].join('');
+  const noscriptLiveRequestsBefore = {
+    css: fixtureRequests.noscriptCss,
+    image: fixtureRequests.noscriptImage,
+  };
+  await replaceSourceAndOpenFinal(page, noscriptMarkup);
+  const noscriptLiveFrame = await waitForFrameWithSelector(page, '#oss-noscript-live-marker');
+  await noscriptLiveFrame.waitForTimeout(150);
+  assert.equal(
+    await noscriptLiveFrame.locator('#oss-noscript-live-image').count(),
+    0,
+    'Scripts-enabled live parsing unexpectedly activated noscript image markup.',
+  );
+  assert.deepEqual(
+    { css: fixtureRequests.noscriptCss, image: fixtureRequests.noscriptImage },
+    noscriptLiveRequestsBefore,
+    'Scripts-enabled live parsing unexpectedly requested a noscript resource.',
+  );
+
+  const noscriptControlPage = await page.context().newPage();
+  try {
+    await noscriptControlPage.setContent(
+      '<!doctype html><iframe id="oss-noscript-control" sandbox="allow-same-origin"></iframe>',
+    );
+    await noscriptControlPage.locator('#oss-noscript-control').evaluate((frame, srcdoc) => {
+      frame.srcdoc = srcdoc;
+    }, noscriptMarkup);
+    const noscriptControlFrame = await waitForFrameWithSelector(
+      noscriptControlPage,
+      '#oss-noscript-live-image',
+    );
+    await noscriptControlFrame.locator('#oss-noscript-live-image').evaluate(image => image.decode());
+    await noscriptControlFrame.waitForFunction(() => (
+      window.getComputedStyle(document.body).color === 'rgb(73, 29, 181)'
+    ));
+  } finally {
+    await noscriptControlPage.close();
+  }
+  assert.deepEqual(
+    { css: fixtureRequests.noscriptCss, image: fixtureRequests.noscriptImage },
+    {
+      css: noscriptLiveRequestsBefore.css + 1,
+      image: noscriptLiveRequestsBefore.image + 1,
+    },
+    'A scripts-disabled capture-equivalent parse did not activate both noscript resources.',
+  );
+  const noscriptCaptureRequestsBefore = {
+    css: fixtureRequests.noscriptCss,
+    image: fixtureRequests.noscriptImage,
+  };
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    'noscript scripting-mode mismatch failure',
+  );
+  assert.deepEqual(
+    { css: fixtureRequests.noscriptCss, image: fixtureRequests.noscriptImage },
+    noscriptCaptureRequestsBefore,
+    'Fail-closed noscript delivery still exposed an author URL.',
+  );
+
   await replaceSourceAndOpenFinal(page, [
     '<!doctype html>',
     '<html><body>',
@@ -1326,31 +1665,379 @@ const runDeliveryHardeningFlow = async (
   );
   await assertNoActiveDeliveryResources(page, baseline, 'stylex static delivery');
 
-  const mediaCssRequestsBefore = fixtureRequests.mediaContextCss;
-  const activeMediaRequestsBefore = fixtureRequests.activeMediaImage;
-  const inactivePrintRequestsBefore = fixtureRequests.inactivePrintImage;
+  const alternateStylesheet = `data:text/css,${encodeURIComponent([
+    'html,body{background:rgb(255,0,0)!important}',
+    '#oss-alternate-stylesheet-marker{color:rgb(255,255,255)}',
+  ].join(''))}`;
   await replaceSourceAndOpenFinal(page, [
     '<!doctype html>',
     '<html><head>',
-    `<link rel="stylesheet" href="${fixtureBaseUrl}/media-context.css?case=screen">`,
-    `<style>@media print{body{background-image:url("${fixtureBaseUrl}/inactive-print.png?source=inline")}}</style>`,
+    '<style>html,body{margin:0;min-height:480px;background:rgb(16,32,48)}</style>',
+    `<link rel="alternate stylesheet" title="red" href="${alternateStylesheet}">`,
+    '</head><body><main id="oss-alternate-stylesheet-marker">Inactive alternate stylesheet</main></body></html>',
+  ].join(''));
+  const alternateStylesheetFrame = await waitForFrameWithSelector(
+    page,
+    '#oss-alternate-stylesheet-marker',
+  );
+  await alternateStylesheetFrame.waitForFunction(() => (
+    window.getComputedStyle(document.body).backgroundColor === 'rgb(16, 32, 48)'
+  ));
+  const alternatePng = await assertDownload(page, 'oss-delivery-download-png', '.png', (content) => {
+    assert.deepEqual([...content.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+  const alternatePixels = await inspectPngPixels(page, alternatePng.content, [
+    { xRatio: 0.05, yRatio: 0.05 },
+  ]);
+  assertRgbaNear(
+    alternatePixels.pixels[0],
+    [16, 32, 48, 255],
+    'inactive alternate stylesheet page background',
+    14,
+  );
+  await assertDownload(
+    page,
+    'oss-delivery-download-pdf',
+    '.pdf',
+    (content) => assertA4ImagePdf(content, 'Inactive alternate stylesheet PDF'),
+  );
+  await assertNoActiveDeliveryResources(page, baseline, 'inactive alternate stylesheet delivery');
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><body>',
+    '<a id="oss-entity-script-link" href="jav&#x61;script:window.__ossEntityScriptRan=1">Run entity URL</a>',
+    '</body></html>',
+  ].join(''));
+  const entityScriptFrame = await waitForFrameWithSelector(page, '#oss-entity-script-link');
+  assert.equal(
+    await entityScriptFrame.locator('#oss-entity-script-link').getAttribute('href'),
+    'javascript:window.__ossEntityScriptRan=1',
+    'Chromium did not decode the HTML entity inside the javascript URL fixture.',
+  );
+  const entityControlPage = await page.context().newPage();
+  try {
+    await entityControlPage.setContent([
+      '<!doctype html><html><body>',
+      '<a id="oss-entity-script-control" href="jav&#x61;script:window.__ossEntityScriptRan=1">Run entity URL</a>',
+      '</body></html>',
+    ].join(''));
+    await entityControlPage.locator('#oss-entity-script-control').click();
+    await entityControlPage.waitForFunction(() => window.__ossEntityScriptRan === 1);
+  } finally {
+    await entityControlPage.close();
+  }
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    'entity script URL dynamic markup failure',
+  );
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><body><math><mtext>',
+    '<span id="oss-mathml-integration-proof">MathML integration point</span>',
+    '<script>window.__ossMathMlScriptRan=1</script>',
+    '</mtext></math></body></html>',
+  ].join(''));
+  const mathMlScriptFrame = await waitForFrameWithSelector(page, '#oss-mathml-integration-proof');
+  await mathMlScriptFrame.waitForFunction(() => window.__ossMathMlScriptRan === 1);
+  assert.equal(
+    await mathMlScriptFrame.evaluate(() => window.__ossMathMlScriptRan),
+    1,
+    'Chromium did not execute the HTML script nested through the MathML integration point.',
+  );
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    'MathML integration script dynamic markup failure',
+  );
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><head><meta http-equiv="refresh" content="0;url=about:blank#oss-meta-refresh"></head>',
+    '<body><main>Meta refresh boundary</main></body></html>',
+  ].join(''));
+  const refreshedFrame = await waitForFrameWithUrl(page, /about:blank#oss-meta-refresh$/u);
+  assert.match(refreshedFrame.url(), /about:blank#oss-meta-refresh$/u);
+  await assertDynamicDeliveryRejectedBeforeAllocation(page, baseline, 'meta refresh dynamic markup failure');
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><body>',
+    '<button id="oss-popover-invoker" popovertarget="oss-native-popover">Toggle popover</button>',
+    '<div id="oss-native-popover" popover>Native popover state</div>',
+    '<button id="oss-command-invoker" commandfor="oss-command-popover" command="show-popover">Command popover</button>',
+    '<div id="oss-command-popover" popover>Native command state</div>',
+    '</body></html>',
+  ].join(''));
+  const popoverFrame = await waitForFrameWithSelector(page, '#oss-popover-invoker');
+  assert.deepEqual(
+    await popoverFrame.locator('#oss-native-popover').evaluate(target => ({
+      display: window.getComputedStyle(target).display,
+      open: target.matches(':popover-open'),
+    })),
+    { display: 'none', open: false },
+    'Chromium did not start the native popover fixture closed.',
+  );
+  await popoverFrame.locator('#oss-popover-invoker').click();
+  assert.deepEqual(
+    await popoverFrame.locator('#oss-native-popover').evaluate(target => ({
+      display: window.getComputedStyle(target).display,
+      open: target.matches(':popover-open'),
+    })),
+    { display: 'block', open: true },
+    'Chromium did not expose the native popover runtime state change inside the product sandbox.',
+  );
+  await popoverFrame.locator('#oss-command-invoker').click();
+  assert.deepEqual(
+    await popoverFrame.locator('#oss-command-popover').evaluate(target => ({
+      display: window.getComputedStyle(target).display,
+      open: target.matches(':popover-open'),
+    })),
+    { display: 'block', open: true },
+    'Chromium did not expose the command/commandfor runtime state change inside the product sandbox.',
+  );
+  await assertDynamicDeliveryRejectedBeforeAllocation(page, baseline, 'native popover dynamic markup failure');
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><body><div id="oss-shadow-animation-host">',
+    '<template shadowrootmode="open">',
+    '<style>@keyframes oss-shadow-pulse{from{opacity:.1}to{opacity:.9}}#oss-shadow-animation-target{animation:oss-shadow-pulse .05s infinite alternate}</style>',
+    '<span id="oss-shadow-animation-target">Shadow animation</span>',
+    '</template></div></body></html>',
+  ].join(''));
+  const shadowAnimationFrame = await waitForFrameWithSelector(page, '#oss-shadow-animation-host');
+  await shadowAnimationFrame.waitForFunction(() => {
+    const host = document.querySelector('#oss-shadow-animation-host');
+    const target = host?.shadowRoot?.querySelector('#oss-shadow-animation-target');
+    return target?.getAnimations().some(animation => animation.playState === 'running') === true;
+  });
+  assert.equal(
+    await shadowAnimationFrame.evaluate(() => (
+      document.querySelector('#oss-shadow-animation-host')?.shadowRoot
+        ?.querySelector('#oss-shadow-animation-target')?.getAnimations().length
+    )),
+    1,
+    'Chromium did not instantiate the declarative shadow-root CSS animation fixture.',
+  );
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    'shadow CSS animation dynamic markup failure',
+  );
+
+  const startingStyleHtml = [
+    '<!doctype html>',
+    '<html><head><style>',
+    '#oss-starting-style-target{opacity:1;transition:opacity 2s linear}',
+    '@starting-style{#oss-starting-style-target{opacity:0}}',
+    '</style></head><body>',
+    '<main id="oss-starting-style-target">Starting style transition</main>',
+    '</body></html>',
+  ].join('');
+  await replaceSourceAndOpenFinal(page, startingStyleHtml);
+  const startingStyleFrame = await waitForFrameWithSelector(page, '#oss-starting-style-target');
+  await startingStyleFrame.waitForFunction(() => (
+    Number.parseFloat(window.getComputedStyle(document.querySelector('#oss-starting-style-target')).opacity) > 0.99
+  ));
+  const startingStyleControl = await page.context().newPage();
+  try {
+    await startingStyleControl.setContent(startingStyleHtml, { waitUntil: 'load' });
+    assert.ok(
+      await startingStyleControl.locator('#oss-starting-style-target').evaluate((target) => (
+        Number.parseFloat(window.getComputedStyle(target).opacity)
+      )) < 0.5,
+      'A fresh Chromium document did not expose the @starting-style entry transition.',
+    );
+  } finally {
+    await startingStyleControl.close();
+  }
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    '@starting-style transition dynamic markup failure',
+  );
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><head><style>@keyframes oss-comment-pulse{from{opacity:.1}to{opacity:.9}}#oss-comment-animation-target{ani/**/mation:oss-comment-pulse .05s infinite alternate}</style></head>',
+    '<body><main id="oss-comment-animation-target">Comment-obfuscated animation</main></body></html>',
+  ].join(''));
+  const commentAnimationFrame = await waitForFrameWithSelector(page, '#oss-comment-animation-target');
+  assert.equal(
+    await commentAnimationFrame.locator('#oss-comment-animation-target').evaluate(target => target.getAnimations().length),
+    0,
+    'Chromium unexpectedly treated ani/**/mation as a live animation property.',
+  );
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    'comment-obfuscated CSS conservative rejection',
+  );
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><body><svg viewBox="0 0 80 20">',
+    '<rect id="oss-svg-animation-target" x="0" y="0" width="10" height="10">',
+    '<animate attributeName="x" values="0;60" dur=".1s" repeatCount="indefinite"></animate>',
+    '</rect></svg></body></html>',
+  ].join(''));
+  const svgAnimationFrame = await waitForFrameWithSelector(page, '#oss-svg-animation-target');
+  await svgAnimationFrame.waitForFunction(() => {
+    const target = document.querySelector('#oss-svg-animation-target');
+    return (target?.x?.animVal.value ?? 0) > 1;
+  });
+  assert.ok(
+    await svgAnimationFrame.locator('#oss-svg-animation-target').evaluate(target => target.x.animVal.value) > 1,
+    'Chromium did not advance the SVG SMIL animation fixture.',
+  );
+  await assertDynamicDeliveryRejectedBeforeAllocation(page, baseline, 'SVG animation dynamic markup failure');
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><body>',
+    '<marquee behavior="scroll" direction="left" scrollamount="18" style="width:240px">',
+    '<span id="oss-marquee-target">Moving marquee content</span>',
+    '</marquee>',
+    '</body></html>',
+  ].join(''));
+  const marqueeFrame = await waitForFrameWithSelector(page, '#oss-marquee-target');
+  const marqueeMovement = await marqueeFrame.locator('#oss-marquee-target').evaluate((target) => new Promise((resolve) => {
+    const before = target.getBoundingClientRect().left;
+    setTimeout(() => resolve({ after: target.getBoundingClientRect().left, before }), 350);
+  }));
+  assert.ok(
+    Math.abs(marqueeMovement.after - marqueeMovement.before) > 1,
+    `Chromium marquee fixture did not move: ${JSON.stringify(marqueeMovement)}`,
+  );
+  await assertDynamicDeliveryRejectedBeforeAllocation(page, baseline, 'marquee dynamic markup failure');
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><body>',
+    '<progress id="oss-indeterminate-progress" style="width:300px;height:40px">Loading</progress>',
+    '<div id="oss-progress-static-control" style="width:300px;height:40px;background:#ccd5df">Static</div>',
+    '</body></html>',
+  ].join(''));
+  const progressFrame = await waitForFrameWithSelector(page, '#oss-indeterminate-progress');
+  const progressTarget = progressFrame.locator('#oss-indeterminate-progress');
+  const progressStaticControl = progressFrame.locator('#oss-progress-static-control');
+  assert.equal(
+    await progressTarget.evaluate(target => target.matches(':indeterminate')),
+    true,
+    'Chromium did not expose the no-value progress fixture as indeterminate.',
+  );
+  const progressBefore = await progressTarget.screenshot();
+  const progressControlBefore = await progressStaticControl.screenshot();
+  await page.waitForTimeout(350);
+  const progressAfter = await progressTarget.screenshot();
+  const progressControlAfter = await progressStaticControl.screenshot();
+  assert.equal(
+    Buffer.compare(progressControlBefore, progressControlAfter),
+    0,
+    'Chromium screenshot encoder changed a static control between frames.',
+  );
+  assert.notEqual(
+    Buffer.compare(progressBefore, progressAfter),
+    0,
+    'Chromium indeterminate progress pixels did not change between frames.',
+  );
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    'indeterminate progress dynamic markup failure',
+  );
+
+  const dynamicDataStylesheet = [
+    'data:text/css,',
+    '%40keyframes%20oss-data-pulse%7Bfrom%7Bopacity%3A.1%7Dto%7Bopacity%3A.9%7D%7D',
+    '%23oss-data-animation-target%7Banimation%3Aoss-data-pulse%20.05s%20infinite%20alternate%7D',
+  ].join('');
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    `<html><head><style>@import url("${dynamicDataStylesheet}");</style></head>`,
+    '<body><main id="oss-data-animation-target">Imported animation</main></body></html>',
+  ].join(''));
+  const importedAnimationFrame = await waitForFrameWithSelector(page, '#oss-data-animation-target');
+  await importedAnimationFrame.waitForFunction(() => (
+    document.querySelector('#oss-data-animation-target')?.getAnimations().length === 1
+  ));
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    'CSS import dynamic markup failure',
+  );
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    `<html><head><link rel="stylesheet" href="${dynamicDataStylesheet}"></head>`,
+    '<body><main id="oss-data-animation-target">Linked animation</main></body></html>',
+  ].join(''));
+  const linkedAnimationFrame = await waitForFrameWithSelector(page, '#oss-data-animation-target');
+  await linkedAnimationFrame.waitForFunction(() => (
+    document.querySelector('#oss-data-animation-target')?.getAnimations().length === 1
+  ));
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    'stylesheet link dynamic markup failure',
+  );
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html><html><head>',
+    `<link rel="preload prefetch" as="image" href="${fixtureBaseUrl}/proactive-link.png">`,
+    `<style>@\\69mport/**/url("${fixtureBaseUrl}/escaped-import.css");</style>`,
+    '</head><body><main class="escaped-import-card">Frozen import</main></body></html>',
+  ].join(''));
+  const escapedImportFrame = await waitForFrameWithSelector(page, '.escaped-import-card');
+  await escapedImportFrame.waitForFunction(() => (
+    window.getComputedStyle(document.querySelector('.escaped-import-card')).color === 'rgb(23, 87, 145)'
+  ));
+  const escapedImportRequestsBefore = fixtureRequests.escapedImportCss;
+  const proactiveRequestsBefore = fixtureRequests.proactiveLinkImage;
+  await assertDownload(page, 'oss-delivery-download-png', '.png', (content) => {
+    assert.deepEqual([...content.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+  assert.equal(
+    fixtureRequests.escapedImportCss,
+    escapedImportRequestsBefore + 1,
+    'Escaped @import must be frozen once and never requested again from Blob CSS.',
+  );
+  assert.equal(
+    fixtureRequests.proactiveLinkImage,
+    proactiveRequestsBefore,
+    'Capture srcdoc must neutralize preload/prefetch links before insertion.',
+  );
+  await assertNoActiveDeliveryResources(page, baseline, 'escaped import and proactive link delivery');
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><head>',
+    '<style>html,body{margin:0;min-height:480px;background:#102030}body{display:grid;place-items:center}',
+    `.media-context-card{width:240px;height:140px;background:#cc3366 url("${fixtureBaseUrl}/active-media.png") center/cover no-repeat}`,
+    `@media print{.media-context-card{background-image:url("${fixtureBaseUrl}/inactive-print.png?source=inline")}}</style>`,
     '</head><body><div class="media-context-card"></div></body></html>',
   ].join(''));
+  const mediaFrame = await waitForFrameWithSelector(page, '.media-context-card');
+  await mediaFrame.waitForFunction(() => (
+    window.getComputedStyle(document.querySelector('.media-context-card')).backgroundImage.includes('active-media.png')
+  ));
+  const activeMediaRequestsBefore = fixtureRequests.activeMediaImage;
+  const inactivePrintRequestsBefore = fixtureRequests.inactivePrintImage;
   const mediaContextPng = await assertDownload(page, 'oss-delivery-download-png', '.png', (content) => {
     assert.deepEqual([...content.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   });
-  assert.ok(
-    fixtureRequests.mediaContextCss > mediaCssRequestsBefore,
-    'The CORS-readable media-context stylesheet was not requested.',
-  );
-  assert.ok(
-    fixtureRequests.activeMediaImage > activeMediaRequestsBefore,
-    'The active screen CSS image was not requested.',
+  assert.equal(
+    fixtureRequests.activeMediaImage,
+    activeMediaRequestsBefore + 1,
+    'Capture must freeze the active raster exactly once and never refetch its author URL.',
   );
   assert.equal(
     fixtureRequests.inactivePrintImage,
-    inactivePrintRequestsBefore,
-    'An inactive print-only CSS image was requested or blocked screen capture.',
+    inactivePrintRequestsBefore + 1,
+    'Capture must freeze a currently inactive media resource before its viewport can change.',
   );
   const mediaContextPixels = await inspectPngPixels(page, mediaContextPng.content, [
     { xRatio: 0.02, yRatio: 0.02 },
@@ -1360,22 +2047,27 @@ const runDeliveryHardeningFlow = async (
   assertRgbaNear(mediaContextPixels.pixels[1], [37, 199, 104, 255], 'active screen CSS image', 18);
   await assertNoActiveDeliveryResources(page, baseline, 'media-context delivery');
 
-  const slowCssRequestsBefore = fixtureRequests.slowCss;
   await replaceSourceAndOpenFinal(page, [
     '<!doctype html>',
-    '<html><head>',
-    `<link rel="stylesheet" href="${fixtureBaseUrl}/slow-layout.css?case=complete">`,
-    '</head><body><div class="slow-card"></div></body></html>',
+    '<html><head><style>html,body{margin:0;min-height:480px;background:#102030}body{display:grid;place-items:center}.slow-card{width:240px;height:140px;background:#12a4e6}.slow-card img{width:1px;height:1px;opacity:.01}</style></head>',
+    `<body><div class="slow-card"><img alt="slow capture fixture" src="${fixtureBaseUrl}/slow-image.png?case=complete"></div></body></html>`,
   ].join(''));
+  const slowFrame = await waitForFrameWithSelector(page, '.slow-card img');
+  await slowFrame.waitForFunction(() => document.querySelector('.slow-card img')?.complete === true);
+  const slowImageRequestsBefore = fixtureRequests.slowImage;
   const slowStartedAt = Date.now();
   const slowPng = await assertDownload(page, 'oss-delivery-download-png', '.png', (content) => {
     assert.deepEqual([...content.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   });
   assert.ok(
     Date.now() - slowStartedAt >= slowCssDelayMs - 100,
-    'PNG delivery completed before the slow author stylesheet could load.',
+    'PNG delivery completed before the slow author image could load.',
   );
-  assert.ok(fixtureRequests.slowCss > slowCssRequestsBefore, 'Slow author stylesheet was not requested.');
+  assert.equal(
+    fixtureRequests.slowImage,
+    slowImageRequestsBefore + 1,
+    'Capture must fetch the slow author image once for freezing and never refetch it from html2canvas.',
+  );
   const slowPixels = await inspectPngPixels(page, slowPng.content, [
     { xRatio: 0.02, yRatio: 0.02 },
     { xRatio: 0.5, yRatio: 0.5 },
@@ -1383,7 +2075,280 @@ const runDeliveryHardeningFlow = async (
   assert.ok(slowPixels.width >= 1_354, 'Scale-2 PNG width did not preserve the public capture policy.');
   assertRgbaNear(slowPixels.pixels[0], [16, 32, 48, 255], 'slow stylesheet page background', 14);
   assertRgbaNear(slowPixels.pixels[1], [18, 164, 230, 255], 'slow stylesheet centered card', 18);
-  await assertNoActiveDeliveryResources(page, baseline, 'slow stylesheet delivery');
+  await assertNoActiveDeliveryResources(page, baseline, 'slow image delivery');
+
+  await replaceSourceAndOpenFinal(page, [
+    '# Frozen operation clone',
+    '',
+    `![operation clone fixture](${fixtureBaseUrl}/clone-image.png?case=normal-clone)`,
+  ].join('\n'));
+  const operationCloneImage = page.locator(
+    '[data-public-preview-root="true"] img[alt="operation clone fixture"]',
+  );
+  await operationCloneImage.waitFor({ state: 'visible' });
+  await operationCloneImage.evaluate(image => image.decode());
+  await page.locator('[data-public-preview-root="true"]').evaluate((root, href) => {
+    const link = document.createElement('link');
+    link.rel = 'preload prefetch';
+    link.as = 'image';
+    link.href = href;
+    root.appendChild(link);
+  }, `${fixtureBaseUrl}/proactive-link.png?case=normal-clone`);
+  await page.waitForTimeout(150);
+  const cloneImageRequestsBefore = fixtureRequests.cloneImage;
+  const normalProactiveRequestsBefore = fixtureRequests.proactiveLinkImage;
+  await assertDownload(page, 'oss-delivery-download-png', '.png', (content) => {
+    assert.deepEqual([...content.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+  assert.equal(
+    fixtureRequests.cloneImage,
+    cloneImageRequestsBefore + 1,
+    'Normal capture may fetch the author image once for its snapshot; clone creation and rendering must not refetch it.',
+  );
+  assert.equal(
+    fixtureRequests.proactiveLinkImage,
+    normalProactiveRequestsBefore,
+    'Normal capture must omit preload/prefetch links before creating its operation clone.',
+  );
+  await assertNoActiveDeliveryResources(page, baseline, 'normal frozen clone delivery');
+
+  await replaceSourceAndOpenFinal(page, '# Live runtime state snapshot');
+  const runtimeGeometry = await page.locator('[data-public-preview-root="true"]').evaluate((root) => {
+    const probe = document.createElement('section');
+    probe.setAttribute('data-oss-runtime-probe', 'true');
+    probe.style.cssText = 'display:grid;gap:8px;padding:8px;background:#f7f8fa;color:#111';
+
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('data-oss-runtime-canvas', 'true');
+    canvas.width = 120;
+    canvas.height = 80;
+    canvas.style.cssText = 'display:block;width:120px;height:80px';
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Runtime fixture canvas is unavailable.');
+    context.fillStyle = '#d62dad';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    const input = document.createElement('input');
+    input.setAttribute('data-oss-runtime-input', 'true');
+    input.setAttribute('value', 'stale-input');
+    input.value = 'live-input';
+
+    const checkbox = document.createElement('input');
+    checkbox.setAttribute('data-oss-runtime-checkbox', 'true');
+    checkbox.type = 'checkbox';
+    checkbox.checked = true;
+    checkbox.indeterminate = true;
+
+    const textarea = document.createElement('textarea');
+    textarea.setAttribute('data-oss-runtime-textarea', 'true');
+    textarea.textContent = 'stale-textarea';
+    textarea.value = 'live-textarea';
+
+    const select = document.createElement('select');
+    select.setAttribute('data-oss-runtime-select', 'true');
+    const firstOption = new window.Option('First', 'first', true, true);
+    const secondOption = new window.Option('Second', 'second', false, false);
+    select.append(firstOption, secondOption);
+    select.selectedIndex = 1;
+
+    const details = document.createElement('details');
+    details.setAttribute('data-oss-runtime-details', 'true');
+    details.innerHTML = '<summary>Runtime details</summary><div>Live details body</div>';
+    details.open = true;
+
+    probe.append(canvas, input, checkbox, textarea, select, details);
+    root.prepend(probe);
+    const rootRect = root.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const captureWidth = Math.max(1, Math.ceil(rootRect.width), root.clientWidth, 677);
+    const captureHeight = Math.max(
+      Math.ceil(rootRect.height),
+      root.scrollHeight,
+      root.offsetHeight,
+      root.clientHeight,
+    );
+    return {
+      xRatio: (canvasRect.left - rootRect.left + (canvasRect.width / 2)) / captureWidth,
+      yRatio: (canvasRect.top - rootRect.top + (canvasRect.height / 2)) / captureHeight,
+    };
+  });
+  const runtimeAuditBefore = await readDeliveryResourceAudit(page);
+  const runtimePng = await assertDownload(page, 'oss-delivery-download-png', '.png', (content) => {
+    assert.deepEqual([...content.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+  const runtimeAuditAfter = await readDeliveryResourceAudit(page);
+  assert.equal(
+    runtimeAuditAfter.runtimeSnapshotCount,
+    runtimeAuditBefore.runtimeSnapshotCount + 1,
+    'The operation-owned capture tree was not observed exactly once.',
+  );
+  assert.deepEqual(runtimeAuditAfter.runtimeSnapshot, {
+    canvasPixel: [214, 45, 173, 255],
+    checkboxAttribute: true,
+    checkboxChecked: true,
+    checkboxIndeterminate: true,
+    detailsAttribute: true,
+    detailsOpen: true,
+    inputAttribute: 'live-input',
+    inputValue: 'live-input',
+    selectedAttributes: [false, true],
+    selectedValues: ['second'],
+    textareaText: 'live-textarea',
+    textareaValue: 'live-textarea',
+  });
+  const runtimePixels = await inspectPngPixels(page, runtimePng.content, [runtimeGeometry]);
+  assertRgbaNear(
+    runtimePixels.pixels[0],
+    [214, 45, 173, 255],
+    'operation-owned live canvas bitmap',
+    4,
+  );
+  await assertNoActiveDeliveryResources(page, baseline, 'runtime state snapshot delivery');
+
+  await replaceSourceAndOpenFinal(page, '# Unsupported live video state');
+  await page.locator('[data-public-preview-root="true"]').evaluate((root) => {
+    const video = document.createElement('video');
+    video.setAttribute('data-oss-runtime-video', 'true');
+    root.appendChild(video);
+  });
+  await assertDynamicDeliveryRejectedBeforeAllocation(page, baseline, 'live video state failure');
+
+  const malformedConsoleStart = consoleErrors.length;
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html><html><head><style>',
+    `html,body{min-height:400px}.invalid-raster{width:220px;height:120px;background:url("${fixtureBaseUrl}/invalid-raster.jpg")}`,
+    '</style></head><body><div class="invalid-raster">invalid raster</div></body></html>',
+  ].join(''));
+  const invalidRasterFrame = await waitForFrameWithSelector(page, '.invalid-raster');
+  await invalidRasterFrame.waitForTimeout(150);
+  let malformedRequestsBefore = fixtureRequests.invalidRaster;
+  await assertDeliveryFailureWithoutDownload(
+    page,
+    'oss-delivery-download-png',
+    /CORS|跨域|remote resource/iu,
+  );
+  assert.equal(
+    fixtureRequests.invalidRaster,
+    malformedRequestsBefore + 1,
+    'Malformed raster PNG failure must perform one snapshot fetch and no clone/render refetch.',
+  );
+  malformedRequestsBefore = fixtureRequests.invalidRaster;
+  await assertDeliveryFailureWithoutDownload(
+    page,
+    'oss-delivery-download-pdf',
+    /CORS|跨域|remote resource/iu,
+  );
+  assert.equal(
+    fixtureRequests.invalidRaster,
+    malformedRequestsBefore + 1,
+    'Malformed raster PDF failure must perform one snapshot fetch and no clone/render refetch.',
+  );
+  await assertNoActiveDeliveryResources(page, baseline, 'malformed raster decode failure');
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html><html><head><style>',
+    `@font-face{font-family:InvalidCaptureFont;src:url("${fixtureBaseUrl}/invalid-font.woff") format("woff")}`,
+    '.invalid-font{font:32px InvalidCaptureFont,sans-serif}',
+    '</style></head><body><div class="invalid-font">invalid font</div></body></html>',
+  ].join(''));
+  const invalidFontFrame = await waitForFrameWithSelector(page, '.invalid-font');
+  await invalidFontFrame.evaluate(() => document.fonts.ready);
+  malformedRequestsBefore = fixtureRequests.invalidFont;
+  await assertDeliveryFailureWithoutDownload(
+    page,
+    'oss-delivery-download-png',
+    /CORS|跨域|remote resource/iu,
+  );
+  assert.equal(
+    fixtureRequests.invalidFont,
+    malformedRequestsBefore + 1,
+    'Malformed font PNG failure must perform one snapshot fetch and no clone/render refetch.',
+  );
+  malformedRequestsBefore = fixtureRequests.invalidFont;
+  await assertDeliveryFailureWithoutDownload(
+    page,
+    'oss-delivery-download-pdf',
+    /CORS|跨域|remote resource/iu,
+  );
+  assert.equal(
+    fixtureRequests.invalidFont,
+    malformedRequestsBefore + 1,
+    'Malformed font PDF failure must perform one snapshot fetch and no clone/render refetch.',
+  );
+  await page.waitForTimeout(100);
+  const expectedMalformedErrors = consoleErrors.splice(malformedConsoleStart);
+  assert.equal(
+    expectedMalformedErrors.every(message => (
+      /Failed to decode downloaded font|OTS parsing error|Failed to load resource/iu.test(message)
+    )),
+    true,
+    `Unexpected console error during malformed decode cases: ${expectedMalformedErrors.join('\n')}`,
+  );
+  await assertNoActiveDeliveryResources(page, baseline, 'malformed font decode failure');
+
+  const cssSemanticsConsoleStart = consoleErrors.length;
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html><html><head>',
+    `<link rel="stylesheet" href="${fixtureBaseUrl}/invalid-css-mime.css">`,
+    '</head><body><div class="invalid-css-mime">strict MIME</div></body></html>',
+  ].join(''));
+  const invalidCssMimeFrame = await waitForFrameWithSelector(page, '.invalid-css-mime');
+  await invalidCssMimeFrame.waitForTimeout(200);
+  assert.notEqual(
+    await invalidCssMimeFrame.locator('.invalid-css-mime').evaluate(element => (
+      window.getComputedStyle(element).color
+    )),
+    'rgb(191, 47, 83)',
+    'Chromium unexpectedly applied a text/plain stylesheet under strict MIME checking.',
+  );
+  let invalidCssRequestsBefore = fixtureRequests.invalidCssMime;
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    'strict stylesheet MIME failure',
+    /CORS|跨域|remote resource/iu,
+  );
+  assert.equal(
+    fixtureRequests.invalidCssMime,
+    invalidCssRequestsBefore + 2,
+    'PNG and PDF must each reject strict-MIME CSS after one preflight read.',
+  );
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html><html><head>',
+    `<link rel="stylesheet" href="${fixtureBaseUrl}/invalid-css-encoding.css">`,
+    '</head><body><div class="invalid-css-encoding">invalid UTF-8</div></body></html>',
+  ].join(''));
+  const invalidCssEncodingFrame = await waitForFrameWithSelector(page, '.invalid-css-encoding');
+  await invalidCssEncodingFrame.waitForFunction(() => (
+    window.getComputedStyle(document.querySelector('.invalid-css-encoding')).color
+      === 'rgb(31, 117, 199)'
+  ));
+  invalidCssRequestsBefore = fixtureRequests.invalidCssEncoding;
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    'invalid stylesheet encoding failure',
+    /CORS|跨域|remote resource/iu,
+  );
+  assert.equal(
+    fixtureRequests.invalidCssEncoding,
+    invalidCssRequestsBefore + 2,
+    'PNG and PDF must each reject invalid UTF-8 CSS after one preflight read.',
+  );
+  await page.waitForTimeout(100);
+  const expectedCssSemanticsErrors = consoleErrors.splice(cssSemanticsConsoleStart);
+  // Opaque sandbox frames do not consistently forward strict-MIME console
+  // diagnostics. The computed-style assertion above is the browser proof;
+  // when Chromium does surface diagnostics, keep them constrained here.
+  assert.equal(
+    expectedCssSemanticsErrors.every(message => (
+      /MIME type .*text\/plain|strict MIME checking|Failed to load resource/iu.test(message)
+    )),
+    true,
+    `Unexpected console error during stylesheet semantic cases: ${expectedCssSemanticsErrors.join('\n')}`,
+  );
+  await assertNoActiveDeliveryResources(page, baseline, 'stylesheet MIME and encoding failures');
 
   const noCorsRequestsBefore = fixtureRequests.noCorsImage;
   const noCorsConsoleStart = consoleErrors.length;
@@ -1426,26 +2391,34 @@ const runDeliveryHardeningFlow = async (
     `<link rel="stylesheet" href="${fixtureBaseUrl}/no-cors.css?case=fail-closed">`,
     '</head><body><div class="no-cors-card"></div></body></html>',
   ].join(''));
-  await assertDeliveryFailureWithoutDownload(
+  const noCorsCssFrame = await waitForFrameWithSelector(page, '.no-cors-card');
+  await noCorsCssFrame.waitForFunction(() => (
+    window.getComputedStyle(document.documentElement).backgroundColor === 'rgb(122, 29, 78)'
+  ));
+  await assertDynamicDeliveryRejectedBeforeAllocation(
     page,
-    'oss-delivery-download-png',
+    baseline,
+    'unprovable external stylesheet failure',
     /CORS|跨域|remote resource/iu,
   );
   assert.ok(fixtureRequests.noCorsCss > noCorsCssRequestsBefore, 'No-CORS stylesheet fixture was not requested.');
   await page.waitForTimeout(100);
   const expectedNoCorsCssErrors = consoleErrors.splice(noCorsCssConsoleStart);
   assert.ok(
-    expectedNoCorsCssErrors.some(message => message.includes('/no-cors.css?case=fail-closed')),
-    'The no-CORS stylesheet did not produce Chromium\'s expected CORS rejection.',
+    expectedNoCorsCssErrors.some(message => (
+      /^Access to fetch at 'http:\/\/127\.0\.0\.1:\d+\/no-cors\.css\?case=fail-closed'.*blocked by CORS policy:/u
+        .test(message)
+    )),
+    'The no-CORS stylesheet fixture did not produce Chromium\'s expected CORS rejection.',
   );
   assert.equal(
     expectedNoCorsCssErrors.every(message => (
-      message.includes('/no-cors.css?case=fail-closed') || message === 'Failed to load resource: net::ERR_FAILED'
+      /^Access to fetch at 'http:\/\/127\.0\.0\.1:\d+\/no-cors\.css\?case=fail-closed'.*blocked by CORS policy:/u
+        .test(message) || message === 'Failed to load resource: net::ERR_FAILED'
     )),
     true,
     `Unexpected console error during the no-CORS stylesheet case: ${expectedNoCorsCssErrors.join('\n')}`,
   );
-  await assertNoActiveDeliveryResources(page, baseline, 'stylesheet CORS failure');
 
   await replaceSourceAndOpenFinal(page, [
     '<!doctype html>',
@@ -1490,9 +2463,9 @@ const runDeliveryHardeningFlow = async (
 
   await replaceSourceAndOpenFinal(page, [
     '<!doctype html>',
-    '<html><head>',
-    `<link rel="stylesheet" href="${fixtureBaseUrl}/slow-layout.css?case=cancel-${Date.now()}">`,
-    '</head><body><div class="slow-card"></div></body></html>',
+    '<html><body>',
+    `<img alt="slow source cancellation fixture" src="${fixtureBaseUrl}/slow-image.png?case=cancel-${Date.now()}">`,
+    '</body></html>',
   ].join(''));
   let cancelledDownloads = 0;
   const onCancelledDownload = () => { cancelledDownloads += 1; };
@@ -1514,9 +2487,9 @@ const runDeliveryHardeningFlow = async (
 
   await replaceSourceAndOpenFinal(page, [
     '<!doctype html>',
-    '<html><head>',
-    `<link rel="stylesheet" href="${fixtureBaseUrl}/slow-layout.css?case=theme-cancel-${Date.now()}">`,
-    '</head><body><div class="slow-card"></div></body></html>',
+    '<html><body>',
+    `<img alt="slow theme cancellation fixture" src="${fixtureBaseUrl}/slow-image.png?case=theme-cancel-${Date.now()}">`,
+    '</body></html>',
   ].join(''));
   let themeCancelledDownloads = 0;
   const onThemeCancelledDownload = () => { themeCancelledDownloads += 1; };
@@ -1537,6 +2510,18 @@ const runDeliveryHardeningFlow = async (
   await setWorkspaceTheme(page, 'light');
 
   await replaceSourceAndOpenFinal(page, '# Standalone timeout\n\nA hanging local stylesheet must fail closed.');
+  await page.evaluate(async () => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '/oss-e2e-root.css';
+    link.dataset.ossE2eTimeoutCss = 'true';
+    const loaded = new Promise((resolve, reject) => {
+      link.addEventListener('load', resolve, { once: true });
+      link.addEventListener('error', () => reject(new Error('timeout CSS fixture failed to load')), { once: true });
+    });
+    document.head.append(link);
+    await loaded;
+  });
   await page.evaluate(() => {
     const originalFetch = window.fetch.bind(window);
     window.__ossOriginalFetch = originalFetch;
@@ -1570,6 +2555,7 @@ const runDeliveryHardeningFlow = async (
     await page.evaluate(() => {
       if (window.__ossOriginalFetch) window.fetch = window.__ossOriginalFetch;
       delete window.__ossOriginalFetch;
+      document.querySelector('link[data-oss-e2e-timeout-css="true"]')?.remove();
     });
   }
   await assertNoActiveDeliveryResources(page, baseline, 'standalone local resource timeout');
@@ -1620,6 +2606,66 @@ const runMermaidImmediateDeliveryFlow = async (page) => {
     await readyFrame.waitFor({ state: 'attached' });
     assert.equal(await previewRoot.locator('[data-public-render-state="pending"], [data-public-render-state="error"]').count(), 0);
   }
+
+  console.log('[oss-e2e] Mermaid user animation staticization');
+  await sourceButton.click();
+  await page.locator('.md-public-source-editor textarea').first().fill([
+    'flowchart LR',
+    '  A[Animated class] --> B[Static node]',
+    '  classDef userAnimated fill:#f96,stroke:#333,stroke-width:2px,animation:dash .05s linear infinite',
+    '  class A userAnimated',
+  ].join('\n'));
+  await finalButton.click();
+  const evaluateLiveStaticizedFrame = async (callback) => {
+    const deadline = Date.now() + 5_000;
+    let lastNavigationError;
+    while (Date.now() < deadline) {
+      const liveFrame = await waitForFrameWithSelector(page, 'svg .userAnimated');
+      try {
+        return await liveFrame.evaluate(callback);
+      } catch (error) {
+        if (!/Execution context was destroyed|most likely because of a navigation/iu.test(String(error))) throw error;
+        lastNavigationError = error;
+        await page.waitForTimeout(50);
+      }
+    }
+    throw new Error('Timed out evaluating the live Mermaid frame after navigation.', { cause: lastNavigationError });
+  };
+  const staticizedEvidence = await evaluateLiveStaticizedFrame(() => ({
+    animations: document.getAnimations().length,
+    inlineAnimation: Array.from(document.querySelectorAll('[style]')).some((element) => (
+      element.getAttribute('style')?.toLowerCase().includes('animation')
+    )),
+    targetCount: document.querySelectorAll('svg .userAnimated').length,
+  }));
+  assert.ok(staticizedEvidence.targetCount > 0, 'Mermaid did not apply the user-authored animation class fixture.');
+  assert.equal(staticizedEvidence.animations, 0, 'Sanitized Mermaid Final retained a live animation.');
+  assert.equal(staticizedEvidence.inlineAnimation, false, 'Sanitized Mermaid Final retained an inline animation declaration.');
+  const unsanitizedControlAnimations = await page.evaluate(async () => {
+    const control = document.createElement('div');
+    control.setAttribute('data-oss-mermaid-animation-control', 'true');
+    control.style.cssText = 'position:fixed;left:-10000px;top:0;width:100px;height:100px;overflow:hidden';
+    control.innerHTML = [
+      '<style>@keyframes dash{to{stroke-dashoffset:0}}.userAnimated{stroke-dasharray:9,5;stroke-dashoffset:900;animation:dash .05s linear infinite}</style>',
+      '<svg viewBox="0 0 100 100"><path class="userAnimated" d="M0 50 L100 50"></path></svg>',
+    ].join('');
+    document.body.appendChild(control);
+    try {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return control.querySelector('svg .userAnimated')?.getAnimations().length ?? 0;
+    } finally {
+      control.remove();
+    }
+  });
+  assert.ok(unsanitizedControlAnimations > 0, 'Chromium did not activate the user-class animation control.');
+  const postControlEvidence = await evaluateLiveStaticizedFrame(() => document.getAnimations().length);
+  assert.equal(postControlEvidence, 0, 'The live Mermaid Final gained an animation after the isolated control proof.');
+  await assertDownload(page, 'oss-delivery-download-png', '.png', (content) => {
+    assert.deepEqual([...content.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+  await assertDownload(page, 'oss-delivery-download-pdf', '.pdf', (content) => (
+    assertA4ImagePdf(content, 'Staticized Mermaid animation PDF')
+  ));
 };
 
 const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, deliveryResourceBaseline) => {
@@ -1801,6 +2847,9 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
   } finally {
     await portableContext.close();
   }
+  await page.evaluate(() => {
+    document.querySelector('link[data-oss-e2e-portable-nested-css="true"]')?.remove();
+  });
   await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-png');
   await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-pdf');
 
@@ -1966,7 +3015,7 @@ const main = async () => {
     await runAboutDialogFlow(page);
     await runPublicShowcaseSurfaceFlow(page);
     await runImportFlow(page, canonicalFlatSource);
-    await runAiFlow(page, `http://127.0.0.1:${aiPort}`);
+    await runAiFlow(page, `http://127.0.0.1:${aiPort}`, aiMock.requests);
     const sameContextPage = await context.newPage();
     const sameContextErrors = [];
     sameContextPage.on('console', (message) => {
@@ -2034,11 +3083,12 @@ const main = async () => {
       assert.equal(request.body.stream, false);
     }
     const modifyBody = JSON.stringify(aiMock.requests[1].body);
-    assert.doesNotMatch(modifyBody, /data:image|:image\/png;base64|A{64}/iu, 'Modify must omit embedded local image data from the AI request.');
+    assert.doesNotMatch(modifyBody, /data:image|A{64}/u, 'Modify must omit embedded local image data from the AI request.');
+    assert.doesNotMatch(modifyBody, /image\/png|;?base64/iu, 'Modify leaked an embedded image MIME or encoding marker.');
+    assert.doesNotMatch(modifyBody, /iVBORw0KGgo/u, 'Modify leaked the percent-encoded PNG header to the AI provider.');
     assert.doesNotMatch(modifyBody, /QkFTRTY0TEVBS1RBSUw=/u, 'Modify leaked the folded data URL payload tail to the AI provider.');
     assert.doesNotMatch(modifyBody, /CAQAAAC1HAwCAAAAC0lEQVR42mNk\+A8AAQUBAScY42YAAAAASUVORK5CYII=/u, 'Modify leaked the percent-encoded data URL payload tail to the AI provider.');
-    assert.doesNotMatch(modifyBody, /iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB/iu, 'Modify leaked a Unicode-prefixed or adjacent PNG payload to the AI provider.');
-    assert.doesNotMatch(modifyBody, /PARAM_PRIVATE_SENTINEL|SVG_PRIVATE_TAIL|%89%50%4e%47/iu, 'Modify leaked generalized image data URL metadata or payload bytes.');
+    assert.doesNotMatch(modifyBody, /CAQAAAC1HAwC|EQVR42mNk\+A8A|AScY42YAAAAA/u, 'Modify leaked a partial percent-encoded PNG payload tail.');
     assert.ok(modifyBody.length < 70_000, `Modify request exceeded the bounded browser context: ${modifyBody.length} bytes.`);
     const summarizeBody = JSON.stringify(aiMock.requests[2].body);
     assert.doesNotMatch(summarizeBody, /Modified selection from OSS AI/u, 'Summarize must not send the complete Source.');

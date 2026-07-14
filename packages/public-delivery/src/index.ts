@@ -2,6 +2,7 @@ export {
   PUBLIC_CAPTURE_MAX_CANVAS_DIMENSION,
   PUBLIC_CAPTURE_MAX_CANVAS_PIXELS,
   PUBLIC_CAPTURE_SCALE,
+  PUBLIC_DYNAMIC_CAPTURE_HTML_MAX_BYTES,
   capturePublicPreviewPng,
   hasPublicDynamicCaptureMarkup,
 } from './capture';
@@ -16,6 +17,14 @@ export {
   type DeliveryModernScreenshot,
   withDeliveryLibraryLoadGuard,
 } from './captureRuntime';
+export {
+  findPublicCssImportOccurrences,
+  isPublicCssFragmentReference,
+  scanPublicCssResources,
+  type PublicCssImportOccurrence,
+  type PublicCssResourceOccurrence,
+  type PublicCssResourceScan,
+} from './captureResourceScanner';
 export {
   copyPublicPng,
   createBrowserPublicDeliveryAdapter,

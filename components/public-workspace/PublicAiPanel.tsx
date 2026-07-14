@@ -5,9 +5,13 @@ import {
   PublicAiStaleSourceError,
   type PublicAiGenerateSnapshot,
 } from './publicAiState';
-import { buildPublicAiBoundedRequest } from './publicAiContext';
+import {
+  buildPublicAiBoundedRequest,
+  buildPublicAiSelectionRequest,
+} from './publicAiContext';
 import type {
   PublicAiAdapter,
+  PublicAiSourceKind,
   PublicTextSelection,
   PublicWorkspaceLocale,
   SourceChangeMeta,
@@ -22,6 +26,7 @@ export type PublicAiGenerateIntent = {
 type PublicAiPanelProps = {
   adapter: PublicAiAdapter;
   source: string;
+  sourceKind: PublicAiSourceKind;
   documentEpoch: number;
   locale: PublicWorkspaceLocale;
   selection: PublicTextSelection | null;
@@ -32,8 +37,8 @@ type PublicAiPanelProps = {
 
 type RequestSnapshot =
   | { action: 'generate'; generate: PublicAiGenerateSnapshot }
-  | { action: 'modify'; selection: PublicTextSelection }
-  | { action: 'summarize'; selection: PublicTextSelection };
+  | { action: 'modify'; selection: PublicTextSelection & { sourceKind: PublicAiSourceKind } }
+  | { action: 'summarize'; selection: PublicTextSelection & { sourceKind: PublicAiSourceKind } };
 
 type AiResult = {
   text: string;
@@ -54,8 +59,9 @@ const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
   server: 'AI 服务暂时不可用（5xx）。', network: '浏览器无法连接 AI 服务，请检查网络、Base URL 和 CORS。',
   invalid: 'AI 返回了无效 JSON 或空内容。',
   tooLarge: '内容过长。请缩小选区或精简指令后重试。',
+  privacyBlocked: '选区或源码包含无法安全发送的本地数据，已停止请求。',
   truncated: '模型返回的内容可能不完整，请检查后再采用。',
-  privacy: '仅发送选区、指令和附近的有限上下文；本地图片数据不会发送。总结只发送当前选区。',
+  privacy: '仅发送选区、指令和附近的有限上下文；本地 data 资源不会发送。总结只发送当前选区。',
 } : {
   modify: 'Modify', summarize: 'Summarize', generate: 'AI generate', cancel: 'Cancel', run: 'Send',
   instruction: 'What should AI do?', result: 'AI result preview', apply: 'Apply', copy: 'Copy', copied: 'Copied',
@@ -67,8 +73,9 @@ const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
   server: 'The AI provider is temporarily unavailable (5xx).', network: 'The browser could not reach the AI provider. Check the network, Base URL, and CORS.',
   invalid: 'The AI provider returned invalid JSON or an empty response.',
   tooLarge: 'The input is too long. Select less content or shorten the instruction.',
+  privacyBlocked: 'The selection or source contains local data that cannot be sent safely. The request was stopped.',
   truncated: 'The model response may be incomplete. Review it before applying.',
-  privacy: 'Only the selection, instruction, and limited nearby context are sent. Local image data is omitted. Summaries send only the selection.',
+  privacy: 'Only the selection, instruction, and limited nearby context are sent. Local data resources are omitted. Summaries send only the selection.',
 };
 
 type PublicAiLabels = ReturnType<typeof getLabels>;
@@ -89,6 +96,8 @@ export const getPublicAiRequestErrorMessage = (error: unknown, labels: PublicAiL
     case 'invalid_response':
     case 'empty_response': return labels.invalid;
     case 'input_too_large': return labels.tooLarge;
+    case 'privacy_unsafe_input':
+    case 'privacy_unsafe_response': return labels.privacyBlocked;
     default: return labels.failed;
   }
 };
@@ -152,6 +161,7 @@ export const copyPublicAiResultText = async (
 export const PublicAiPanel: React.FC<PublicAiPanelProps> = ({
   adapter,
   source,
+  sourceKind,
   documentEpoch,
   locale,
   selection,
@@ -163,6 +173,8 @@ export const PublicAiPanel: React.FC<PublicAiPanelProps> = ({
   const controllerRef = useRef<AbortController | null>(null);
   const timeoutRef = useRef<number | null>(null);
   const requestSequenceRef = useRef(0);
+  const latestSourceRef = useRef(source);
+  latestSourceRef.current = source;
   const [form, setForm] = useState<RequestSnapshot | null>(null);
   const [instruction, setInstruction] = useState('');
   const [result, setResult] = useState<AiResult | null>(null);
@@ -204,10 +216,10 @@ export const PublicAiPanel: React.FC<PublicAiPanelProps> = ({
     reset();
     setForm({
       action: 'generate',
-      generate: { source, range: generateIntent.range },
+      generate: { source, sourceKind, range: generateIntent.range },
     });
     onGenerateIntentConsumed();
-  }, [generateIntent, onGenerateIntentConsumed, reset, source]);
+  }, [generateIntent, onGenerateIntentConsumed, reset, source, sourceKind]);
 
   const runRequest = useCallback(async (snapshot: RequestSnapshot, requestInstruction = '') => {
     abortActiveRequest();
@@ -226,26 +238,35 @@ export const PublicAiPanel: React.FC<PublicAiPanelProps> = ({
     }, REQUEST_TIMEOUT_MS);
     timeoutRef.current = timeoutId;
     try {
+      const sourceSnapshot = snapshot.action === 'generate'
+        ? snapshot.generate.source
+        : snapshot.selection.source;
+      if (latestSourceRef.current !== sourceSnapshot) throw new PublicAiStaleSourceError();
       const boundedRequest = snapshot.action === 'summarize'
-        ? buildPublicAiBoundedRequest({
+        ? buildPublicAiSelectionRequest({
           action: 'summarize',
-          selectedText: snapshot.selection.text,
+          source: snapshot.selection.source,
+          sourceKind: snapshot.selection.sourceKind,
+          range: { start: snapshot.selection.start, end: snapshot.selection.end },
+          visibleText: snapshot.selection.visibleText,
         })
         : snapshot.action === 'modify'
           ? buildPublicAiBoundedRequest({
             action: 'modify',
             instruction: requestInstruction,
-            selectedText: snapshot.selection.text,
             source: snapshot.selection.source,
+            sourceKind: snapshot.selection.sourceKind,
             range: { start: snapshot.selection.start, end: snapshot.selection.end },
           })
           : buildPublicAiBoundedRequest({
             action: 'generate',
             instruction: requestInstruction,
             source: snapshot.generate.source,
+            sourceKind: snapshot.generate.sourceKind,
             range: snapshot.generate.range,
           });
       const response = await adapter.request({ ...boundedRequest, signal: controller.signal });
+      if (latestSourceRef.current !== sourceSnapshot) throw new PublicAiStaleSourceError();
       ensurePublicAiResponseText(response.text);
       if (requestSequence === requestSequenceRef.current) {
         setResult({ text: response.text, finishReason: response.finishReason, snapshot });
@@ -260,6 +281,8 @@ export const PublicAiPanel: React.FC<PublicAiPanelProps> = ({
           setForm(null);
           setResult(null);
           setError('');
+        } else if (requestError instanceof PublicAiStaleSourceError) {
+          setError(labels.stale);
         } else if (controller.signal.aborted) setError(didTimeout ? labels.timeout : labels.cancelled);
         else setError(getPublicAiRequestErrorMessage(requestError, labels));
       }
@@ -293,9 +316,9 @@ export const PublicAiPanel: React.FC<PublicAiPanelProps> = ({
           <button type="button" data-testid="oss-ai-modify" onClick={() => {
             setError('');
             setInstruction('');
-            setForm({ action: 'modify', selection });
+            setForm({ action: 'modify', selection: { ...selection, sourceKind } });
           }}>{labels.modify}</button>
-          <button type="button" data-testid="oss-ai-summarize" onClick={() => void runRequest({ action: 'summarize', selection })}>{labels.summarize}</button>
+          <button type="button" data-testid="oss-ai-summarize" onClick={() => void runRequest({ action: 'summarize', selection: { ...selection, sourceKind } })}>{labels.summarize}</button>
         </div>
       )}
 
