@@ -66,6 +66,7 @@
     "packages/features-personal/src/ai/client.ts",
     "packages/features-personal/src/ai/config.ts",
     "packages/features-personal/src/ai/index.ts",
+    "packages/features-personal/src/ai/redact.ts",
     "packages/features-personal/src/ai/types.ts",
     "packages/public-delivery/package.json",
     "packages/public-delivery/src/browserActions.ts",
@@ -115,6 +116,7 @@
     "scripts/oss-public-lockfile.test.mjs",
     "scripts/oss-public-source-closure.mjs",
     "scripts/test-oss-e2e.mjs",
+    "scripts/test-oss-editing-layout.mjs",
     "tsconfig.json",
     "vite.config.ts"
   ],
@@ -271,6 +273,7 @@
     "packages/features-personal/src/ai/client.ts",
     "packages/features-personal/src/ai/config.ts",
     "packages/features-personal/src/ai/index.ts",
+    "packages/features-personal/src/ai/redact.ts",
     "packages/features-personal/src/ai/types.ts",
     "packages/public-delivery/src/browserActions.ts",
     "packages/public-delivery/src/capture.ts",

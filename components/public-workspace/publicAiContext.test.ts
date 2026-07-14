@@ -28,6 +28,22 @@ test('generate and modify send bounded nearby context without local image data',
   assert.match(request.source ?? '', /source omitted/u);
 });
 
+test('bounded context removes folded local image payloads as one span', () => {
+  const foldedTail = 'Rk9MREVEX1BBWUxPQURfVEFJTA==';
+  const image = `data:image/png;base64,QUJDREVGR0hJ\n\t${foldedTail}`;
+  const source = `before\n![local](${image})\nTARGET\nafter`;
+  const start = source.indexOf('TARGET');
+  const request = buildPublicAiBoundedRequest({
+    action: 'modify',
+    selectedText: 'TARGET',
+    source,
+    range: { start, end: start + 'TARGET'.length },
+  });
+
+  assert.doesNotMatch(request.source ?? '', /data:image|QUJDREVGR0hJ|Rk9MREVEX1BBWUxPQURfVEFJTA/u);
+  assert.match(request.source ?? '', /local image data omitted/u);
+});
+
 test('summarize sends only the selected text', () => {
   assert.deepEqual(buildPublicAiBoundedRequest({
     action: 'summarize',

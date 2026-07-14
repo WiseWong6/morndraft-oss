@@ -1,13 +1,14 @@
 import type { PublicAiAction } from './types';
+import {
+  PUBLIC_AI_OMITTED_LOCAL_IMAGE_DATA,
+  collectPublicAiLocalImageDataUrlSpans,
+  omitPublicAiLocalImageDataUrls,
+  type PublicAiRedactedSpan,
+} from '@morndraft/features-personal/ai';
 
 export const PUBLIC_AI_MAX_INSTRUCTION_CHARS = 4_000;
 export const PUBLIC_AI_MAX_SELECTED_TEXT_CHARS = 24_000;
 export const PUBLIC_AI_MAX_SOURCE_CONTEXT_CHARS = 24_000;
-
-const PUBLIC_LOCAL_IMAGE_DATA_URL = /data:image\/(?:avif|gif|jpeg|png|webp);base64,[a-z0-9+/=]+/giu;
-const OMITTED_IMAGE = '[local image data omitted]';
-
-type DataUrlSpan = { start: number; end: number };
 
 export class PublicAiInputTooLargeError extends Error {
   readonly code = 'input_too_large';
@@ -18,24 +19,11 @@ export class PublicAiInputTooLargeError extends Error {
   }
 }
 
-const collectLocalImageDataUrlSpans = (source: string): DataUrlSpan[] => {
-  const spans: DataUrlSpan[] = [];
-  for (const match of source.matchAll(PUBLIC_LOCAL_IMAGE_DATA_URL)) {
-    if (match.index === undefined) continue;
-    spans.push({ start: match.index, end: match.index + match[0].length });
-  }
-  return spans;
-};
-
-export const omitPublicAiLocalImageDataUrls = (value: string) => (
-  value.replace(PUBLIC_LOCAL_IMAGE_DATA_URL, OMITTED_IMAGE)
-);
-
 const sanitizeSourceSlice = (
   source: string,
   start: number,
   end: number,
-  spans: readonly DataUrlSpan[],
+  spans: readonly PublicAiRedactedSpan[],
 ) => {
   let cursor = start;
   let sanitized = '';
@@ -43,7 +31,7 @@ const sanitizeSourceSlice = (
     if (span.end <= start) continue;
     if (span.start >= end) break;
     sanitized += source.slice(cursor, Math.max(cursor, span.start));
-    sanitized += OMITTED_IMAGE;
+    sanitized += PUBLIC_AI_OMITTED_LOCAL_IMAGE_DATA;
     cursor = Math.max(cursor, Math.min(end, span.end));
   }
   return sanitized + source.slice(cursor, end);
@@ -61,7 +49,7 @@ export const buildPublicAiBoundedSourceContext = (
   const afterBudget = PUBLIC_AI_MAX_SOURCE_CONTEXT_CHARS - beforeBudget;
   const beforeStart = Math.max(0, range.start - beforeBudget);
   const afterEnd = Math.min(source.length, range.end + afterBudget);
-  const spans = collectLocalImageDataUrlSpans(source);
+  const spans = collectPublicAiLocalImageDataUrlSpans(source);
   const before = sanitizeSourceSlice(source, beforeStart, range.start, spans);
   const after = sanitizeSourceSlice(source, range.end, afterEnd, spans);
   return [

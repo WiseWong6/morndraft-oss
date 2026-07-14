@@ -101,6 +101,11 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
       onSelectionChange(null);
       return;
     }
+    if (!reversible) {
+      event.stopPropagation();
+      onSelectionChange(null);
+      return;
+    }
     if (
       !event.currentTarget.contains(browserRange.startContainer)
       || !event.currentTarget.contains(browserRange.endContainer)
@@ -140,6 +145,7 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
     contentEditable: canEditBlock,
     'data-public-final-editable': canEditBlock ? 'true' : undefined,
     'data-public-final-block': canPatch ? 'true' : undefined,
+    'data-public-final-reversible': canPatch ? String(reversible) : undefined,
     'data-public-source-start': canPatch ? segmentStart + (relativeStart ?? 0) : undefined,
     'data-public-source-end': canPatch ? segmentStart + (relativeEnd ?? 0) : undefined,
     'data-public-segment-start': canPatch ? segmentStart : undefined,
@@ -257,6 +263,31 @@ const getVisibleOffset = (block: HTMLElement, container: Node, offset: number) =
   }
 };
 
+const isRangeCoveredByReversibleMarkdownBlocks = (
+  root: HTMLElement,
+  range: Range,
+) => {
+  let coveredBlockCount = 0;
+  for (const block of root.querySelectorAll<HTMLElement>('[data-public-final-block="true"]')) {
+    let intersects = false;
+    try {
+      intersects = range.intersectsNode(block);
+    } catch {
+      return false;
+    }
+    if (!intersects) continue;
+    coveredBlockCount += 1;
+    if (block.getAttribute('data-public-final-reversible') !== 'true') return false;
+  }
+  if (coveredBlockCount === 0) return false;
+  const fragment = range.cloneContents();
+  return !fragment.querySelector([
+    '[data-public-final-reversible="false"]',
+    'audio', 'br', 'button', 'canvas', 'embed', 'hr', 'iframe', 'img',
+    'input', 'object', 'select', 'svg', 'textarea', 'video',
+  ].join(','));
+};
+
 /**
  * Resolve a browser selection spanning multiple Markdown blocks back to exact
  * Source offsets. Selections crossing a non-Markdown segment fail closed so an
@@ -309,6 +340,9 @@ export const resolvePublicMarkdownDomSelection = (
     edge: 'end',
   });
   const text = range.toString();
-  if (start === null || end === null || end <= start || !text.trim()) return null;
+  if (
+    start === null || end === null || end <= start || !text.trim()
+    || !isRangeCoveredByReversibleMarkdownBlocks(root, range)
+  ) return null;
   return { start, end, text, sourceText: source.slice(start, end), source };
 };

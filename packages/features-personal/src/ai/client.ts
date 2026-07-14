@@ -13,6 +13,7 @@ import {
   type PublicAiRequest,
   type PublicAiResult,
 } from './types';
+import { omitPublicAiLocalImageDataUrls } from './redact';
 
 type OpenAiCompatibleResponse = {
   choices?: Array<{
@@ -24,11 +25,6 @@ type OpenAiCompatibleResponse = {
 
 export const PUBLIC_AI_DEFAULT_TIMEOUT_MS = 90_000;
 export const PUBLIC_AI_MAX_USER_PROMPT_CHARS = 64_000;
-
-const PUBLIC_LOCAL_IMAGE_DATA_URL = /data:image\/(?:avif|gif|jpeg|png|webp);base64,[a-z0-9+/=]+/giu;
-const omitLocalImageDataUrls = (value: string) => (
-  value.replace(PUBLIC_LOCAL_IMAGE_DATA_URL, '[local image data omitted]')
-);
 
 export type PublicAiAdapterOptions = {
   fetch?: typeof fetch;
@@ -52,12 +48,12 @@ function buildSystemPrompt(action: PublicAiAction): string {
 
 function buildUserPrompt(input: PublicAiRequest): string {
   const parts: string[] = [];
-  if (input.instruction?.trim()) parts.push(`User request:\n${omitLocalImageDataUrls(input.instruction.trim())}`);
-  if (input.diagnostic?.trim()) parts.push(`Diagnostic:\n${omitLocalImageDataUrls(input.diagnostic.trim())}`);
-  if (input.selectedText?.trim()) parts.push(`Selected text:\n${omitLocalImageDataUrls(input.selectedText.trim())}`);
-  else if (input.visibleText?.trim()) parts.push(`Visible text:\n${omitLocalImageDataUrls(input.visibleText.trim())}`);
+  if (input.instruction?.trim()) parts.push(`User request:\n${omitPublicAiLocalImageDataUrls(input.instruction.trim())}`);
+  if (input.diagnostic?.trim()) parts.push(`Diagnostic:\n${omitPublicAiLocalImageDataUrls(input.diagnostic.trim())}`);
+  if (input.selectedText?.trim()) parts.push(`Selected text:\n${omitPublicAiLocalImageDataUrls(input.selectedText.trim())}`);
+  else if (input.visibleText?.trim()) parts.push(`Visible text:\n${omitPublicAiLocalImageDataUrls(input.visibleText.trim())}`);
   if (input.source?.trim() && input.action !== 'summarize') {
-    const source = omitLocalImageDataUrls(input.source);
+    const source = omitPublicAiLocalImageDataUrls(input.source);
     parts.push(input.action === 'fix'
       ? `Full source to repair:\n${source}`
       : `Relevant source context:\n${source}`);

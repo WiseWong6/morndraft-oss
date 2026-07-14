@@ -19,7 +19,8 @@ npm run check:workflow-pins
 npm run check:licenses:release
 npm test
 npm run build:oss
-MORNDRAFT_BUILD_PRESET=oss-full npm run check:public-surface
 npx playwright install chromium
+npm run test:e2e:oss:editing
+MORNDRAFT_BUILD_PRESET=oss-full npm run check:public-surface
 npm run test:e2e:oss
 ```

@@ -45,6 +45,7 @@ function validPackage() {
       'test:e2e:oss': 'node scripts/test-oss-e2e.mjs --candidate .',
       typecheck: 'tsc --noEmit',
       'build:oss': 'MORNDRAFT_BUILD_PRESET=oss-full vite build',
+      'test:e2e:oss:editing': 'node scripts/test-oss-editing-layout.mjs',
       prepublishOnly: "node -e \"throw new Error('not as an npm package')\"",
     },
     dependencies: { react: '^19.0.0' },

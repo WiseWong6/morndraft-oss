@@ -27,6 +27,12 @@ export {
   publicAiAdapter,
 } from './client';
 export type { PublicAiAdapterOptions } from './client';
+export {
+  PUBLIC_AI_OMITTED_LOCAL_IMAGE_DATA,
+  collectPublicAiLocalImageDataUrlSpans,
+  omitPublicAiLocalImageDataUrls,
+} from './redact';
+export type { PublicAiRedactedSpan } from './redact';
 export { PublicAiSettingsForm } from './PublicAiSettingsForm';
 export type { PublicAiSettingsFormProps } from './PublicAiSettingsForm';
 export {

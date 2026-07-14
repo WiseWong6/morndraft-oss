@@ -254,6 +254,9 @@ export function validatePublicPackageContract({ filePaths, packageJson, manifest
   for (const testFile of manifest.testFiles) {
     if (!testScript.includes(testFile)) findings.push(`package.json test script is missing ${testFile}`);
   }
+  if (packageJson.scripts?.['test:e2e:oss:editing'] !== 'node scripts/test-oss-editing-layout.mjs') {
+    findings.push('package.json must expose the real OSS editing layout browser gate');
+  }
   if (packageJson.scripts?.['test:e2e:oss'] !== OSS_E2E_SCRIPT_COMMAND) {
     findings.push(`package.json test:e2e:oss must be exactly ${OSS_E2E_SCRIPT_COMMAND}`);
   }

@@ -58,6 +58,33 @@ const findTagEnd = (html: string, start: number) => {
   return html.length;
 };
 
+const findHtmlCommentEnd = (html: string, start: number) => {
+  let index = start;
+  if (html[index] === '>') return index + 1;
+  if (html[index] === '-' && html[index + 1] === '>') return index + 2;
+  while (index < html.length) {
+    const delimiter = html.indexOf('--', index);
+    if (delimiter === -1) return -1;
+    if (html[delimiter + 2] === '>') return delimiter + 3;
+    if (html[delimiter + 2] === '!' && html[delimiter + 3] === '>') return delimiter + 4;
+    index = delimiter + 2;
+  }
+  return -1;
+};
+
+const findRawTextEndTag = (lowerHtml: string, tagName: string, start: number) => {
+  const opener = `</${tagName}`;
+  let searchFrom = start;
+  while (searchFrom < lowerHtml.length) {
+    const candidate = lowerHtml.indexOf(opener, searchFrom);
+    if (candidate === -1) return -1;
+    const boundary = lowerHtml[candidate + opener.length];
+    if (isHtmlWhitespace(boundary) || boundary === '/' || boundary === '>') return candidate;
+    searchFrom = candidate + opener.length;
+  }
+  return -1;
+};
+
 const hasDynamicAttribute = (attributes: string) => {
   let index = 0;
   while (index < attributes.length) {
@@ -111,9 +138,9 @@ export const hasPublicDynamicCaptureMarkup = (html: string) => {
     const tagStart = html.indexOf('<', index);
     if (tagStart === -1) return false;
     if (html.startsWith('<!--', tagStart)) {
-      const commentEnd = html.indexOf('-->', tagStart + 4);
+      const commentEnd = findHtmlCommentEnd(html, tagStart + 4);
       if (commentEnd === -1) return false;
-      index = commentEnd + 3;
+      index = commentEnd;
       continue;
     }
     if (html[tagStart + 1] === '!' || html[tagStart + 1] === '?') {
@@ -129,7 +156,7 @@ export const hasPublicDynamicCaptureMarkup = (html: string) => {
     if (!opening.closing && PUBLIC_DYNAMIC_ELEMENTS.has(opening.name)) return true;
     if (!opening.closing && hasDynamicAttribute(html.slice(opening.attributesStart, tagEnd))) return true;
     if (!opening.closing && opening.name === 'style') {
-      const styleEnd = lowerHtml.indexOf('</style', Math.min(tagEnd + 1, html.length));
+      const styleEnd = findRawTextEndTag(lowerHtml, 'style', Math.min(tagEnd + 1, html.length));
       if (styleEnd === -1) return false;
       index = styleEnd;
       continue;

@@ -36,6 +36,12 @@ test('OSS entry mounts an independent public shell without commercial imports', 
   assert.doesNotMatch(preview, /allow-same-origin/);
 });
 
+test('OSS shell gives the public workspace a definite viewport height', () => {
+  const styles = read('./oss-shell.css');
+  assert.match(styles, /\.oss-app\s*\{[\s\S]*?height:\s*100vh;[\s\S]*?height:\s*100dvh;/u);
+  assert.match(styles, /\.oss-app\s*\{[\s\S]*?min-height:\s*100vh;[\s\S]*?min-height:\s*100dvh;/u);
+});
+
 test('OSS browser AI stays direct, role-based, local, and opt-in', () => {
   const shell = read('./OssShell.tsx');
   const client = read('../../../packages/features-personal/src/ai/client.ts');

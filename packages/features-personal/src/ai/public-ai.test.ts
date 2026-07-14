@@ -12,6 +12,10 @@ import {
   writePublicAiConfig,
 } from './config';
 import { createPublicAiAdapter, PUBLIC_AI_MAX_USER_PROMPT_CHARS } from './client';
+import {
+  collectPublicAiLocalImageDataUrlSpans,
+  omitPublicAiLocalImageDataUrls,
+} from './redact';
 import { PublicAiError, type PublicAiConfig } from './types';
 
 class MemoryStorage implements Storage {
@@ -302,6 +306,33 @@ test('adapter omits local image data and rejects oversized prompts before fetch'
     source: 'x'.repeat(PUBLIC_AI_MAX_USER_PROMPT_CHARS + 1),
   }), (error: unknown) => error instanceof PublicAiError && error.code === 'input_too_large');
   assert.equal(seen.length, 1, 'oversized prompts must fail before fetch');
+});
+
+test('shared redactor removes folded data URLs from the actual fetch body', async () => {
+  const foldedTail = 'Rk9MREVEX1BBWUxPQURfVEFJTA==';
+  const foldedImage = `data:image/png;base64,QUJDREVGR0hJ\r\n\t${foldedTail}`;
+  assert.deepEqual(collectPublicAiLocalImageDataUrlSpans(`x ${foldedImage}) y`), [{
+    start: 2,
+    end: 2 + foldedImage.length,
+  }]);
+  assert.equal(omitPublicAiLocalImageDataUrls(`x ${foldedImage}) y`), 'x [local image data omitted]) y');
+
+  let requestBody = '';
+  const adapter = createPublicAiAdapter({
+    readConfig: () => configured(),
+    fetch: async (_input, init) => {
+      requestBody = String(init?.body);
+      return jsonResponse({ choices: [{ message: { content: 'result' } }] });
+    },
+  });
+  await adapter.request({
+    action: 'modify',
+    selectedText: `selection ${foldedImage})`,
+    source: `before ${foldedImage}) after`,
+  });
+
+  assert.doesNotMatch(requestBody, /data:image|QUJDREVGR0hJ|Rk9MREVEX1BBWUxPQURfVEFJTA/u);
+  assert.match(requestBody, /local image data omitted/u);
 });
 
 test('missing config opens settings and reports a typed error', async () => {

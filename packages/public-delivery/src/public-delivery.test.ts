@@ -382,7 +382,12 @@ test('buildPublicStandaloneHtml strips supported HTML fence info strings before 
 test('image capture fails closed for dynamic HTML that cannot match the sandboxed Final', () => {
   assert.equal(hasPublicDynamicCaptureMarkup('<main><h1>Static</h1></main>'), false);
   assert.equal(hasPublicDynamicCaptureMarkup('<!-- example: <script>ignored()</script> -->'), false);
+  assert.equal(hasPublicDynamicCaptureMarkup('<!-- note --!><script>window.__ran=1</script>'), true);
+  assert.equal(hasPublicDynamicCaptureMarkup('<!--><script>window.__ran=1</script>'), true);
+  assert.equal(hasPublicDynamicCaptureMarkup('<!---><script>window.__ran=1</script>'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<style>/* <script>ignored()</script> */</style><main>Static</main>'), false);
+  assert.equal(hasPublicDynamicCaptureMarkup('<style>.note::before{content:"</stylex><script>ignored()</script>"}</style><main>Static</main>'), false);
+  assert.equal(hasPublicDynamicCaptureMarkup('<style>.note{color:red}</style><script>window.__ran=1</script>'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<script>document.body.append("dynamic")</script>'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<svg onload="draw()"></svg>'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<canvas></canvas>'), true);

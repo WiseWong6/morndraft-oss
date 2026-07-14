@@ -22,8 +22,9 @@ The OSS edition does not include draft box, account login, cloud drafts, avatar/
 npm install
 npm run dev
 npm run build:oss
-MORNDRAFT_BUILD_PRESET=oss-full npm run check:public-surface
 npx playwright install chromium
+npm run test:e2e:oss:editing
+MORNDRAFT_BUILD_PRESET=oss-full npm run check:public-surface
 npm run test:e2e:oss
 ```
 

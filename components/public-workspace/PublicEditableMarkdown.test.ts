@@ -19,15 +19,19 @@ const renderFinalMarkdown = (content: string, segmentStart = 0) => renderToStati
 ));
 
 test('Final exposes contentEditable only for reversible Markdown blocks', () => {
-  assert.match(renderFinalMarkdown('Editable **text** and [link](https://example.com).'), /contentEditable="true"/u);
+  const editable = renderFinalMarkdown('Editable **text** and [link](https://example.com).');
+  assert.match(editable, /contentEditable="true"/u);
+  assert.match(editable, /data-public-final-reversible="true"/u);
 
   const image = renderFinalMarkdown('Before ![hero](data:image/png;base64,iVBORw0KGgo=) after');
   assert.match(image, /<img/u);
   assert.doesNotMatch(image, /contentEditable="true"/u);
+  assert.match(image, /data-public-final-reversible="false"/u);
 
   const hardBreak = renderFinalMarkdown('First  \nSecond');
   assert.match(hardBreak, /<br\/?/u);
   assert.doesNotMatch(hardBreak, /contentEditable="true"/u);
+  assert.match(hardBreak, /data-public-final-reversible="false"/u);
 });
 
 test('irreversible Markdown AST nodes fail the Final editability guard', () => {
