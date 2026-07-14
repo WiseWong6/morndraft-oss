@@ -83,8 +83,17 @@ const splitUnescapedPipes = (line) => {
   if (line.trimStart().startsWith('|')) {
     startIndex = line.indexOf('|') + 1;
   }
-  if (line.trimEnd().endsWith('|')) {
-    endIndex = line.lastIndexOf('|');
+  const trimmedEnd = line.trimEnd().length;
+  if (trimmedEnd > 0 && line[trimmedEnd - 1] === '|') {
+    let precedingBackslashes = 0;
+    for (
+      let index = trimmedEnd - 2;
+      index >= startIndex && line[index] === '\\';
+      index -= 1
+    ) {
+      precedingBackslashes += 1;
+    }
+    if (precedingBackslashes % 2 === 0) endIndex = trimmedEnd - 1;
   }
 
   for (let index = startIndex; index < endIndex; index += 1) {
@@ -119,10 +128,26 @@ const escapeHtmlText = (value) =>
 const escapeHtmlAttribute = (value) =>
   escapeHtmlText(value).replace(/"/g, '&quot;');
 
+const unescapeMarkdownCharacters = (value, escapableCharacters) => {
+  const source = String(value ?? '');
+  let result = '';
+  for (let index = 0; index < source.length; index += 1) {
+    if (
+      source[index] === '\\' &&
+      index + 1 < source.length &&
+      escapableCharacters.has(source[index + 1])
+    ) {
+      result += source[index + 1];
+      index += 1;
+      continue;
+    }
+    result += source[index];
+  }
+  return result;
+};
+
 const unescapeTableCell = (value) =>
-  String(value ?? '')
-    .trim()
-    .replace(/\\\|/g, '|')
+  unescapeMarkdownCharacters(String(value ?? '').trim(), new Set(['\\', '|']))
     .replace(/<br\s*\/?>/gi, '\n');
 
 const normalizeInlineStyleKey = (key) => {
@@ -636,6 +661,7 @@ const serializeTableCellValue = (value) =>
 const escapeTableCell = (value) =>
   serializeTableCellValue(value)
     .replace(/\r\n|\r|\n/g, '<br>')
+    .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
     .trim();
 
@@ -754,32 +780,135 @@ export const patchMarkdownPipeTable = (source, range, table) => {
   return patchSourceRange(source, range, replacement);
 };
 
-const IMAGE_PATTERN = /^!\[([^\]\n]*)]\((\S+?)(?:\s+(['"])(.*?)\3)?\)$/;
+const isImageWhitespaceCode = (code) => (
+  (code >= 0x0009 && code <= 0x000d) ||
+  code === 0x0020 ||
+  code === 0x00a0 ||
+  code === 0x1680 ||
+  (code >= 0x2000 && code <= 0x200a) ||
+  code === 0x2028 ||
+  code === 0x2029 ||
+  code === 0x202f ||
+  code === 0x205f ||
+  code === 0x3000 ||
+  code === 0xfeff
+);
+
+const hasImageLineTerminator = (value) => {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code === 0x000a || code === 0x000d || code === 0x2028 || code === 0x2029) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const parseMarkdownImageSource = (value) => {
+  const source = String(value ?? '');
+  if (
+    !source.startsWith('![')
+    || !source.endsWith(')')
+    || hasImageLineTerminator(source)
+  ) return null;
+
+  let cursor = 2;
+  let rawAlt = '';
+  let altClosed = false;
+  while (cursor < source.length) {
+    const char = source[cursor];
+    if (char === '\\' && cursor + 1 < source.length) {
+      rawAlt += char + source[cursor + 1];
+      cursor += 2;
+      continue;
+    }
+    if (char === ']') {
+      altClosed = true;
+      cursor += 1;
+      break;
+    }
+    rawAlt += char;
+    cursor += 1;
+  }
+  if (!altClosed || source[cursor] !== '(') return null;
+  cursor += 1;
+
+  const contentEnd = source.length - 1;
+  const urlStart = cursor;
+  while (
+    cursor < contentEnd &&
+    !isImageWhitespaceCode(source.charCodeAt(cursor))
+  ) {
+    cursor += 1;
+  }
+  if (cursor === urlStart) return null;
+  const url = source.slice(urlStart, cursor);
+
+  let title = '';
+  if (cursor < contentEnd) {
+    while (
+      cursor < contentEnd &&
+      isImageWhitespaceCode(source.charCodeAt(cursor))
+    ) {
+      cursor += 1;
+    }
+    const quote = source[cursor];
+    if ((quote !== '"' && quote !== "'") || cursor + 1 >= contentEnd) return null;
+    cursor += 1;
+    let rawTitle = '';
+    let titleClosed = false;
+    while (cursor < contentEnd) {
+      const char = source[cursor];
+      if (char === '\\' && cursor + 1 < contentEnd) {
+        rawTitle += char + source[cursor + 1];
+        cursor += 2;
+        continue;
+      }
+      if (char === quote) {
+        titleClosed = true;
+        cursor += 1;
+        break;
+      }
+      rawTitle += char;
+      cursor += 1;
+    }
+    if (!titleClosed || cursor !== contentEnd) return null;
+    title = unescapeMarkdownCharacters(rawTitle, new Set(['\\', quote]));
+  }
+
+  return {
+    alt: unescapeMarkdownCharacters(rawAlt, new Set(['\\', ']'])),
+    title,
+    url,
+  };
+};
 
 export const parseMarkdownImage = (source, range) => {
   const text = String(source ?? '');
   const validation = validateSourceRange(text, range);
   if (!validation.ok) return validation;
   const imageSource = text.slice(validation.startOffset, validation.endOffset).trim();
-  const match = imageSource.match(IMAGE_PATTERN);
-  if (!match) return createFailure('invalid_image');
+  const parsed = parseMarkdownImageSource(imageSource);
+  if (!parsed) return createFailure('invalid_image');
   return {
     ok: true,
-    alt: match[1].replace(/\\]/g, ']'),
+    alt: parsed.alt,
     range,
     source: imageSource,
-    title: match[4] ?? '',
-    url: match[2],
+    title: parsed.title,
+    url: parsed.url,
   };
 };
 
 export const serializeMarkdownImage = ({ alt = '', title = '', url = '' }) => {
   const safeAlt = String(alt)
+    .replace(/\\/g, '\\\\')
     .replace(/]/g, '\\]')
     .replace(/\r\n|\r|\n/g, ' ');
   const safeUrl = String(url).trim();
   if (!safeUrl || /[\s)]/.test(safeUrl)) return '';
   const safeTitle = String(title)
+    .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')
     .replace(/\r\n|\r|\n/g, ' ')
     .trim();
@@ -792,18 +921,89 @@ export const patchMarkdownImage = (source, range, image) => {
   return patchSourceRange(source, range, replacement);
 };
 
-const CODE_FENCE_PATTERN = /^ {0,3}(`{3,}|~{3,})\s*([^\s`~]*)?.*$/;
-const CODE_FENCE_CLOSE_PATTERN = /^ {0,3}(`{3,}|~{3,})\s*$/;
+const isMarkdownWhitespace = (char) => {
+  if (!char) return false;
+  const code = char.charCodeAt(0);
+  return (
+    (code >= 0x0009 && code <= 0x000d) ||
+    code === 0x0020 ||
+    code === 0x00a0 ||
+    code === 0x1680 ||
+    (code >= 0x2000 && code <= 0x200a) ||
+    code === 0x2028 ||
+    code === 0x2029 ||
+    code === 0x202f ||
+    code === 0x205f ||
+    code === 0x3000 ||
+    code === 0xfeff
+  );
+};
+
+const isSpaceOrTab = (char) => char === ' ' || char === '\t';
+const isLineTerminator = (char) =>
+  char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029';
+
+const readCodeFenceMarker = (line) => {
+  const text = String(line ?? '');
+  let cursor = 0;
+  while (cursor < 3 && text[cursor] === ' ') cursor += 1;
+
+  const markerChar = text[cursor];
+  if (markerChar !== '`' && markerChar !== '~') return null;
+  const markerStart = cursor;
+  while (text[cursor] === markerChar) cursor += 1;
+  if (cursor - markerStart < 3) return null;
+
+  return {
+    cursor,
+    marker: text.slice(markerStart, cursor),
+    text,
+  };
+};
+
+const parseCodeFenceOpenLine = (line) => {
+  const parsedMarker = readCodeFenceMarker(line);
+  if (!parsedMarker) return null;
+  const { marker, text } = parsedMarker;
+  let { cursor } = parsedMarker;
+
+  while (cursor < text.length && isMarkdownWhitespace(text[cursor])) cursor += 1;
+  const languageStart = cursor;
+  while (
+    cursor < text.length &&
+    !isMarkdownWhitespace(text[cursor]) &&
+    text[cursor] !== '`' &&
+    text[cursor] !== '~'
+  ) {
+    cursor += 1;
+  }
+  const languageEnd = cursor;
+  while (cursor < text.length) {
+    if (isLineTerminator(text[cursor])) return null;
+    cursor += 1;
+  }
+
+  return {
+    language: text.slice(languageStart, languageEnd),
+    marker,
+  };
+};
 
 const isCodeFenceCloseLine = (line, openingFence) => {
-  const closeMatch = String(line ?? '').match(CODE_FENCE_CLOSE_PATTERN);
+  const close = readCodeFenceMarker(line);
   const openingMarker = String(openingFence ?? '');
-  return Boolean(
-    closeMatch &&
-      openingMarker &&
-      closeMatch[1][0] === openingMarker[0] &&
-      closeMatch[1].length >= openingMarker.length,
-  );
+  if (
+    !close ||
+    !openingMarker ||
+    close.marker[0] !== openingMarker[0] ||
+    close.marker.length < openingMarker.length
+  ) {
+    return false;
+  }
+  while (close.cursor < close.text.length && isMarkdownWhitespace(close.text[close.cursor])) {
+    close.cursor += 1;
+  }
+  return close.cursor === close.text.length;
 };
 
 const getSourceRangeForLineSpan = (lines, startIndex, endIndex) => {
@@ -818,15 +1018,16 @@ const getSourceRangeForLineSpan = (lines, startIndex, endIndex) => {
   };
 };
 
-const sliceLineSpanSource = (lines, startIndex, endIndex) => {
+const sliceLineSpanSource = (source, lines, startIndex, endIndex) => {
   const start = lines[startIndex]?.offset ?? 0;
   const endLine = lines[endIndex];
   const end = endLine ? endLine.offset + endLine.text.length : start;
-  const fullSource = lines.map((line) => `${line.text}${line.newline}`).join('');
-  return fullSource.slice(start, end);
+  return source.slice(start, end);
 };
 
-const isMarkdownImageOnlyLine = (line) => IMAGE_PATTERN.test(String(line ?? '').trim());
+const isMarkdownImageOnlyLine = (line) => Boolean(
+  parseMarkdownImageSource(String(line ?? '').trim()),
+);
 
 const isPipeTableDelimiterLine = (line) => {
   const cells = splitUnescapedPipes(String(line ?? ''));
@@ -839,16 +1040,36 @@ const isPipeTableStart = (lines, index) => {
   return /^\s*\|.*\|\s*$/.test(line) && /^\s*\|.*\|\s*$/.test(nextLine) && isPipeTableDelimiterLine(nextLine);
 };
 
-const LIST_LINE_PATTERN = /^(\s{0,8})((?:[-+*])|(?:\d+[.)]))[ \t]+(.*)$/;
-
 const parseListLine = (line) => {
-  const match = String(line ?? '').match(LIST_LINE_PATTERN);
-  if (!match) return null;
+  const text = String(line ?? '');
+  let cursor = 0;
+  while (cursor < 8 && isMarkdownWhitespace(text[cursor])) cursor += 1;
+  const indent = cursor;
+
+  let marker = '';
+  let ordered = false;
+  if (text[cursor] === '-' || text[cursor] === '+' || text[cursor] === '*') {
+    marker = text[cursor];
+    cursor += 1;
+  } else {
+    const markerStart = cursor;
+    while (text[cursor] >= '0' && text[cursor] <= '9') cursor += 1;
+    if (cursor === markerStart || (text[cursor] !== '.' && text[cursor] !== ')')) return null;
+    cursor += 1;
+    marker = text.slice(markerStart, cursor);
+    ordered = true;
+  }
+
+  if (!isSpaceOrTab(text[cursor])) return null;
+  while (isSpaceOrTab(text[cursor])) cursor += 1;
+  for (let index = cursor; index < text.length; index += 1) {
+    if (isLineTerminator(text[index])) return null;
+  }
   return {
-    indent: match[1].length,
-    marker: match[2],
-    ordered: /^\d/.test(match[2]),
-    text: match[3] ?? '',
+    indent,
+    marker,
+    ordered,
+    text: text.slice(cursor),
   };
 };
 
@@ -856,7 +1077,55 @@ const isListLine = (line) => Boolean(parseListLine(line));
 
 const isBlockquoteLine = (line) => /^\s*>[ \t]?/.test(String(line ?? ''));
 
-const isHeadingLine = (line) => /^\s{0,3}#{1,6}[ \t]+/.test(String(line ?? ''));
+const parseHeadingLine = (line) => {
+  const text = String(line ?? '');
+  let cursor = 0;
+  while (cursor < 3 && isMarkdownWhitespace(text[cursor])) cursor += 1;
+
+  const markerStart = cursor;
+  while (cursor - markerStart < 6 && text[cursor] === '#') cursor += 1;
+  const depth = cursor - markerStart;
+  if (depth === 0 || text[cursor] === '#' || !isSpaceOrTab(text[cursor])) return null;
+
+  while (isSpaceOrTab(text[cursor])) cursor += 1;
+  const contentStart = cursor;
+  for (let index = contentStart; index < text.length; index += 1) {
+    if (isLineTerminator(text[index])) return null;
+  }
+  let trailingCursor = text.length;
+  while (trailingCursor > contentStart && isSpaceOrTab(text[trailingCursor - 1])) {
+    trailingCursor -= 1;
+  }
+  const closingMarkerEnd = trailingCursor;
+  while (trailingCursor > contentStart && text[trailingCursor - 1] === '#') {
+    trailingCursor -= 1;
+  }
+
+  let contentEnd = text.length;
+  if (trailingCursor < closingMarkerEnd) {
+    const closingMarkerStart = trailingCursor;
+    while (trailingCursor > contentStart && isSpaceOrTab(text[trailingCursor - 1])) {
+      trailingCursor -= 1;
+    }
+    if (trailingCursor < closingMarkerStart) contentEnd = trailingCursor;
+  }
+
+  return {
+    depth,
+    text: text.slice(contentStart, contentEnd),
+  };
+};
+
+const hasHeadingPrefix = (line) => {
+  const text = String(line ?? '');
+  let cursor = 0;
+  while (cursor < 3 && isMarkdownWhitespace(text[cursor])) cursor += 1;
+  const markerStart = cursor;
+  while (cursor - markerStart < 6 && text[cursor] === '#') cursor += 1;
+  return cursor > markerStart && text[cursor] !== '#' && isSpaceOrTab(text[cursor]);
+};
+
+const isHeadingLine = (line) => hasHeadingPrefix(line);
 
 const isMarkdownIslandBlockStart = (lines, index) =>
   isPipeTableStart(lines, index) ||
@@ -864,17 +1133,17 @@ const isMarkdownIslandBlockStart = (lines, index) =>
   isListLine(lines[index]?.text) ||
   isBlockquoteLine(lines[index]?.text);
 
-const makeSegment = (lines, startIndex, endIndex, kind, artifactKind = '') => {
+const makeSegment = (source, lines, startIndex, endIndex, kind, artifactKind = '') => {
   const sourceRange = getSourceRangeForLineSpan(lines, startIndex, endIndex);
   return {
     artifactKind,
     kind,
-    source: sliceLineSpanSource(lines, startIndex, endIndex),
+    source: sliceLineSpanSource(source, lines, startIndex, endIndex),
     sourceRange,
   };
 };
 
-const makeMarkdownIslandSegment = (lines, startIndex, endIndex) => {
+const makeMarkdownIslandSegment = (source, lines, startIndex, endIndex) => {
   let islandStartIndex = startIndex;
   let islandEndIndex = endIndex;
   while (islandStartIndex <= islandEndIndex && !lines[islandStartIndex]?.text.trim()) {
@@ -884,33 +1153,34 @@ const makeMarkdownIslandSegment = (lines, startIndex, endIndex) => {
     islandEndIndex -= 1;
   }
   if (islandStartIndex > islandEndIndex) return null;
-  return makeSegment(lines, islandStartIndex, islandEndIndex, 'markdown-island');
+  return makeSegment(source, lines, islandStartIndex, islandEndIndex, 'markdown-island');
 };
 
 export const splitPreviewMarkdownSegments = (source) => {
-  const lines = getLinesWithOffsets(source);
+  const fullSource = String(source ?? '');
+  const lines = getLinesWithOffsets(fullSource);
   const segments = [];
   let islandStart = null;
 
   const flushIsland = (endIndex) => {
     if (islandStart === null || endIndex < islandStart) return;
-    const segment = makeMarkdownIslandSegment(lines, islandStart, endIndex);
+    const segment = makeMarkdownIslandSegment(fullSource, lines, islandStart, endIndex);
     if (segment?.source.length > 0) segments.push(segment);
     islandStart = null;
   };
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index].text;
-    const fenceMatch = line.match(CODE_FENCE_PATTERN);
-    if (fenceMatch) {
+    const fence = parseCodeFenceOpenLine(line);
+    if (fence) {
       flushIsland(index - 1);
-      const openingFence = fenceMatch[1];
+      const openingFence = fence.marker;
       let endIndex = index;
       for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
         endIndex = cursor;
         if (isCodeFenceCloseLine(lines[cursor].text, openingFence)) break;
       }
-      const fenceLanguage = (fenceMatch[2] || 'code').trim().toLowerCase() || 'code';
+      const fenceLanguage = (fence.language || 'code').trim().toLowerCase() || 'code';
       const languageKind = getCodeFenceLanguageKind(fenceLanguage);
       const EDITABLE_KINDS = new Set([
         CODE_FENCE_LANGUAGE_KINDS.CODE,
@@ -921,14 +1191,28 @@ export const splitPreviewMarkdownSegments = (source) => {
       const fenceSegmentKind = EDITABLE_KINDS.has(languageKind)
         ? 'editable-code'
         : 'readonly-artifact';
-      segments.push(makeSegment(lines, index, endIndex, fenceSegmentKind, fenceLanguage));
+      segments.push(makeSegment(
+        fullSource,
+        lines,
+        index,
+        endIndex,
+        fenceSegmentKind,
+        fenceLanguage,
+      ));
       index = endIndex;
       continue;
     }
 
     if (isMarkdownImageOnlyLine(line)) {
       flushIsland(index - 1);
-      segments.push(makeSegment(lines, index, index, 'readonly-artifact', 'image'));
+      segments.push(makeSegment(
+        fullSource,
+        lines,
+        index,
+        index,
+        'readonly-artifact',
+        'image',
+      ));
       continue;
     }
 
@@ -954,12 +1238,15 @@ const parseRichInlineLines = (lines) => {
   return { ok: true, lines: parsedLines };
 };
 
-const readParagraphLines = (lines, startIndex) => {
+const readParagraphLines = (lines, lineRecords, startIndex) => {
   let endIndex = startIndex;
   while (endIndex < lines.length) {
     const line = lines[endIndex];
     if (!line.trim()) break;
-    if (endIndex !== startIndex && isMarkdownIslandBlockStart(lines.map((text) => ({ text })), endIndex)) break;
+    if (
+      endIndex !== startIndex
+      && isMarkdownIslandBlockStart(lineRecords, endIndex)
+    ) break;
     endIndex += 1;
   }
   return {
@@ -1024,6 +1311,7 @@ const parseListBlock = (lines, startIndex, baseIndent = null) => {
 export const parseMarkdownIsland = (source) => {
   const rawLines = String(source ?? '').split(/\r\n|\r|\n/);
   const lines = rawLines.filter((line, index) => index < rawLines.length - 1 || line.length > 0);
+  const lineRecords = lines.map(text => ({ text }));
   const blocks = [];
   let index = 0;
 
@@ -1034,7 +1322,7 @@ export const parseMarkdownIsland = (source) => {
       continue;
     }
 
-    if (isPipeTableStart(lines.map((text) => ({ text })), index)) {
+    if (isPipeTableStart(lineRecords, index)) {
       let endIndex = index + 2;
       while (endIndex < lines.length && /^\s*\|.*\|\s*$/.test(lines[endIndex])) {
         endIndex += 1;
@@ -1058,13 +1346,13 @@ export const parseMarkdownIsland = (source) => {
       continue;
     }
 
-    const heading = line.match(/^(\s{0,3})(#{1,6})[ \t]+(.*?)(?:[ \t]+#+[ \t]*)?$/);
+    const heading = parseHeadingLine(line);
     if (heading) {
-      const parsed = parseRichInlineLine(heading[3] ?? '');
+      const parsed = parseRichInlineLine(heading.text);
       if (!Array.isArray(parsed)) return parsed;
       blocks.push({
         type: 'heading',
-        depth: heading[2].length,
+        depth: heading.depth,
         segments: parsed,
         sourceRange: {
           startLine: index + 1,
@@ -1100,7 +1388,7 @@ export const parseMarkdownIsland = (source) => {
       continue;
     }
 
-    const paragraph = readParagraphLines(lines, index);
+    const paragraph = readParagraphLines(lines, lineRecords, index);
     const parsed = parseRichInlineLines(paragraph.lines);
     if (!parsed.ok) return parsed;
     blocks.push({
@@ -1220,7 +1508,7 @@ const parseMarkdownIslandWithInlineHtmlFallback = (segment) => {
     const startIndex = index;
     while (index < lines.length && lines[index]?.text.trim()) index += 1;
     const endIndex = index - 1;
-    const source = sliceLineSpanSource(lines, startIndex, endIndex);
+    const source = sliceLineSpanSource(segment.source, lines, startIndex, endIndex);
     const sourceRange = offsetDocumentSourceRange(
       getSourceRangeForLineSpan(lines, startIndex, endIndex),
       segment.sourceRange,
