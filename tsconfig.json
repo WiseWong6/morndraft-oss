@@ -22,8 +22,11 @@
       "@morndraft/core/oss-public": [
         "./packages/core/src/oss-public.ts"
       ],
-      "@morndraft/core": [
-        "./packages/core/src/oss-public.ts"
+      "@morndraft/features-personal/ai": [
+        "./packages/features-personal/src/ai/index.ts"
+      ],
+      "@morndraft/public-delivery": [
+        "./packages/public-delivery/src/index.ts"
       ],
       "@morndraft/web-shell": [
         "./packages/web-shell/src/index.ts"
@@ -35,7 +38,12 @@
   "include": [
     "apps/web-oss/src/**/*.ts",
     "apps/web-oss/src/**/*.tsx",
+    "components/public-workspace/**/*.ts",
+    "components/public-workspace/**/*.tsx",
     "packages/core/src/oss-public.ts",
+    "packages/features-personal/src/ai/**/*.ts",
+    "packages/features-personal/src/ai/**/*.tsx",
+    "packages/public-delivery/src/**/*.ts",
     "packages/web-shell/src/**/*.ts",
     "vite.config.ts"
   ],

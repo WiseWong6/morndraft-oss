@@ -14,4 +14,6 @@
 - [ ] `npm run check:licenses:release`
 - [ ] `npm test`
 - [ ] `npm run build:oss`
+- [ ] `npm run test:e2e:oss:editing`
 - [ ] `MORNDRAFT_BUILD_PRESET=oss-full npm run check:public-surface`
+- [ ] `npm run test:e2e:oss`

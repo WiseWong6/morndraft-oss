@@ -22,6 +22,7 @@ This engineering register is projected from the private repository review regist
 | lightningcss-linux-x64-musl | 1.32.0 | MPL-2.0 | transitive optional platform package via lightningcss | No; dev/build tooling only | No | MPL notice; if redistributed, confirm source availability for covered files | Approved | node_modules/lightningcss-linux-x64-musl/package.json; package-lock.json |
 | lightningcss-win32-arm64-msvc | 1.32.0 | MPL-2.0 | transitive optional platform package via lightningcss | No; dev/build tooling only | No | MPL notice; if redistributed, confirm source availability for covered files | Approved | node_modules/lightningcss-win32-arm64-msvc/package.json; package-lock.json |
 | lightningcss-win32-x64-msvc | 1.32.0 | MPL-2.0 | transitive optional platform package via lightningcss | No; dev/build tooling only | No | MPL notice; if redistributed, confirm source availability for covered files | Approved | node_modules/lightningcss-win32-x64-msvc/package.json; package-lock.json |
+| pako | 1.0.11 | (MIT AND Zlib) | transitive via pdf-lib | Yes; runtime dependency tree for PDF export | No | Keep MIT/Zlib notice with third-party notices if redistributed; no source availability obligation for MornDraft code | Approved | node_modules/pako/package.json; node_modules/pako/LICENSE; npm explain pako |
 | khroma | 2.1.0 | MIT | transitive via mermaid | Yes; runtime dependency tree for Mermaid rendering | No | Keep MIT notice | Approved | node_modules/khroma/license |
 
 ## Runtime Font Assets
