@@ -76,6 +76,9 @@ export function validateOssDistributionManifest(manifest) {
       allowEmpty: key === 'copyDirectories' || key === 'excludedPathSegments' || key === 'excludedFiles',
     });
   }
+  if (manifest.resolvedSourceClosure !== undefined) {
+    assertStringArray(manifest, 'resolvedSourceClosure');
+  }
 
   const declaredFiles = new Set(manifest.copyFiles);
   const declaredDirectories = manifest.copyDirectories.map(entry => `${entry}/`);
@@ -87,6 +90,16 @@ export function validateOssDistributionManifest(manifest) {
   for (const testFile of manifest.testFiles) {
     if (!/\.test\.[cm]?[jt]sx?$/.test(testFile)) {
       throw new Error(`${OSS_DISTRIBUTION_MANIFEST_PATH}: testFiles contains non-test file ${testFile}`);
+    }
+  }
+  for (const sourceFile of manifest.resolvedSourceClosure ?? []) {
+    if (!declaredFiles.has(sourceFile) && !declaredDirectories.some(directory => sourceFile.startsWith(directory))) {
+      throw new Error(
+        `${OSS_DISTRIBUTION_MANIFEST_PATH}: resolved source closure is outside positive copy roots: ${sourceFile}`,
+      );
+    }
+    if (/\.test\.[cm]?[jt]sx?$/.test(sourceFile)) {
+      throw new Error(`${OSS_DISTRIBUTION_MANIFEST_PATH}: resolved source closure contains test file ${sourceFile}`);
     }
   }
   const overlappingDependencies = manifest.runtimeDependencies.filter(name => manifest.devDependencies.includes(name));

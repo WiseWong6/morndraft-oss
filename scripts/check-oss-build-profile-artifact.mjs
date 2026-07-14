@@ -12,7 +12,12 @@ const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const distDir = path.join(projectDir, 'dist', 'oss');
 const artifactPath = path.join(distDir, 'morndraft-build-profile.json');
 const expectedCapabilities = PROFILE_CAPABILITIES.oss;
-const expectedAllowedPackages = ['@morndraft/core', '@morndraft/web-shell'];
+const expectedAllowedPackages = [
+  '@morndraft/core',
+  '@morndraft/features-personal',
+  '@morndraft/public-delivery',
+  '@morndraft/web-shell',
+];
 const expectedAppEntryMarker = 'morndraft-app-entry:web-oss';
 
 const arrayEquals = (left, right) =>

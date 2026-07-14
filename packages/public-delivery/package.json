@@ -1,0 +1,14 @@
+{
+  "name": "@morndraft/public-delivery",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "html2canvas": "^1.4.1",
+    "modern-screenshot": "^4.7.0",
+    "parse5": "7.3.0",
+    "pdf-lib": "^1.17.1"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
