@@ -60,6 +60,24 @@ test('bounded context removes percent-encoded local image payloads as one span',
   assert.match(request.source ?? '', /local image data omitted/u);
 });
 
+test('bounded context removes Unicode-prefixed and adjacent local image payloads', () => {
+  const unicodePrefix = 'İ'.repeat(256);
+  const payload = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const firstImage = `data:image/png;base64,${payload}`;
+  const secondImage = `DATA:IMAGE/PNG;BASE64,${payload}`;
+  const source = `${unicodePrefix}${firstImage}\r\n${secondImage}\nTARGET`;
+  const start = source.indexOf('TARGET');
+  const request = buildPublicAiBoundedRequest({
+    action: 'modify',
+    selectedText: 'TARGET',
+    source,
+    range: { start, end: start + 'TARGET'.length },
+  });
+
+  assert.doesNotMatch(request.source ?? '', /data:image|iVBORw0KGgo|ASUVORK5CYII=/iu);
+  assert.match(request.source ?? '', /local image data omitted/u);
+});
+
 test('summarize sends only the selected text', () => {
   assert.deepEqual(buildPublicAiBoundedRequest({
     action: 'summarize',

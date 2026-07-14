@@ -13,6 +13,8 @@ const PUBLIC_AI_LOCAL_IMAGE_PREFIXES = [
   'data:image/webp;base64,',
 ] as const;
 
+const PUBLIC_AI_LOCAL_IMAGE_START = 'data:image/';
+
 const isAsciiWhitespace = (code: number) => (
   code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d || code === 0x20
 );
@@ -39,21 +41,46 @@ const isPercentEncodedByteAt = (value: string, index: number) => (
   && isAsciiHexDigit(value.charCodeAt(index + 2))
 );
 
+const toAsciiLowerCodeUnit = (code: number) => (
+  code >= 0x41 && code <= 0x5a ? code + 0x20 : code
+);
+
+const startsWithAsciiCaseInsensitive = (value: string, candidate: string, start: number) => {
+  if (start < 0 || start + candidate.length > value.length) return false;
+  for (let offset = 0; offset < candidate.length; offset += 1) {
+    if (toAsciiLowerCodeUnit(value.charCodeAt(start + offset)) !== candidate.charCodeAt(offset)) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const findAsciiCaseInsensitive = (value: string, candidate: string, searchFrom: number) => {
+  const lastStart = value.length - candidate.length;
+  for (let start = Math.max(0, searchFrom); start <= lastStart; start += 1) {
+    if (startsWithAsciiCaseInsensitive(value, candidate, start)) return start;
+  }
+  return -1;
+};
+
 /**
  * Locate browser-local bitmap data URLs using a deterministic linear scan.
  * HTML whitespace and percent-encoded bytes are accepted inside base64 because
  * the Fetch data URL processor percent-decodes the body before forgiving-base64
- * decode, and imported Markdown may preserve folded URLs. Privacy takes
- * precedence over retaining ambiguous base64-looking prose after such a URL.
+ * decode, and imported Markdown may preserve folded URLs. Prefix matching stays
+ * on the original string with ASCII-only case folding so span offsets cannot
+ * drift, and a new image prefix always starts a separate redaction span. Privacy
+ * takes precedence over retaining ambiguous base64-looking prose after such a URL.
  */
 export const collectPublicAiLocalImageDataUrlSpans = (value: string): PublicAiRedactedSpan[] => {
-  const lowerValue = value.toLowerCase();
   const spans: PublicAiRedactedSpan[] = [];
   let searchFrom = 0;
   while (searchFrom < value.length) {
-    const start = lowerValue.indexOf('data:image/', searchFrom);
+    const start = findAsciiCaseInsensitive(value, PUBLIC_AI_LOCAL_IMAGE_START, searchFrom);
     if (start < 0) break;
-    const prefix = PUBLIC_AI_LOCAL_IMAGE_PREFIXES.find(candidate => lowerValue.startsWith(candidate, start));
+    const prefix = PUBLIC_AI_LOCAL_IMAGE_PREFIXES.find(candidate => (
+      startsWithAsciiCaseInsensitive(value, candidate, start)
+    ));
     if (!prefix) {
       searchFrom = start + 'data:image/'.length;
       continue;
@@ -61,6 +88,7 @@ export const collectPublicAiLocalImageDataUrlSpans = (value: string): PublicAiRe
     let cursor = start + prefix.length;
     let hasPayload = false;
     while (cursor < value.length) {
+      if (startsWithAsciiCaseInsensitive(value, PUBLIC_AI_LOCAL_IMAGE_START, cursor)) break;
       const code = value.charCodeAt(cursor);
       if (isBase64CodeUnit(code)) {
         hasPayload = true;

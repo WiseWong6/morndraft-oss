@@ -18,6 +18,8 @@ import {
 } from './redact';
 import { PublicAiError, type PublicAiConfig } from './types';
 
+const ONE_PIXEL_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
 
@@ -346,6 +348,57 @@ test('shared redactor removes folded and percent-encoded data URLs from the actu
     requestBody,
     /data:image|QUJDREVGR0hJ|Rk9MREVEX1BBWUxPQURfVEFJTA|%0A|VEFJTF9TRU5USU5FTA/u,
   );
+  assert.match(requestBody, /local image data omitted/u);
+});
+
+test('shared redactor keeps original UTF-16 offsets for ASCII-insensitive prefixes', () => {
+  const unicodePrefix = 'İ'.repeat(256);
+  const image = `DaTa:ImAgE/PnG;BaSe64,${ONE_PIXEL_PNG_BASE64}`;
+  const value = `${unicodePrefix}${image}`;
+
+  assert.deepEqual(collectPublicAiLocalImageDataUrlSpans(value), [{
+    start: unicodePrefix.length,
+    end: value.length,
+  }]);
+  assert.equal(
+    omitPublicAiLocalImageDataUrls(value),
+    `${unicodePrefix}[local image data omitted]`,
+  );
+});
+
+test('shared redactor splits adjacent local images before consuming the next prefix', () => {
+  const lowerImage = `data:image/png;base64,${ONE_PIXEL_PNG_BASE64}`;
+  const upperImage = `DATA:IMAGE/PNG;BASE64,${ONE_PIXEL_PNG_BASE64}`;
+
+  for (const separator of ['\n', '\r\n', '\t']) {
+    const value = `${lowerImage}${separator}${upperImage}`;
+    const spans = collectPublicAiLocalImageDataUrlSpans(value);
+    assert.equal(spans.length, 2, `expected two spans for ${JSON.stringify(separator)}`);
+    assert.equal(spans[0]?.start, 0);
+    assert.equal(spans[1]?.start, lowerImage.length + separator.length);
+    const redacted = omitPublicAiLocalImageDataUrls(value);
+    assert.doesNotMatch(redacted, /data:image|iVBORw0KGgo/iu);
+    assert.equal(redacted.match(/\[local image data omitted\]/gu)?.length, 2);
+  }
+});
+
+test('adapter fetch body omits Unicode-prefixed and whitespace-adjacent local images', async () => {
+  const unicodePrefix = 'İ'.repeat(256);
+  const lowerImage = `data:image/png;base64,${ONE_PIXEL_PNG_BASE64}`;
+  const upperImage = `DATA:IMAGE/PNG;BASE64,${ONE_PIXEL_PNG_BASE64}`;
+  const source = `${unicodePrefix}${lowerImage}\n${upperImage}\r\n${lowerImage}\t${upperImage}`;
+  let requestBody = '';
+  const adapter = createPublicAiAdapter({
+    readConfig: () => configured(),
+    fetch: async (_input, init) => {
+      requestBody = String(init?.body);
+      return jsonResponse({ choices: [{ message: { content: 'result' } }] });
+    },
+  });
+
+  await adapter.request({ action: 'modify', selectedText: source, source });
+
+  assert.doesNotMatch(requestBody, /data:image|iVBORw0KGgo|ASUVORK5CYII=/iu);
   assert.match(requestBody, /local image data omitted/u);
 });
 

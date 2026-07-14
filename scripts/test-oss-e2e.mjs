@@ -851,15 +851,22 @@ const runAiFlow = async (page, mockBaseUrl) => {
   const foldedImagePayloadTail = 'QkFTRTY0TEVBS1RBSUw=';
   const localImageData = `data:image/png;base64,${'A'.repeat(2_000)}\n\t${foldedImagePayloadTail}`;
   const onePixelBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const onePixelImageData = `data:image/png;base64,${onePixelBase64}`;
+  const upperOnePixelImageData = `DATA:IMAGE/PNG;BASE64,${onePixelBase64}`;
   const percentEncodedImagePayloadTail = onePixelBase64.slice(24);
   const percentEncodedImageData = `data:image/png;base64,${onePixelBase64.slice(0, 24)}%0A${percentEncodedImagePayloadTail}`;
-  const percentEncodedImageFence = [
+  const adjacentPrivacyFixture = `${'İ'.repeat(256)}${onePixelImageData}\n${upperOnePixelImageData}\r\n${onePixelImageData}\t${upperOnePixelImageData}`;
+  const privacyImageFence = [
     '```html',
+    `<!--${adjacentPrivacyFixture}-->`,
     `<img id="oss-percent-encoded-ai-image" src="${percentEncodedImageData}" alt="encoded">`,
+    `<img id="oss-lowercase-ai-image" src="${onePixelImageData}" alt="lowercase">`,
+    `<img id="oss-uppercase-ai-image" src="${upperOnePixelImageData}" alt="uppercase">`,
     '```',
   ].join('\n');
-  const sourceBeforeModify = `![local](${localImageData})\n\n${percentEncodedImageFence}\n\nFirst target\n\nSecond repeat repeat repeat`;
-  const sourceAfterModify = `![local](${localImageData})\n\n${percentEncodedImageFence}\n\nFirst target\n\nSecond Modified selection from OSS AI repeat repeat`;
+  const sourceBeforeModify = `![local](${localImageData})\n\n${privacyImageFence}\n\nFirst target\n\nSecond repeat repeat repeat`;
+  const browserNormalizedPrivacyImageFence = privacyImageFence.replaceAll('\r\n', '\n');
+  const sourceAfterModify = `![local](${localImageData})\n\n${browserNormalizedPrivacyImageFence}\n\nFirst target\n\nSecond Modified selection from OSS AI repeat repeat`;
   await sourceEditor.fill(sourceBeforeModify);
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
   const percentEncodedImageFrame = await waitForFrameWithSelector(page, '#oss-percent-encoded-ai-image');
@@ -878,6 +885,23 @@ const runAiFlow = async (page, mockBaseUrl) => {
     [1, 1],
     'Chromium did not decode the percent-encoded 1x1 PNG fixture.',
   );
+  for (const selector of ['#oss-lowercase-ai-image', '#oss-uppercase-ai-image']) {
+    const image = percentEncodedImageFrame.locator(selector);
+    await image.evaluate((element, label) => new Promise((resolve, reject) => {
+      if (element.complete) {
+        if (element.naturalWidth === 1 && element.naturalHeight === 1) resolve();
+        else reject(new Error(`${label} decoded at ${element.naturalWidth}x${element.naturalHeight}.`));
+        return;
+      }
+      element.addEventListener('load', () => resolve(), { once: true });
+      element.addEventListener('error', () => reject(new Error(`${label} failed to load.`)), { once: true });
+    }), selector);
+    assert.deepEqual(
+      await image.evaluate((element) => [element.naturalWidth, element.naturalHeight]),
+      [1, 1],
+      `Chromium did not decode the ${selector} 1x1 PNG fixture.`,
+    );
+  }
   let renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'Second repeat repeat repeat' });
   await renderedBlock.waitFor({ state: 'visible' });
   await selectRenderedOccurrence(renderedBlock, 'repeat', 0);
@@ -1961,9 +1985,10 @@ const main = async () => {
       assert.equal(request.body.stream, false);
     }
     const modifyBody = JSON.stringify(aiMock.requests[1].body);
-    assert.doesNotMatch(modifyBody, /data:image|A{64}/u, 'Modify must omit embedded local image data from the AI request.');
+    assert.doesNotMatch(modifyBody, /data:image|:image\/png;base64|A{64}/iu, 'Modify must omit embedded local image data from the AI request.');
     assert.doesNotMatch(modifyBody, /QkFTRTY0TEVBS1RBSUw=/u, 'Modify leaked the folded data URL payload tail to the AI provider.');
     assert.doesNotMatch(modifyBody, /CAQAAAC1HAwCAAAAC0lEQVR42mNk\+A8AAQUBAScY42YAAAAASUVORK5CYII=/u, 'Modify leaked the percent-encoded data URL payload tail to the AI provider.');
+    assert.doesNotMatch(modifyBody, /iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB/iu, 'Modify leaked a Unicode-prefixed or adjacent PNG payload to the AI provider.');
     assert.ok(modifyBody.length < 70_000, `Modify request exceeded the bounded browser context: ${modifyBody.length} bytes.`);
     const summarizeBody = JSON.stringify(aiMock.requests[2].body);
     assert.doesNotMatch(summarizeBody, /Modified selection from OSS AI/u, 'Summarize must not send the complete Source.');
