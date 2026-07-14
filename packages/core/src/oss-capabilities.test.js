@@ -9,13 +9,22 @@ import {
   createBuildProfile,
 } from './oss-capabilities.js';
 
-test('OSS capability registry exposes only the mounted HTML preview capability', () => {
-  assert.deepEqual(Object.keys(CAPABILITY_DEFINITIONS), ['htmlPreview']);
-  assert.deepEqual(PROFILE_CAPABILITIES.oss, ['htmlPreview']);
+test('OSS capability registry exposes the mounted preview and Final editing capabilities', () => {
+  assert.deepEqual(Object.keys(CAPABILITY_DEFINITIONS), ['htmlPreview', 'previewTextEdit']);
+  assert.deepEqual(PROFILE_CAPABILITIES.oss, ['htmlPreview', 'previewTextEdit']);
   assert.deepEqual(CAPABILITY_DEFINITIONS.htmlPreview, {
     id: MORNDRAFT_CAPABILITIES.HTML_PREVIEW,
     label: 'HTML Preview',
     moduleKey: 'htmlPreview',
+    packageName: '@morndraft/core',
+    profileScope: [MORNDRAFT_PROFILES.OSS],
+    buildMode: 'static',
+    securityBoundary: 'public-client',
+  });
+  assert.deepEqual(CAPABILITY_DEFINITIONS.previewTextEdit, {
+    id: MORNDRAFT_CAPABILITIES.PREVIEW_TEXT_EDIT,
+    label: 'Preview Text Edit',
+    moduleKey: 'previewTextEdit',
     packageName: '@morndraft/core',
     profileScope: [MORNDRAFT_PROFILES.OSS],
     buildMode: 'static',
