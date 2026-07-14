@@ -850,10 +850,34 @@ const runAiFlow = async (page, mockBaseUrl) => {
   await sourceEditor.waitFor({ state: 'visible' });
   const foldedImagePayloadTail = 'QkFTRTY0TEVBS1RBSUw=';
   const localImageData = `data:image/png;base64,${'A'.repeat(2_000)}\n\t${foldedImagePayloadTail}`;
-  const sourceBeforeModify = `![local](${localImageData})\n\nFirst target\n\nSecond repeat repeat repeat`;
-  const sourceAfterModify = `![local](${localImageData})\n\nFirst target\n\nSecond Modified selection from OSS AI repeat repeat`;
+  const onePixelBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const percentEncodedImagePayloadTail = onePixelBase64.slice(24);
+  const percentEncodedImageData = `data:image/png;base64,${onePixelBase64.slice(0, 24)}%0A${percentEncodedImagePayloadTail}`;
+  const percentEncodedImageFence = [
+    '```html',
+    `<img id="oss-percent-encoded-ai-image" src="${percentEncodedImageData}" alt="encoded">`,
+    '```',
+  ].join('\n');
+  const sourceBeforeModify = `![local](${localImageData})\n\n${percentEncodedImageFence}\n\nFirst target\n\nSecond repeat repeat repeat`;
+  const sourceAfterModify = `![local](${localImageData})\n\n${percentEncodedImageFence}\n\nFirst target\n\nSecond Modified selection from OSS AI repeat repeat`;
   await sourceEditor.fill(sourceBeforeModify);
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  const percentEncodedImageFrame = await waitForFrameWithSelector(page, '#oss-percent-encoded-ai-image');
+  const percentEncodedImage = percentEncodedImageFrame.locator('#oss-percent-encoded-ai-image');
+  await percentEncodedImage.evaluate((image) => new Promise((resolve, reject) => {
+    if (image.complete) {
+      if (image.naturalWidth === 1 && image.naturalHeight === 1) resolve();
+      else reject(new Error(`Percent-encoded image decoded at ${image.naturalWidth}x${image.naturalHeight}.`));
+      return;
+    }
+    image.addEventListener('load', () => resolve(), { once: true });
+    image.addEventListener('error', () => reject(new Error('Percent-encoded image failed to load.')), { once: true });
+  }));
+  assert.deepEqual(
+    await percentEncodedImage.evaluate((image) => [image.naturalWidth, image.naturalHeight]),
+    [1, 1],
+    'Chromium did not decode the percent-encoded 1x1 PNG fixture.',
+  );
   let renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'Second repeat repeat repeat' });
   await renderedBlock.waitFor({ state: 'visible' });
   await selectRenderedOccurrence(renderedBlock, 'repeat', 0);
@@ -1184,6 +1208,24 @@ const runDeliveryHardeningFlow = async (
   await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-png');
   await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-pdf');
   await assertNoActiveDeliveryResources(page, baseline, 'comment-close dynamic markup failure');
+
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html>',
+    '<html><body>',
+    '<!-----><script>window.__ossOverlappingCommentRan=1</script>',
+    '<main id="oss-overlapping-comment-marker">Overlapping comment close boundary</main>',
+    '</body></html>',
+  ].join(''));
+  const overlappingCommentFrame = await waitForFrameWithSelector(page, '#oss-overlapping-comment-marker');
+  await overlappingCommentFrame.waitForFunction(() => window.__ossOverlappingCommentRan === 1);
+  assert.equal(
+    await overlappingCommentFrame.evaluate(() => window.__ossOverlappingCommentRan),
+    1,
+    'Chromium did not execute the script after the overlapping ---> comment close fixture.',
+  );
+  await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-png');
+  await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-pdf');
+  await assertNoActiveDeliveryResources(page, baseline, 'overlapping comment-close dynamic markup failure');
 
   await replaceSourceAndOpenFinal(page, [
     '<!doctype html>',
@@ -1921,6 +1963,7 @@ const main = async () => {
     const modifyBody = JSON.stringify(aiMock.requests[1].body);
     assert.doesNotMatch(modifyBody, /data:image|A{64}/u, 'Modify must omit embedded local image data from the AI request.');
     assert.doesNotMatch(modifyBody, /QkFTRTY0TEVBS1RBSUw=/u, 'Modify leaked the folded data URL payload tail to the AI provider.');
+    assert.doesNotMatch(modifyBody, /CAQAAAC1HAwCAAAAC0lEQVR42mNk\+A8AAQUBAScY42YAAAAASUVORK5CYII=/u, 'Modify leaked the percent-encoded data URL payload tail to the AI provider.');
     assert.ok(modifyBody.length < 70_000, `Modify request exceeded the bounded browser context: ${modifyBody.length} bytes.`);
     const summarizeBody = JSON.stringify(aiMock.requests[2].body);
     assert.doesNotMatch(summarizeBody, /Modified selection from OSS AI/u, 'Summarize must not send the complete Source.');

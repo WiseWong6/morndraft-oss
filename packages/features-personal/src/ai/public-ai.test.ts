@@ -308,14 +308,25 @@ test('adapter omits local image data and rejects oversized prompts before fetch'
   assert.equal(seen.length, 1, 'oversized prompts must fail before fetch');
 });
 
-test('shared redactor removes folded data URLs from the actual fetch body', async () => {
+test('shared redactor removes folded and percent-encoded data URLs from the actual fetch body', async () => {
   const foldedTail = 'Rk9MREVEX1BBWUxPQURfVEFJTA==';
   const foldedImage = `data:image/png;base64,QUJDREVGR0hJ\r\n\t${foldedTail}`;
+  const encodedTail = 'VEFJTF9TRU5USU5FTA==';
+  const encodedImage = `data:image/png;base64,QUJD%0A${encodedTail}`;
   assert.deepEqual(collectPublicAiLocalImageDataUrlSpans(`x ${foldedImage}) y`), [{
     start: 2,
     end: 2 + foldedImage.length,
   }]);
   assert.equal(omitPublicAiLocalImageDataUrls(`x ${foldedImage}) y`), 'x [local image data omitted]) y');
+  assert.deepEqual(collectPublicAiLocalImageDataUrlSpans(`x ${encodedImage}) y`), [{
+    start: 2,
+    end: 2 + encodedImage.length,
+  }]);
+  assert.equal(omitPublicAiLocalImageDataUrls(`x ${encodedImage}) y`), 'x [local image data omitted]) y');
+  assert.deepEqual(collectPublicAiLocalImageDataUrlSpans('x data:image/png;base64,QUJD%ZZTAIL'), [{
+    start: 2,
+    end: 2 + 'data:image/png;base64,QUJD'.length,
+  }]);
 
   let requestBody = '';
   const adapter = createPublicAiAdapter({
@@ -327,11 +338,14 @@ test('shared redactor removes folded data URLs from the actual fetch body', asyn
   });
   await adapter.request({
     action: 'modify',
-    selectedText: `selection ${foldedImage})`,
-    source: `before ${foldedImage}) after`,
+    selectedText: `selection ${foldedImage}) ${encodedImage})`,
+    source: `before ${foldedImage}) ${encodedImage}) after`,
   });
 
-  assert.doesNotMatch(requestBody, /data:image|QUJDREVGR0hJ|Rk9MREVEX1BBWUxPQURfVEFJTA/u);
+  assert.doesNotMatch(
+    requestBody,
+    /data:image|QUJDREVGR0hJ|Rk9MREVEX1BBWUxPQURfVEFJTA|%0A|VEFJTF9TRU5USU5FTA/u,
+  );
   assert.match(requestBody, /local image data omitted/u);
 });
 

@@ -58,16 +58,105 @@ const findTagEnd = (html: string, start: number) => {
   return html.length;
 };
 
+type HtmlCommentState =
+  | 'comment'
+  | 'end'
+  | 'end-bang'
+  | 'end-dash'
+  | 'less-than'
+  | 'less-than-bang'
+  | 'less-than-bang-dash'
+  | 'less-than-bang-dash-dash'
+  | 'start'
+  | 'start-dash';
+
 const findHtmlCommentEnd = (html: string, start: number) => {
   let index = start;
-  if (html[index] === '>') return index + 1;
-  if (html[index] === '-' && html[index + 1] === '>') return index + 2;
+  let state: HtmlCommentState = 'start';
   while (index < html.length) {
-    const delimiter = html.indexOf('--', index);
-    if (delimiter === -1) return -1;
-    if (html[delimiter + 2] === '>') return delimiter + 3;
-    if (html[delimiter + 2] === '!' && html[delimiter + 3] === '>') return delimiter + 4;
-    index = delimiter + 2;
+    const character = html[index];
+    if (state === 'start') {
+      if (character === '>') return index + 1;
+      state = character === '-' ? 'start-dash' : 'comment';
+      index += 1;
+      continue;
+    }
+    if (state === 'start-dash') {
+      if (character === '>') return index + 1;
+      state = character === '-' ? 'end' : 'comment';
+      index += 1;
+      continue;
+    }
+    if (state === 'comment') {
+      state = character === '<'
+        ? 'less-than'
+        : character === '-'
+          ? 'end-dash'
+          : 'comment';
+      index += 1;
+      continue;
+    }
+    if (state === 'less-than') {
+      if (character === '!') {
+        state = 'less-than-bang';
+        index += 1;
+      } else if (character === '<') {
+        index += 1;
+      } else {
+        state = 'comment';
+      }
+      continue;
+    }
+    if (state === 'less-than-bang') {
+      if (character === '-') {
+        state = 'less-than-bang-dash';
+        index += 1;
+      } else {
+        state = 'comment';
+      }
+      continue;
+    }
+    if (state === 'less-than-bang-dash') {
+      if (character === '-') {
+        state = 'less-than-bang-dash-dash';
+        index += 1;
+      } else {
+        state = 'end-dash';
+      }
+      continue;
+    }
+    if (state === 'less-than-bang-dash-dash') {
+      state = 'end';
+      continue;
+    }
+    if (state === 'end-dash') {
+      if (character === '-') {
+        state = 'end';
+        index += 1;
+      } else {
+        state = 'comment';
+      }
+      continue;
+    }
+    if (state === 'end') {
+      if (character === '>') return index + 1;
+      if (character === '-') {
+        index += 1;
+      } else if (character === '!') {
+        state = 'end-bang';
+        index += 1;
+      } else {
+        state = 'comment';
+      }
+      continue;
+    }
+    if (character === '>') return index + 1;
+    if (character === '-') {
+      state = 'end-dash';
+      index += 1;
+    } else {
+      state = 'comment';
+    }
   }
   return -1;
 };

@@ -44,6 +44,22 @@ test('bounded context removes folded local image payloads as one span', () => {
   assert.match(request.source ?? '', /local image data omitted/u);
 });
 
+test('bounded context removes percent-encoded local image payloads as one span', () => {
+  const encodedTail = 'VEFJTF9TRU5USU5FTA==';
+  const image = `data:image/png;base64,QUJD%0A${encodedTail}`;
+  const source = `before\n![local](${image})\nTARGET\nafter`;
+  const start = source.indexOf('TARGET');
+  const request = buildPublicAiBoundedRequest({
+    action: 'modify',
+    selectedText: 'TARGET',
+    source,
+    range: { start, end: start + 'TARGET'.length },
+  });
+
+  assert.doesNotMatch(request.source ?? '', /data:image|QUJD|%0A|VEFJTF9TRU5USU5FTA/u);
+  assert.match(request.source ?? '', /local image data omitted/u);
+});
+
 test('summarize sends only the selected text', () => {
   assert.deepEqual(buildPublicAiBoundedRequest({
     action: 'summarize',

@@ -385,6 +385,13 @@ test('image capture fails closed for dynamic HTML that cannot match the sandboxe
   assert.equal(hasPublicDynamicCaptureMarkup('<!-- note --!><script>window.__ran=1</script>'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<!--><script>window.__ran=1</script>'), true);
   assert.equal(hasPublicDynamicCaptureMarkup('<!---><script>window.__ran=1</script>'), true);
+  assert.equal(hasPublicDynamicCaptureMarkup('<!-----><script>window.__ran=1</script>'), true);
+  assert.equal(hasPublicDynamicCaptureMarkup('<!------><script>window.__ran=1</script>'), true);
+  assert.equal(hasPublicDynamicCaptureMarkup('<!-----!><script>window.__ran=1</script>'), true);
+  assert.equal(hasPublicDynamicCaptureMarkup('<!--<!--><script>window.__ran=1</script>'), true);
+  assert.equal(hasPublicDynamicCaptureMarkup('<!--<!---><script>window.__ran=1</script>'), true);
+  assert.equal(hasPublicDynamicCaptureMarkup('<!-- --- <script>ignored()</script> -->'), false);
+  assert.equal(hasPublicDynamicCaptureMarkup('<!-- nested <! example <script>ignored()</script> -->'), false);
   assert.equal(hasPublicDynamicCaptureMarkup('<style>/* <script>ignored()</script> */</style><main>Static</main>'), false);
   assert.equal(hasPublicDynamicCaptureMarkup('<style>.note::before{content:"</stylex><script>ignored()</script>"}</style><main>Static</main>'), false);
   assert.equal(hasPublicDynamicCaptureMarkup('<style>.note{color:red}</style><script>window.__ran=1</script>'), true);

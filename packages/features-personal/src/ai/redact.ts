@@ -26,11 +26,25 @@ const isBase64CodeUnit = (code: number) => (
   || code === 0x3d
 );
 
+const isAsciiHexDigit = (code: number) => (
+  (code >= 0x30 && code <= 0x39)
+  || (code >= 0x41 && code <= 0x46)
+  || (code >= 0x61 && code <= 0x66)
+);
+
+const isPercentEncodedByteAt = (value: string, index: number) => (
+  value.charCodeAt(index) === 0x25
+  && index + 2 < value.length
+  && isAsciiHexDigit(value.charCodeAt(index + 1))
+  && isAsciiHexDigit(value.charCodeAt(index + 2))
+);
+
 /**
  * Locate browser-local bitmap data URLs using a deterministic linear scan.
- * HTML whitespace is accepted inside base64 because imported Markdown may
- * preserve folded URLs. Privacy takes precedence over retaining ambiguous
- * base64-looking prose after such a URL.
+ * HTML whitespace and percent-encoded bytes are accepted inside base64 because
+ * the Fetch data URL processor percent-decodes the body before forgiving-base64
+ * decode, and imported Markdown may preserve folded URLs. Privacy takes
+ * precedence over retaining ambiguous base64-looking prose after such a URL.
  */
 export const collectPublicAiLocalImageDataUrlSpans = (value: string): PublicAiRedactedSpan[] => {
   const lowerValue = value.toLowerCase();
@@ -55,6 +69,11 @@ export const collectPublicAiLocalImageDataUrlSpans = (value: string): PublicAiRe
       }
       if (isAsciiWhitespace(code)) {
         cursor += 1;
+        continue;
+      }
+      if (isPercentEncodedByteAt(value, cursor)) {
+        hasPayload = true;
+        cursor += 3;
         continue;
       }
       break;
