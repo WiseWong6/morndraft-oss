@@ -1,29 +1,52 @@
+// Generated from packages/core/src/capabilities.js by scripts/generate-oss-capabilities.mjs.
+// Do not edit this public projection by hand.
 export const MORNDRAFT_PROFILES = Object.freeze({
-  OSS: 'oss',
+  "OSS": "oss"
 });
 
 export const MORNDRAFT_CAPABILITIES = Object.freeze({
-  HTML_PREVIEW: 'htmlPreview',
+  "HTML_PREVIEW": "htmlPreview",
+  "PREVIEW_TEXT_EDIT": "previewTextEdit"
 });
 
-const OSS_PROFILE_SCOPE = Object.freeze([MORNDRAFT_PROFILES.OSS]);
-
-export const CAPABILITY_DEFINITIONS = Object.freeze({
-  [MORNDRAFT_CAPABILITIES.HTML_PREVIEW]: Object.freeze({
-    id: MORNDRAFT_CAPABILITIES.HTML_PREVIEW,
-    label: 'HTML Preview',
-    moduleKey: 'htmlPreview',
-    packageName: '@morndraft/core',
-    profileScope: OSS_PROFILE_SCOPE,
-    buildMode: 'static',
-    securityBoundary: 'public-client',
-  }),
-});
+export const CAPABILITY_DEFINITIONS = Object.freeze(Object.fromEntries([
+  [
+    "htmlPreview",
+    {
+      "id": "htmlPreview",
+      "label": "HTML Preview",
+      "moduleKey": "htmlPreview",
+      "packageName": "@morndraft/core",
+      "profileScope": [
+        "oss"
+      ],
+      "buildMode": "static",
+      "securityBoundary": "public-client"
+    }
+  ],
+  [
+    "previewTextEdit",
+    {
+      "id": "previewTextEdit",
+      "label": "Preview Text Edit",
+      "moduleKey": "previewTextEdit",
+      "packageName": "@morndraft/core",
+      "profileScope": [
+        "oss"
+      ],
+      "buildMode": "static",
+      "securityBoundary": "public-client"
+    }
+  ]
+].map(
+  ([capabilityId, definition]) => [capabilityId, Object.freeze(definition)],
+)));
 
 export const PROFILE_CAPABILITIES = Object.freeze({
   [MORNDRAFT_PROFILES.OSS]: Object.freeze([
-    MORNDRAFT_CAPABILITIES.HTML_PREVIEW,
-  ]),
+  "htmlPreview",
+  "previewTextEdit"
+]),
 });
 
 export const isKnownCapabilityId = (capabilityId) =>

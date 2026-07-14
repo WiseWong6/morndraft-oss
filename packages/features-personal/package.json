@@ -1,0 +1,11 @@
+{
+  "name": "@morndraft/features-personal",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "react": "^19.2.3"
+  },
+  "exports": {
+    "./ai": "./src/ai/index.ts"
+  }
+}

@@ -4,10 +4,13 @@
   "appEntry": "apps/web-oss",
   "allowedPackages": [
     "@morndraft/core",
+    "@morndraft/features-personal",
+    "@morndraft/public-delivery",
     "@morndraft/web-shell"
   ],
   "capabilities": [
-    "htmlPreview"
+    "htmlPreview",
+    "previewTextEdit"
   ],
   "securityBoundary": "public-client",
   "status": "active"
