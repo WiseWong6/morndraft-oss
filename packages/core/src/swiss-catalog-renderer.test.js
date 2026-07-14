@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 import test from 'node:test';
+import { parse, serialize } from 'parse5';
 
 import { MORNDRAFT_FLAT_ADAPTER_FIXTURES } from '../fixtures/morndraft-flat-adapter-fixtures.js';
 import {
@@ -7,6 +9,7 @@ import {
   adaptMornDraftFlatComponentSource,
 } from './morndraft-flat-adapter.js';
 import {
+  injectMornDraftSwissCatalogSharedStyles,
   MORNDRAFT_FLAT_EDIT_PATH_ATTR,
   renderSwissCatalogDocumentSpecToHtml,
   resolveSwissCatalogPreviewHeight,
@@ -85,6 +88,247 @@ test('renderSwissCatalogDocumentSpecToHtml uses Swiss catalog shell and CSS', ()
   assert.doesNotMatch(html, /morndraft-docspec-page/);
   assert.doesNotMatch(html, /fonts\.googleapis\.com/);
   assert.doesNotMatch(html, /<\/style>\s*<\/style>/);
+});
+
+const getParsedTreeNodes = (document) => {
+  const stack = [document];
+  const nodes = [];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+    nodes.push(node);
+    if (node?.content) stack.push(node.content);
+    if (Array.isArray(node?.childNodes)) stack.push(...node.childNodes);
+  }
+  return nodes;
+};
+
+const isSharedStyleNode = (node) => (
+  node?.tagName === 'style' &&
+  node.attrs?.some(attribute => attribute.name === 'data-morndraft-swiss-catalog-shared')
+);
+
+const countSharedStyleElements = (html) => getParsedTreeNodes(
+  parse(html, { scriptingEnabled: true }),
+).filter(isSharedStyleNode).length;
+
+const removeSharedStyleElements = (node) => {
+  if (Array.isArray(node?.childNodes)) {
+    node.childNodes = node.childNodes.filter(child => !isSharedStyleNode(child));
+    for (const child of node.childNodes) removeSharedStyleElements(child);
+  }
+  if (node?.content) removeSharedStyleElements(node.content);
+};
+
+const assertOnlySharedStyleWasAdded = (source, injected, label) => {
+  const sourceDocument = parse(source, { scriptingEnabled: true });
+  const injectedDocument = parse(injected, { scriptingEnabled: true });
+  assert.equal(injectedDocument.mode, sourceDocument.mode, `${label}: compatMode changed`);
+  assert.equal(
+    getParsedTreeNodes(injectedDocument).filter(isSharedStyleNode).length,
+    1,
+    `${label}: shared style is not a single parsed element`,
+  );
+  removeSharedStyleElements(injectedDocument);
+  assert.equal(
+    serialize(injectedDocument),
+    serialize(sourceDocument),
+    `${label}: author DOM changed beyond the shared style`,
+  );
+};
+
+const getElementAttributes = (html, tagName) => {
+  const node = getParsedTreeNodes(parse(html, { scriptingEnabled: true }))
+    .find(candidate => candidate.tagName === tagName);
+  return Object.fromEntries((node?.attrs ?? []).map(attribute => [attribute.name, attribute.value]));
+};
+
+test('injectMornDraftSwissCatalogSharedStyles preserves document mode and explicit root attributes', () => {
+  const marker = '<!-- morndraft:structure {} -->';
+  const modes = [
+    [
+      'no-quirks',
+      `\n${marker}\n<!DOCTYPE html><html lang="zh-CN" data-shell="final">&Tab;<!-- before head --></ignored><head id="author-head" data-label="> value"><meta charset="utf-8"></head><body></body></html>`,
+    ],
+    [
+      'limited-quirks',
+      `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">${marker}<html data-mode="limited"><head data-owner="author"></head><body></body></html>`,
+    ],
+    [
+      'quirks',
+      `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">${marker}<html data-mode="quirks"><head data-owner="author"></head><body></body></html>`,
+    ],
+    [
+      'quirks',
+      `<!DOCTYPE html PUBLIC "test > id">${marker}<html data-mode="abrupt-doctype"><head data-owner="ignored-after-body-text"></head><body></body></html>`,
+    ],
+    [
+      'quirks',
+      `${marker}<html data-mode="missing-doctype"><head data-owner="author"></head><body></body></html>`,
+    ],
+  ];
+
+  for (const [expectedMode, source] of modes) {
+    const injected = injectMornDraftSwissCatalogSharedStyles(source);
+    assert.equal(parse(source, { scriptingEnabled: true }).mode, expectedMode);
+    assertOnlySharedStyleWasAdded(source, injected, expectedMode);
+    assert.deepEqual(getElementAttributes(injected, 'html'), getElementAttributes(source, 'html'));
+    assert.deepEqual(getElementAttributes(injected, 'head'), getElementAttributes(source, 'head'));
+  }
+});
+
+test('injectMornDraftSwissCatalogSharedStyles follows malformed attribute tokenizer boundaries', () => {
+  const marker = '<!-- morndraft:structure {} -->';
+  const malformedEquals = `${marker}<html><head ="foo>bar"><meta charset="utf-8"></head><body></body></html>`;
+  const parsed = parse(malformedEquals, {
+    scriptingEnabled: true,
+    sourceCodeLocationInfo: true,
+  });
+  const parsedHead = getParsedTreeNodes(parsed).find(node => node.tagName === 'head');
+  const browserTagEnd = parsedHead?.sourceCodeLocation?.startTag?.endOffset;
+  assert.equal(malformedEquals.slice(browserTagEnd - 1, browserTagEnd), '>');
+  assert.equal(malformedEquals.slice(browserTagEnd, browserTagEnd + 4), 'bar"');
+
+  const equalsInjected = injectMornDraftSwissCatalogSharedStyles(malformedEquals);
+  assert.equal(
+    equalsInjected.indexOf('<style data-morndraft-swiss-catalog-shared>'),
+    browserTagEnd,
+  );
+  assertOnlySharedStyleWasAdded(
+    malformedEquals,
+    equalsInjected,
+    'unexpected equals before attribute name',
+  );
+
+  for (const [index, head] of [
+    '<head "foo>bar">',
+    '<head / x="> value">',
+    '<head data-label="> value">',
+    "<head data-label='> value'>",
+    '<head data-label=>',
+    '<head data-label=="> value">',
+  ].entries()) {
+    const source = `${marker}<html>${head}<meta charset="utf-8"></head><body></body></html>`;
+    const injected = injectMornDraftSwissCatalogSharedStyles(source);
+    assertOnlySharedStyleWasAdded(source, injected, `malformed attribute ${index}`);
+  }
+});
+
+test('injectMornDraftSwissCatalogSharedStyles creates the implicit head at its browser boundary', () => {
+  const marker = '<!-- morndraft:structure {} -->';
+  const sources = [
+    `${marker}<html lang="zh"><!-- before implicit head --><header>summary</header><body></body></html>`,
+    `${marker}<script>window.fixture = "<head id=script-decoy>";</script><main>body</main>`,
+    `${marker}<style>.x::before { content: "<head id=style-decoy>"; }</style><main>body</main>`,
+    `${marker}<textarea><head id="textarea-decoy"></textarea><main>body</main>`,
+    `${marker}<template><head id="template-decoy"></head></template><main>body</main>`,
+    `${marker}<svg><head id="svg-decoy"></head></svg><main>body</main>`,
+    `${marker}<math><head id="math-decoy"></head></math><main>body</main>`,
+    `${marker}<div data-value="<head id=attribute-decoy>"></div><main>body</main>`,
+  ];
+
+  for (const [index, source] of sources.entries()) {
+    const injected = injectMornDraftSwissCatalogSharedStyles(source);
+    assertOnlySharedStyleWasAdded(source, injected, `implicit head ${index}`);
+  }
+
+  const fragment = '<section data-morndraft-source="morndraft-flat"><div class="swiss-card">fragment</div></section>';
+  const injectedFragment = injectMornDraftSwissCatalogSharedStyles(fragment);
+  const wrappedSource = `<!doctype html><html><head></head><body><main>${fragment}</main></body></html>`;
+  const wrappedInjected = `<!doctype html><html><head></head><body><main>${injectedFragment}</main></body></html>`;
+  assertOnlySharedStyleWasAdded(wrappedSource, wrappedInjected, 'fragment inside author body');
+});
+
+test('injectMornDraftSwissCatalogSharedStyles never parses author contexts for an insertion point', () => {
+  const marker = '<!-- morndraft:structure {} -->';
+  const commentDecoys = `${marker}<!-- <head id="comment-decoy"> --!><!-----><?bogus <head id="bogus-decoy"><html><head id="source-head" data-owner="author"></head><body></body></html>`;
+  const commentInjected = injectMornDraftSwissCatalogSharedStyles(commentDecoys);
+  assert.match(
+    commentInjected,
+    /<head id="source-head" data-owner="author"><style data-morndraft-swiss-catalog-shared>/,
+  );
+  assertOnlySharedStyleWasAdded(commentDecoys, commentInjected, 'comment decoys');
+
+  const doubleEscapedScript = [
+    marker,
+    '<html><script><!--<script></script><head id="script-decoy">--></script>',
+    '<head id="source-head"></head><body></body></html>',
+  ].join('');
+  const doubleEscapedInjected = injectMornDraftSwissCatalogSharedStyles(doubleEscapedScript);
+  assert.ok(
+    doubleEscapedInjected.indexOf('<style data-morndraft-swiss-catalog-shared>') <
+      doubleEscapedInjected.indexOf('<script>'),
+  );
+  assertOnlySharedStyleWasAdded(
+    doubleEscapedScript,
+    doubleEscapedInjected,
+    'script double-escaped state',
+  );
+});
+
+test('injectMornDraftSwissCatalogSharedStyles leaves EOF-swallowed front tokens unchanged', () => {
+  const marker = '<!-- morndraft:structure {} -->';
+  const swallowed = [
+    `${marker}<!-- unclosed <head id="comment-decoy">`,
+    `${marker}<?unclosed <head id="pi-decoy"`,
+    `${marker}<!doctype html public "unclosed`,
+    `${marker}<html data-label="unclosed > <head id=attribute-decoy>`,
+    `${marker}</ignored`,
+    `${marker}</\nignored <head id=bogus-end-tag-decoy`,
+  ];
+  for (const [index, source] of swallowed.entries()) {
+    const injected = injectMornDraftSwissCatalogSharedStyles(source);
+    assert.equal(injected, source, `swallowed front token ${index}`);
+    assert.equal(countSharedStyleElements(injected), 0, `swallowed front token ${index}`);
+    assert.equal(
+      serialize(parse(injected, { scriptingEnabled: true })),
+      serialize(parse(source, { scriptingEnabled: true })),
+      `swallowed front token ${index}`,
+    );
+  }
+
+  const ordinaryText = `${marker}< not-a-tag <head id="text-decoy">`;
+  const injectedText = injectMornDraftSwissCatalogSharedStyles(ordinaryText);
+  assertOnlySharedStyleWasAdded(ordinaryText, injectedText, 'ordinary less-than text');
+});
+
+test('injectMornDraftSwissCatalogSharedStyles handles 2 MiB front matter in linear time', () => {
+  const marker = '<!-- morndraft:structure {} -->';
+  const adversarialInputs = [
+    [
+      'whitespace before explicit head',
+      `${marker}${' '.repeat(2 * 1024 * 1024)}<html><head data-owner="author"></head></html>`,
+    ],
+    [
+      'comment head decoys',
+      `${marker}<!--${'<head id=decoy>'.repeat(Math.floor((2 * 1024 * 1024) / 16))}--><html><head></head></html>`,
+    ],
+    [
+      'single ignored closing tag',
+      `${marker}</${'x'.repeat(2 * 1024 * 1024)}><html><head></head></html>`,
+    ],
+  ];
+
+  for (const [label, adversarial] of adversarialInputs) {
+    const adversarialStartedAt = performance.now();
+    const adversarialInjected = injectMornDraftSwissCatalogSharedStyles(adversarial);
+    const adversarialElapsedMs = performance.now() - adversarialStartedAt;
+    assert.equal(countSharedStyleElements(adversarialInjected), 1, label);
+    assert.ok(
+      adversarialElapsedMs < 1500,
+      `2 MiB ${label} scan took ${adversarialElapsedMs.toFixed(1)} ms`,
+    );
+  }
+
+  const unterminatedComment = `${marker}<!--${'x'.repeat(2 * 1024 * 1024)}`;
+  const unterminatedStartedAt = performance.now();
+  const unterminatedInjected = injectMornDraftSwissCatalogSharedStyles(unterminatedComment);
+  const unterminatedElapsedMs = performance.now() - unterminatedStartedAt;
+  assert.equal(unterminatedInjected, unterminatedComment);
+  assert.ok(
+    unterminatedElapsedMs < 1500,
+    `2 MiB unterminated comment scan took ${unterminatedElapsedMs.toFixed(1)} ms`,
+  );
 });
 
 test('renderSwissCatalogDocumentSpecToHtml renders every v2 public matrix fixture', () => {

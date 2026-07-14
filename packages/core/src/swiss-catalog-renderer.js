@@ -1454,20 +1454,311 @@ const renderSwissCatalogStyles = (spec, options = {}) => {
   ].join('\n');
 };
 
+const isHtmlSpaceCode = (code) => (
+  code === 0x0009 ||
+  code === 0x000a ||
+  code === 0x000c ||
+  code === 0x000d ||
+  code === 0x0020
+);
+
+const matchesAsciiCaseInsensitiveAt = (value, offset, expectedLowercase) => {
+  if (offset < 0 || offset + expectedLowercase.length > value.length) return false;
+  for (let index = 0; index < expectedLowercase.length; index += 1) {
+    let actualCode = value.charCodeAt(offset + index);
+    if (actualCode >= 0x41 && actualCode <= 0x5a) actualCode += 0x20;
+    if (actualCode !== expectedLowercase.charCodeAt(index)) return false;
+  }
+  return true;
+};
+
+const isAsciiAlphaCode = (code) => (
+  (code >= 0x41 && code <= 0x5a) ||
+  (code >= 0x61 && code <= 0x7a)
+);
+
+const getHtmlTagName = (html, start, end) => {
+  const length = end - start;
+  if (length === 2 && matchesAsciiCaseInsensitiveAt(html, start, 'br')) return 'br';
+  if (length === 4 && matchesAsciiCaseInsensitiveAt(html, start, 'body')) return 'body';
+  if (length === 4 && matchesAsciiCaseInsensitiveAt(html, start, 'head')) return 'head';
+  if (length === 4 && matchesAsciiCaseInsensitiveAt(html, start, 'html')) return 'html';
+  return 'other';
+};
+
+const readHtmlTagToken = (html, start) => {
+  if (html.charCodeAt(start) !== 0x3c) return null;
+  let cursor = start + 1;
+  const closing = html.charCodeAt(cursor) === 0x2f;
+  if (closing) cursor += 1;
+  if (!isAsciiAlphaCode(html.charCodeAt(cursor))) return null;
+
+  const nameStart = cursor;
+  while (cursor < html.length) {
+    const code = html.charCodeAt(cursor);
+    if (isHtmlSpaceCode(code) || code === 0x2f || code === 0x3e) break;
+    cursor += 1;
+  }
+  const name = getHtmlTagName(html, nameStart, cursor);
+  let state = 'before-attribute-name';
+
+  while (cursor < html.length) {
+    const code = html.charCodeAt(cursor);
+    if (state === 'before-attribute-name') {
+      if (isHtmlSpaceCode(code)) {
+        cursor += 1;
+      } else if (code === 0x2f) {
+        state = 'self-closing-start-tag';
+        cursor += 1;
+      } else if (code === 0x3e) {
+        return { closing, end: cursor + 1, name };
+      } else {
+        state = 'attribute-name';
+        cursor += 1;
+      }
+      continue;
+    }
+    if (state === 'attribute-name') {
+      if (isHtmlSpaceCode(code)) {
+        state = 'after-attribute-name';
+        cursor += 1;
+      } else if (code === 0x2f) {
+        state = 'self-closing-start-tag';
+        cursor += 1;
+      } else if (code === 0x3d) {
+        state = 'before-attribute-value';
+        cursor += 1;
+      } else if (code === 0x3e) {
+        return { closing, end: cursor + 1, name };
+      } else {
+        cursor += 1;
+      }
+      continue;
+    }
+    if (state === 'after-attribute-name') {
+      if (isHtmlSpaceCode(code)) {
+        cursor += 1;
+      } else if (code === 0x2f) {
+        state = 'self-closing-start-tag';
+        cursor += 1;
+      } else if (code === 0x3d) {
+        state = 'before-attribute-value';
+        cursor += 1;
+      } else if (code === 0x3e) {
+        return { closing, end: cursor + 1, name };
+      } else {
+        state = 'attribute-name';
+      }
+      continue;
+    }
+    if (state === 'before-attribute-value') {
+      if (isHtmlSpaceCode(code)) {
+        cursor += 1;
+      } else if (code === 0x22) {
+        state = 'double-quoted-attribute-value';
+        cursor += 1;
+      } else if (code === 0x27) {
+        state = 'single-quoted-attribute-value';
+        cursor += 1;
+      } else if (code === 0x3e) {
+        return { closing, end: cursor + 1, name };
+      } else {
+        state = 'unquoted-attribute-value';
+        cursor += 1;
+      }
+      continue;
+    }
+    if (state === 'double-quoted-attribute-value') {
+      if (code === 0x22) state = 'after-attribute-value';
+      cursor += 1;
+      continue;
+    }
+    if (state === 'single-quoted-attribute-value') {
+      if (code === 0x27) state = 'after-attribute-value';
+      cursor += 1;
+      continue;
+    }
+    if (state === 'after-attribute-value') {
+      if (isHtmlSpaceCode(code)) {
+        state = 'before-attribute-name';
+        cursor += 1;
+      } else if (code === 0x2f) {
+        state = 'self-closing-start-tag';
+        cursor += 1;
+      } else if (code === 0x3e) {
+        return { closing, end: cursor + 1, name };
+      } else {
+        state = 'before-attribute-name';
+      }
+      continue;
+    }
+    if (state === 'unquoted-attribute-value') {
+      if (isHtmlSpaceCode(code)) {
+        state = 'before-attribute-name';
+        cursor += 1;
+      } else if (code === 0x3e) {
+        return { closing, end: cursor + 1, name };
+      } else {
+        cursor += 1;
+      }
+      continue;
+    }
+    if (code === 0x3e) return { closing, end: cursor + 1, name };
+    state = 'before-attribute-name';
+  }
+
+  return { closing, end: -1, name };
+};
+
+const findHtmlCommentEnd = (html, start) => {
+  const contentStart = start + 4;
+  if (html.charCodeAt(contentStart) === 0x3e) return contentStart + 1;
+  if (
+    html.charCodeAt(contentStart) === 0x2d &&
+    html.charCodeAt(contentStart + 1) === 0x3e
+  ) return contentStart + 2;
+
+  for (let cursor = contentStart; cursor + 2 < html.length; cursor += 1) {
+    if (html.charCodeAt(cursor) !== 0x2d || html.charCodeAt(cursor + 1) !== 0x2d) {
+      continue;
+    }
+    if (html.charCodeAt(cursor + 2) === 0x3e) return cursor + 3;
+    if (
+      html.charCodeAt(cursor + 2) === 0x21 &&
+      html.charCodeAt(cursor + 3) === 0x3e
+    ) return cursor + 4;
+  }
+  return -1;
+};
+
+const findBogusCommentOrDoctypeEnd = (html, start) => {
+  const end = html.indexOf('>', start);
+  return end < 0 ? -1 : end + 1;
+};
+
+const readWhitespaceCharacterReferenceEnd = (html, start) => {
+  if (html.charCodeAt(start) !== 0x26) return -1;
+  if (html.startsWith('&Tab;', start)) return start + 5;
+  if (html.startsWith('&NewLine;', start)) return start + 9;
+  if (html.charCodeAt(start + 1) !== 0x23) return -1;
+
+  let cursor = start + 2;
+  let radix = 10;
+  if (html.charCodeAt(cursor) === 0x78 || html.charCodeAt(cursor) === 0x58) {
+    radix = 16;
+    cursor += 1;
+  }
+  const digitsStart = cursor;
+  let value = 0;
+  while (cursor < html.length) {
+    const code = html.charCodeAt(cursor);
+    let digit = -1;
+    if (code >= 0x30 && code <= 0x39) digit = code - 0x30;
+    else if (radix === 16 && code >= 0x41 && code <= 0x46) digit = code - 0x41 + 10;
+    else if (radix === 16 && code >= 0x61 && code <= 0x66) digit = code - 0x61 + 10;
+    if (digit < 0) break;
+    value = value <= 0x20 ? value * radix + digit : 0x21;
+    cursor += 1;
+  }
+  if (cursor === digitsStart) return -1;
+  if (html.charCodeAt(cursor) === 0x3b) cursor += 1;
+  return isHtmlSpaceCode(value) ? cursor : -1;
+};
+
+const scanLeadingHtmlWhitespace = (html, start) => {
+  let cursor = start;
+  while (cursor < html.length) {
+    if (isHtmlSpaceCode(html.charCodeAt(cursor))) {
+      cursor += 1;
+      continue;
+    }
+    const referenceEnd = readWhitespaceCharacterReferenceEnd(html, cursor);
+    if (referenceEnd < 0) break;
+    cursor = referenceEnd;
+  }
+  return cursor;
+};
+
+const findHtmlHeadInsertionOffset = (html) => {
+  let cursor = 0;
+  while (cursor < html.length) {
+    cursor = scanLeadingHtmlWhitespace(html, cursor);
+    if (cursor >= html.length) break;
+    const tokenStart = cursor;
+
+    if (html.startsWith('<!--', cursor)) {
+      const commentEnd = findHtmlCommentEnd(html, cursor);
+      if (commentEnd < 0) return null;
+      cursor = commentEnd;
+      continue;
+    }
+    if (
+      html.charCodeAt(cursor) === 0x3c &&
+      html.charCodeAt(cursor + 1) === 0x21
+    ) {
+      const declarationEnd = findBogusCommentOrDoctypeEnd(html, cursor + 2);
+      if (declarationEnd < 0) return null;
+      cursor = declarationEnd;
+      continue;
+    }
+    if (
+      html.charCodeAt(cursor) === 0x3c &&
+      html.charCodeAt(cursor + 1) === 0x3f
+    ) {
+      const bogusCommentEnd = findBogusCommentOrDoctypeEnd(html, cursor + 2);
+      if (bogusCommentEnd < 0) return null;
+      cursor = bogusCommentEnd;
+      continue;
+    }
+    if (
+      html.charCodeAt(cursor) === 0x3c &&
+      html.charCodeAt(cursor + 1) === 0x2f &&
+      !isAsciiAlphaCode(html.charCodeAt(cursor + 2))
+    ) {
+      if (html.charCodeAt(cursor + 2) === 0x3e) {
+        cursor += 3;
+        continue;
+      }
+      if (cursor + 2 >= html.length) return null;
+      const bogusEndTagCommentEnd = findBogusCommentOrDoctypeEnd(html, cursor + 2);
+      if (bogusEndTagCommentEnd < 0) return null;
+      cursor = bogusEndTagCommentEnd;
+      continue;
+    }
+
+    const tag = readHtmlTagToken(html, cursor);
+    if (!tag) return tokenStart;
+    if (tag.end < 0) return null;
+    if (!tag.closing && tag.name === 'html') {
+      cursor = tag.end;
+      continue;
+    }
+    if (!tag.closing && tag.name === 'head') {
+      return tag.end;
+    }
+    if (
+      tag.closing &&
+      tag.name !== 'body' &&
+      tag.name !== 'br' &&
+      tag.name !== 'head' &&
+      tag.name !== 'html'
+    ) {
+      cursor = tag.end;
+      continue;
+    }
+    return tokenStart;
+  }
+  return cursor;
+};
+
+const insertMarkupAt = (html, offset, markup) => (
+  `${html.slice(0, offset)}${markup}${html.slice(offset)}`
+);
+
 const injectHeadMarkupIntoHtmlDocument = (html, headMarkup) => {
-  if (/<head[\s>]/i.test(html)) {
-    return html.replace(/(<head[^>]*>)/i, `$1${headMarkup}`);
-  }
-
-  if (/<html[\s>]/i.test(html)) {
-    return html.replace(/(<html[^>]*>)/i, `$1<head>${headMarkup}</head>`);
-  }
-
-  if (/^<!doctype\s+html[\s>]/i.test(html)) {
-    return html.replace(/^(<!doctype\s+html[^>]*>)/i, `$1<html><head>${headMarkup}</head>`);
-  }
-
-  return `${headMarkup}${html}`;
+  const insertionOffset = findHtmlHeadInsertionOffset(html);
+  if (insertionOffset === null) return html;
+  return insertMarkupAt(html, insertionOffset, headMarkup);
 };
 
 export const injectMornDraftSwissCatalogSharedStyles = (html) => {
