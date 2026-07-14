@@ -40,13 +40,41 @@ const waitForPreview = async (url, child) => {
 };
 
 const stopChild = async (child) => {
-  if (!child || child.exitCode !== null) return;
-  child.kill('SIGTERM');
-  await Promise.race([
-    new Promise(resolve => child.once('exit', resolve)),
-    new Promise(resolve => setTimeout(resolve, 2_000)),
-  ]);
-  if (child.exitCode === null) child.kill('SIGKILL');
+  if (!child) return;
+  const treeIsAlive = () => {
+    if (process.platform !== 'win32' && child.pid) {
+      try {
+        process.kill(-child.pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return child.exitCode === null && child.signalCode === null;
+  };
+  const waitForTreeExit = async (timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    while (treeIsAlive() && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return !treeIsAlive();
+  };
+  const killTree = signal => {
+    if (process.platform !== 'win32' && child.pid) {
+      try {
+        process.kill(-child.pid, signal);
+        return;
+      } catch {
+        // The process may not have reached its detached group yet.
+      }
+    }
+    child.kill(signal);
+  };
+  if (!treeIsAlive()) return;
+  killTree('SIGTERM');
+  if (await waitForTreeExit(3_000)) return;
+  killTree('SIGKILL');
+  await waitForTreeExit(3_000);
 };
 
 await rm(outputDir, { force: true, recursive: true });
@@ -56,6 +84,7 @@ const preview = spawn(npmCommand, [
   'run', 'preview', '--', '--host', '127.0.0.1', '--port', String(port), '--strictPort',
 ], {
   cwd: projectDir,
+  detached: process.platform !== 'win32',
   env: { ...process.env, MORNDRAFT_BUILD_PRESET: 'oss-full' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
