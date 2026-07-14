@@ -8,8 +8,87 @@ import {
 } from './swiss-catalog-renderer.js';
 
 const STRUCTURE_COMMENT_PREFIX = '<!-- morndraft:structure ';
-const STRUCTURE_COMMENT_RE = /<!--\s*morndraft:structure\s+([\s\S]*?)\s*-->/i;
+const STRUCTURE_COMMENT_MARKER = 'morndraft:structure';
 const DEFAULT_FENCED_LANGUAGE = 'html';
+
+const isJavaScriptWhitespaceCode = (code) => (
+  code === 0x0009 ||
+  code === 0x000a ||
+  code === 0x000b ||
+  code === 0x000c ||
+  code === 0x000d ||
+  code === 0x0020 ||
+  code === 0x00a0 ||
+  code === 0x1680 ||
+  (code >= 0x2000 && code <= 0x200a) ||
+  code === 0x2028 ||
+  code === 0x2029 ||
+  code === 0x202f ||
+  code === 0x205f ||
+  code === 0x3000 ||
+  code === 0xfeff
+);
+
+const matchesAsciiCaseInsensitiveAt = (value, offset, expectedLowercase) => {
+  if (offset < 0 || offset + expectedLowercase.length > value.length) return false;
+  for (let index = 0; index < expectedLowercase.length; index += 1) {
+    let actualCode = value.charCodeAt(offset + index);
+    if (actualCode >= 0x41 && actualCode <= 0x5a) actualCode += 0x20;
+    if (actualCode !== expectedLowercase.charCodeAt(index)) return false;
+  }
+  return true;
+};
+
+const readStructureCommentPayload = (html) => {
+  let cursor = 0;
+  while (cursor + 3 < html.length) {
+    if (
+      html.charCodeAt(cursor) !== 0x3c ||
+      html.charCodeAt(cursor + 1) !== 0x21 ||
+      html.charCodeAt(cursor + 2) !== 0x2d ||
+      html.charCodeAt(cursor + 3) !== 0x2d
+    ) {
+      cursor += 1;
+      continue;
+    }
+
+    let markerStart = cursor + 4;
+    while (isJavaScriptWhitespaceCode(html.charCodeAt(markerStart))) markerStart += 1;
+    if (!matchesAsciiCaseInsensitiveAt(html, markerStart, STRUCTURE_COMMENT_MARKER)) {
+      cursor += 4;
+      continue;
+    }
+
+    const markerEnd = markerStart + STRUCTURE_COMMENT_MARKER.length;
+    if (!isJavaScriptWhitespaceCode(html.charCodeAt(markerEnd))) {
+      cursor += 4;
+      continue;
+    }
+
+    let payloadStart = markerEnd + 1;
+    while (isJavaScriptWhitespaceCode(html.charCodeAt(payloadStart))) payloadStart += 1;
+    for (let payloadEnd = payloadStart; payloadEnd + 2 < html.length; payloadEnd += 1) {
+      if (
+        html.charCodeAt(payloadEnd) !== 0x2d ||
+        html.charCodeAt(payloadEnd + 1) !== 0x2d ||
+        html.charCodeAt(payloadEnd + 2) !== 0x3e
+      ) {
+        continue;
+      }
+      let trimmedEnd = payloadEnd;
+      while (
+        trimmedEnd > payloadStart &&
+        isJavaScriptWhitespaceCode(html.charCodeAt(trimmedEnd - 1))
+      ) {
+        trimmedEnd -= 1;
+      }
+      return html.slice(payloadStart, trimmedEnd);
+    }
+
+    return null;
+  }
+  return null;
+};
 
 const isRecord = (value) => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
@@ -109,12 +188,12 @@ export const readMornDraftHtmlSourceStructureMetadata = (html) => {
   if (typeof html !== 'string') {
     return { ok: false, reason: 'invalid-html-source', metadata: null };
   }
-  const match = html.match(STRUCTURE_COMMENT_RE);
-  if (!match?.[1]) {
+  const payload = readStructureCommentPayload(html);
+  if (!payload) {
     return { ok: false, reason: 'missing-structure-metadata', metadata: null };
   }
   try {
-    const metadata = JSON.parse(match[1]);
+    const metadata = JSON.parse(payload);
     if (!isRecord(metadata)) {
       return { ok: false, reason: 'invalid-structure-metadata', metadata: null };
     }

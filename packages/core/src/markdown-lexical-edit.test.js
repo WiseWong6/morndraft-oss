@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 
 import {
   CODE_FENCE_LANGUAGE_KINDS,
@@ -414,6 +415,94 @@ test('parse and serialize Markdown image metadata', () => {
   assert.equal(serializeMarkdownImage(image), source);
 });
 
+test('Markdown table and image serialization preserves literal escape characters', () => {
+  const table = {
+    alignments: ['none'],
+    columnCount: 1,
+    rows: [
+      { header: true, cells: ['Path'] },
+      { header: false, cells: ['C:\\drafts\\alpha|beta\\'] },
+    ],
+  };
+  const tableSource = serializeMarkdownPipeTable(table);
+  const parsedTable = parseMarkdownPipeTable(tableSource, {
+    startLine: 1,
+    startColumn: 1,
+    endLine: 3,
+    endColumn: tableSource.split('\n')[2].length + 1,
+  });
+  assert.equal(parsedTable.ok, true);
+  assert.equal(parsedTable.rows[1].cells[0], 'C:\\drafts\\alpha|beta\\');
+
+  const image = {
+    alt: 'Chart \\ draft ] result',
+    title: 'Quarterly \\ "plan"',
+    url: 'https://example.com/chart.png',
+  };
+  const imageSource = serializeMarkdownImage(image);
+  const parsedImage = parseMarkdownImage(imageSource, {
+    startLine: 1,
+    startColumn: 1,
+    endLine: 1,
+    endColumn: imageSource.length + 1,
+  });
+  assert.equal(parsedImage.ok, true);
+  assert.equal(parsedImage.alt, image.alt);
+  assert.equal(parsedImage.title, image.title);
+  assert.equal(serializeMarkdownImage(parsedImage), imageSource);
+});
+
+test('Markdown table parsing distinguishes escaped trailing pipes from row frames', () => {
+  const source = [
+    'Name',
+    '---',
+    'escaped \\|',
+    'framed \\\\|',
+  ].join('\n');
+  const parsed = parseMarkdownPipeTable(source, {
+    startLine: 1,
+    startColumn: 1,
+    endLine: 4,
+    endColumn: source.split('\n')[3].length + 1,
+  });
+
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.rows[1].cells[0], 'escaped |');
+  assert.equal(parsed.rows[2].cells[0], 'framed \\');
+
+  const framedSource = ['| Name |', '| --- |', '| escaped \\| inside |'].join('\n');
+  const framed = parseMarkdownPipeTable(framedSource, {
+    startLine: 1,
+    startColumn: 1,
+    endLine: 3,
+    endColumn: framedSource.split('\n')[2].length + 1,
+  });
+  assert.equal(framed.ok, true);
+  assert.equal(framed.rows[1].cells[0], 'escaped | inside');
+});
+
+test('Markdown image parsing rejects escaped and unescaped line terminators', () => {
+  for (const lineTerminator of ['\n', '\r', '\u2028', '\u2029']) {
+    for (const imageSource of [
+      `![a${lineTerminator}b](https://example.com/a.png)`,
+      `![a\\${lineTerminator}b](https://example.com/a.png)`,
+      `![a](https://example.com/a.png${lineTerminator}"title")`,
+      `![a](https://example.com/a.png "t${lineTerminator}itle")`,
+      `![a](https://example.com/a.png "t\\${lineTerminator}itle")`,
+    ]) {
+      const sourceLines = imageSource.split(/\r\n|\r|\n/);
+      const parsed = parseMarkdownImage(imageSource, {
+        startLine: 1,
+        startColumn: 1,
+        endLine: sourceLines.length,
+        endColumn: sourceLines[sourceLines.length - 1].length + 1,
+      });
+      assert.equal(parsed.ok, false, JSON.stringify(imageSource));
+      assert.equal(parsed.reason, 'invalid_image', JSON.stringify(imageSource));
+    }
+  }
+});
+
 test('patchMarkdownImage updates only the image source range', () => {
   const imageLine = '![Old](https://example.com/old.png)';
   const source = `Before\n${imageLine}\nAfter`;
@@ -472,6 +561,103 @@ test('splitPreviewMarkdownSegments keeps editable islands around readonly artifa
     segments[2].source,
     ['```html-preview', '<section>Readonly</section>', '```'].join('\n'),
   );
+});
+
+test('Markdown block scanners preserve fence, list, and heading marker semantics', () => {
+  const fenced = splitPreviewMarkdownSegments([
+    '   ~~~~JSON extra metadata',
+    '{"ok":true}',
+    `   ~~~~~\u00a0`,
+  ].join('\n'));
+
+  assert.equal(fenced.length, 1);
+  assert.equal(fenced[0].kind, 'editable-code');
+  assert.equal(fenced[0].artifactKind, 'json');
+  assert.equal(splitPreviewMarkdownSegments('```json\u2028not a fence')[0].kind, 'markdown-island');
+
+  const list = parseMarkdownIsland(`${'1234567890'.repeat(4)}. ordered item`);
+  assert.equal(list.ok, true);
+  assert.equal(list.blocks[0].type, 'list');
+  assert.equal(list.blocks[0].ordered, true);
+  assert.equal(list.blocks[0].items[0].segments[0].text, 'ordered item');
+
+  const heading = parseMarkdownIsland('\u00a0###### Heading text ###  ');
+  assert.equal(heading.ok, true);
+  assert.equal(heading.blocks[0].type, 'heading');
+  assert.equal(heading.blocks[0].depth, 6);
+  assert.equal(heading.blocks[0].segments[0].text, 'Heading text');
+
+  const tooDeep = parseMarkdownIsland('####### remains a paragraph');
+  assert.equal(tooDeep.ok, true);
+  assert.equal(tooDeep.blocks[0].type, 'paragraph');
+
+  for (const separator of ['\u2028', '\u2029']) {
+    const separatedList = parseMarkdownIsland(`- item${separator}tail`);
+    assert.equal(separatedList.ok, true);
+    assert.equal(separatedList.blocks[0].type, 'paragraph');
+
+    const separatedHeading = parseMarkdownIsland(`# title${separator}tail`);
+    assert.equal(separatedHeading.ok, true);
+    assert.equal(separatedHeading.blocks[0].type, 'paragraph');
+
+    const separatedHeadingBoundary = parseMarkdownIsland(`before\n# title${separator}tail`);
+    assert.equal(separatedHeadingBoundary.ok, true);
+    assert.deepEqual(
+      separatedHeadingBoundary.blocks.map((block) => [block.type, block.lines?.length ?? 0]),
+      [['paragraph', 1], ['paragraph', 1]],
+    );
+  }
+});
+
+test('Markdown block scanners stay bounded on multi-megabyte adversarial markers', () => {
+  const markerSize = 700_000;
+  const startedAt = performance.now();
+
+  const fenced = splitPreviewMarkdownSegments(
+    `\`\`\`json${' '.repeat(markerSize)}\u2028not a fence`,
+  );
+  assert.equal(fenced[0].kind, 'markdown-island');
+
+  const list = parseMarkdownIsland(`${'1'.repeat(markerSize)}x`);
+  assert.equal(list.ok, true);
+  assert.equal(list.blocks[0].type, 'paragraph');
+
+  const heading = parseMarkdownIsland(`# item ${'#'.repeat(markerSize)}        `);
+  assert.equal(heading.ok, true);
+  assert.equal(heading.blocks[0].segments[0].text, 'item');
+
+  assert.ok(
+    performance.now() - startedAt < 1_500,
+    'More than 2 MiB of adversarial Markdown markers should be scanned within 1.5 seconds',
+  );
+});
+
+test('Markdown island paragraph scanning stays linear across many short lines', () => {
+  const line = `plain ${'x'.repeat(56)}`;
+  const lineCount = Math.ceil((2 * 1024 * 1024) / (line.length + 1));
+  const source = Array.from({ length: lineCount }, () => line).join('\n');
+  const startedAt = performance.now();
+  const parsed = parseMarkdownIsland(source);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.blocks.length, 1);
+  assert.equal(parsed.blocks[0].type, 'paragraph');
+  assert.equal(parsed.blocks[0].lines.length, lineCount);
+  assert.ok(elapsedMs < 1_500, `2 MiB short-line paragraph scan took ${elapsedMs.toFixed(1)} ms`);
+});
+
+test('Markdown preview segmentation slices many artifacts without rebuilding the source', () => {
+  const fence = '```js\nx\n```';
+  const fenceCount = Math.ceil((2 * 1024 * 1024) / (fence.length + 1));
+  const source = Array.from({ length: fenceCount }, () => fence).join('\n');
+  const startedAt = performance.now();
+  const segments = splitPreviewMarkdownSegments(source);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.equal(segments.length, fenceCount);
+  assert.ok(segments.every(segment => segment.source === fence));
+  assert.ok(elapsedMs < 1_500, `2 MiB multi-fence segmentation took ${elapsedMs.toFixed(1)} ms`);
 });
 
 test('parsePreviewMarkdownDocument keeps artifacts atomic in source round trip', () => {

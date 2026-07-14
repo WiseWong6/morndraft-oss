@@ -1006,12 +1006,12 @@ test('raw HTML classifier follows CommonMark backtick closing rules around backs
   ];
   for (const source of unsafeSources) {
     const rendered = micromark(source, { allowDangerousHtml: true });
-    assert.match(rendered, /<script>alert\(\d\)<\/script>/u, source);
+    assert.match(rendered, /<script>alert\(\d\)<\/script>/iu, source);
     assert.equal(hasPublicAiUnsafeHtmlSource(source, 'markdown'), true, source);
   }
 
   const tailOpener = '\\`` <script>inert()</script> `';
-  assert.doesNotMatch(micromark(tailOpener, { allowDangerousHtml: true }), /<script>/u);
+  assert.doesNotMatch(micromark(tailOpener, { allowDangerousHtml: true }), /<script>/iu);
   assert.equal(hasPublicAiUnsafeHtmlSource(tailOpener, 'markdown'), false);
 
   const slashes = (length: number) => '\\'.repeat(length);

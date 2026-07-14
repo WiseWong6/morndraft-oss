@@ -1,6 +1,7 @@
 const PUBLIC_DYNAMIC_ELEMENTS = new Set([
   'audio', 'canvas', 'details', 'dialog', 'embed', 'iframe', 'input',
-  'marquee', 'object', 'progress', 'script', 'select', 'textarea', 'video',
+  'frame', 'frameset', 'marquee', 'object', 'progress', 'script', 'select',
+  'textarea', 'video',
 ]);
 
 const PUBLIC_DYNAMIC_URL_ATTRIBUTES = new Set([
@@ -271,7 +272,57 @@ const getAttributeName = (attribute: ParsedAttribute) => {
   return attribute.prefix ? `${toAsciiLower(attribute.prefix)}:${name}` : name;
 };
 
-const hasDynamicAttribute = (attributes: readonly ParsedAttribute[]) => {
+const hasAsciiWhitespaceSeparatedToken = (value: string, expected: string) => {
+  let index = 0;
+  while (index < value.length) {
+    while (index < value.length && isCssWhitespace(value[index])) index += 1;
+    const start = index;
+    while (index < value.length && !isCssWhitespace(value[index])) index += 1;
+    if (start < index && toAsciiLower(value.slice(start, index)) === expected) return true;
+  }
+  return false;
+};
+
+/**
+ * Direct URL attributes can navigate or execute when the live sandbox runs.
+ * Admit data URLs here only for the direct DOM slots that capture freezes
+ * before allocating its script-disabled iframe; every other direct data URL
+ * fails closed. Compound resource carriers such as srcset, background and CSS
+ * url()/image-set()/@import are parsed, validated and rewritten by the capture
+ * resource pipeline rather than by this direct-attribute scheme gate.
+ */
+const isDataUrlFrozenByCapturePipeline = (
+  tagName: string,
+  namespace: string | undefined,
+  attributeName: string,
+  attributes: readonly ParsedAttribute[],
+) => {
+  if (
+    namespace === HTML_NAMESPACE
+    && tagName === 'img'
+    && attributeName === 'src'
+  ) return true;
+  if (
+    namespace === SVG_NAMESPACE
+    && (tagName === 'image' || tagName === 'feimage')
+    && (attributeName === 'href' || attributeName === 'xlink:href')
+  ) return true;
+  if (
+    namespace === HTML_NAMESPACE
+    && tagName === 'link'
+    && attributeName === 'href'
+  ) {
+    const rel = attributes.find(attribute => getAttributeName(attribute) === 'rel')?.value ?? '';
+    return hasAsciiWhitespaceSeparatedToken(rel, 'stylesheet');
+  }
+  return false;
+};
+
+const hasDynamicAttribute = (
+  tagName: string,
+  namespace: string | undefined,
+  attributes: readonly ParsedAttribute[],
+) => {
   for (const attribute of attributes) {
     const name = getAttributeName(attribute);
     const eventStart = name.charCodeAt(2);
@@ -285,7 +336,19 @@ const hasDynamicAttribute = (attributes: readonly ParsedAttribute[]) => {
       PUBLIC_DYNAMIC_URL_ATTRIBUTES.has(name)
     ) {
       const normalizedUrl = normalizeExecutableUrl(attribute.value);
-      if (normalizedUrl.startsWith('javascript:') || normalizedUrl.startsWith('vbscript:')) return true;
+      if (
+        normalizedUrl.startsWith('javascript:')
+        || normalizedUrl.startsWith('vbscript:')
+        || (
+          normalizedUrl.startsWith('data:')
+          && !isDataUrlFrozenByCapturePipeline(
+            tagName,
+            namespace,
+            name,
+            attributes,
+          )
+        )
+      ) return true;
     }
   }
   return false;
@@ -325,7 +388,7 @@ const hasDynamicTree = (document: ParsedNode) => {
       // on the second browser parse and could reveal unfrozen author URLs.
       if (namespace === HTML_NAMESPACE && tagName === 'noscript') return true;
       if (namespace === SVG_NAMESPACE && PUBLIC_SVG_DYNAMIC_ELEMENTS.has(tagName)) return true;
-      if (hasDynamicAttribute(attributes)) return true;
+      if (hasDynamicAttribute(tagName, namespace, attributes)) return true;
       if (
         namespace === HTML_NAMESPACE
         && tagName === 'meta'

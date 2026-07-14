@@ -1500,6 +1500,51 @@ const runDeliveryHardeningFlow = async (
   consoleErrors,
   baseline,
 ) => {
+  const mimeSpoofedStaticPng = [
+    'data:text/plain;base64,',
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgQIAKfRZ8QAAAABJRU5ErkJggg==',
+  ].join('');
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html><html><body>',
+    `<img id="oss-mime-spoofed-static-image" src="${mimeSpoofedStaticPng}" alt="static PNG bytes">`,
+    '<svg width="24" height="24" viewBox="0 0 24 24" aria-label="static filtered PNG bytes">',
+    '<defs><filter id="oss-mime-spoofed-filter" x="0" y="0" width="1" height="1">',
+    `<feImage id="oss-mime-spoofed-feimage" href="${mimeSpoofedStaticPng}" preserveAspectRatio="none"></feImage>`,
+    '</filter></defs>',
+    '<rect width="24" height="24" filter="url(#oss-mime-spoofed-filter)"></rect>',
+    '</svg>',
+    '</body></html>',
+  ].join(''));
+  const mimeSpoofedImageFrame = await waitForFrameWithSelector(
+    page,
+    '#oss-mime-spoofed-static-image',
+  );
+  assert.deepEqual(
+    await mimeSpoofedImageFrame.locator('#oss-mime-spoofed-static-image').evaluate(async (image) => {
+      await image.decode();
+      return { height: image.naturalHeight, width: image.naturalWidth };
+    }),
+    { height: 1, width: 1 },
+    'Chromium did not sniff the static PNG bytes behind a text/plain data URL.',
+  );
+  assert.equal(
+    await mimeSpoofedImageFrame
+      .locator('#oss-mime-spoofed-feimage')
+      .evaluate(element => element.getAttribute('href')),
+    mimeSpoofedStaticPng,
+    'Chromium did not retain the MIME-spoofed static PNG in the SVG feImage resource slot.',
+  );
+  await assertDownload(page, 'oss-delivery-download-png', '.png', (content) => {
+    assert.deepEqual([...content.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+  await assertDownload(
+    page,
+    'oss-delivery-download-pdf',
+    '.pdf',
+    content => assertA4ImagePdf(content, 'MIME-spoofed static PNG PDF'),
+  );
+  await assertNoActiveDeliveryResources(page, baseline, 'MIME-spoofed static PNG delivery');
+
   const noscriptMarkup = [
     '<!doctype html><html><head>',
     `<noscript><link rel="stylesheet" href="${fixtureBaseUrl}/noscript-style.css"></noscript>`,
@@ -1894,6 +1939,41 @@ const runDeliveryHardeningFlow = async (
     'Chromium did not advance the SVG SMIL animation fixture.',
   );
   await assertDynamicDeliveryRejectedBeforeAllocation(page, baseline, 'SVG animation dynamic markup failure');
+
+  const legacyFrameDataSvg = [
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="20">',
+    '<rect id="oss-frame-data-animation-target" width="10" height="20">',
+    '<animate attributeName="width" from="10" to="100" dur="1s" repeatCount="indefinite"></animate>',
+    '</rect></svg>',
+  ].join('');
+  await replaceSourceAndOpenFinal(page, [
+    '<!doctype html><html><head><title>Legacy frame data SVG</title></head>',
+    '<frameset>',
+    `<frame src="data:image/svg+xml,${encodeURIComponent(legacyFrameDataSvg)}">`,
+    '</frameset></html>',
+  ].join(''));
+  const legacyFrameDataSvgFrame = await waitForFrameWithSelector(
+    page,
+    '#oss-frame-data-animation-target',
+  );
+  await page.waitForTimeout(200);
+  const legacyFrameWidthBefore = await legacyFrameDataSvgFrame
+    .locator('#oss-frame-data-animation-target')
+    .evaluate(target => window.getComputedStyle(target).width);
+  await page.waitForTimeout(500);
+  const legacyFrameWidthAfter = await legacyFrameDataSvgFrame
+    .locator('#oss-frame-data-animation-target')
+    .evaluate(target => window.getComputedStyle(target).width);
+  assert.notEqual(
+    legacyFrameWidthBefore,
+    legacyFrameWidthAfter,
+    `Chromium legacy frame data SVG fixture did not animate: ${legacyFrameWidthBefore}`,
+  );
+  await assertDynamicDeliveryRejectedBeforeAllocation(
+    page,
+    baseline,
+    'legacy frame data SVG dynamic markup failure',
+  );
 
   await replaceSourceAndOpenFinal(page, [
     '<!doctype html>',
