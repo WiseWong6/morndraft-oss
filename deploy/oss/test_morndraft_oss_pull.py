@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import io
 import json
@@ -6,8 +7,9 @@ from pathlib import Path
 import stat
 import tarfile
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zipfile
 
 import morndraft_oss_pull as pull
@@ -74,10 +76,115 @@ class PullReleaseTests(unittest.TestCase):
         rollback_unit = (deploy_dir / "morndraft-oss-rollback@.service").read_text(encoding="utf-8")
 
         self.assertIn("UMask=0027\n", pull_unit)
-        self.assertIn("TimeoutStartSec=5min\n", pull_unit)
+        self.assertIn("TimeoutStartSec=15min\n", pull_unit)
         self.assertIn("TimeoutStopSec=30s\n", pull_unit)
         self.assertIn("TimeoutStartSec=90s\n", rollback_unit)
         self.assertIn("TimeoutStopSec=30s\n", rollback_unit)
+
+    def test_progress_log_is_prefixed_and_flushed(self):
+        with patch("builtins.print") as print_mock:
+            pull.log("checking release metadata")
+
+        print_mock.assert_called_once_with(
+            "[morndraft-oss-pull] checking release metadata",
+            flush=True,
+        )
+
+    def test_nginx_static_surface_preserves_hsts_and_retires_all_admin_prefixes(self):
+        nginx = (Path(__file__).parent / "nginx-morndraft-oss.conf").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;',
+            nginx,
+        )
+        self.assertIn("location ^~ /admin {\n        return 404;\n    }", nginx)
+        self.assertNotIn("proxy_pass", nginx)
+
+    def test_stage_progress_is_ordered_and_does_not_log_credentials_or_signed_urls(self):
+        run = {"id": RUN_ID, "head_sha": SOURCE_SHA}
+        signed_url = "https://api.github.com/artifact?sig=DO_NOT_LOG"
+        artifact = {"id": 99, "size_in_bytes": 8, "archive_download_url": signed_url}
+        manifest = {"sourceSha": SOURCE_SHA}
+        args = SimpleNamespace(rollback=None, stage_only=True, health_url="https://morndraft.com/")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            releases = root / "releases"
+            state = root / "state"
+            releases.mkdir()
+            state.mkdir()
+            client = Mock()
+            client.download.side_effect = lambda _url, destination: destination.write_bytes(b"artifact")
+            output = io.StringIO()
+            with (
+                contextlib.redirect_stdout(output),
+                patch.object(pull, "read_credential", return_value="DO_NOT_LOG_TOKEN"),
+                patch.object(pull, "GitHubClient", return_value=client),
+                patch.object(pull, "find_current_successful_run", return_value=run),
+                patch.object(pull, "find_release_artifact", return_value=(artifact, "0" * 64)),
+                patch.object(pull, "validate_artifact_zip", return_value=(manifest, b"archive")),
+                patch.object(pull, "stage_release", return_value=releases / SOURCE_SHA),
+            ):
+                pull.deploy_locked(
+                    args,
+                    releases_dir=releases,
+                    state_dir=state,
+                    current_link=root / "current",
+                )
+
+            progress = output.getvalue()
+            phases = (
+                "checking the current main release workflow",
+                f"selected {SOURCE_SHA} from workflow run {RUN_ID}",
+                "checking the exact-SHA release artifact metadata",
+                "downloading artifact 99 (8 bytes)",
+                "downloaded 8 bytes; verifying release contents",
+                f"verified {SOURCE_SHA}; staging the release directory",
+                f"staged {SOURCE_SHA} without switching current",
+            )
+            offsets = [progress.index(phase) for phase in phases]
+            self.assertEqual(offsets, sorted(offsets))
+            self.assertNotIn("DO_NOT_LOG_TOKEN", progress)
+            self.assertNotIn(signed_url, progress)
+            self.assertNotIn("DO_NOT_LOG", progress)
+
+    def test_download_interruption_leaves_no_live_or_staged_state(self):
+        run = {"id": RUN_ID, "head_sha": SOURCE_SHA}
+        artifact = {
+            "id": 99,
+            "size_in_bytes": 8,
+            "archive_download_url": "https://api.github.com/artifact",
+        }
+        args = SimpleNamespace(rollback=None, stage_only=True, health_url="https://morndraft.com/")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            releases = root / "releases"
+            state = root / "state"
+            releases.mkdir()
+            state.mkdir()
+            client = Mock()
+            client.download.side_effect = pull.ReleaseError("Deployment interrupted by SIGTERM")
+            with (
+                contextlib.redirect_stdout(io.StringIO()),
+                patch.object(pull, "read_credential", return_value="token"),
+                patch.object(pull, "GitHubClient", return_value=client),
+                patch.object(pull, "find_current_successful_run", return_value=run),
+                patch.object(pull, "find_release_artifact", return_value=(artifact, "0" * 64)),
+                self.assertRaisesRegex(pull.ReleaseError, "SIGTERM"),
+            ):
+                pull.deploy_locked(
+                    args,
+                    releases_dir=releases,
+                    state_dir=state,
+                    current_link=root / "current",
+                )
+
+            self.assertFalse((root / "current").exists())
+            self.assertFalse((state / "deployed.json").exists())
+            self.assertFalse((state / "failed-runs").exists())
+            self.assertEqual(list(state.glob("morndraft-oss-artifact-*")), [])
+            self.assertEqual(list(releases.iterdir()), [])
 
     def test_validates_and_extracts_every_manifest_file(self):
         files = {"assets/app.js": b"console.log('oss')\n", "index.html": b"<!doctype html>\n"}
