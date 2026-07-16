@@ -407,12 +407,14 @@ test('allows only the public personal AI entrance while keeping broad personal i
 test('ignores the candidate root workspace directories but rejects nested reserved directories', async () => {
   const projectDir = await mkdtemp(path.join(os.tmpdir(), 'morndraft-oss-distribution-'));
   try {
+    await writeFile(path.join(projectDir, '.git'), 'gitdir: /tmp/example-worktree\n');
     await mkdir(path.join(projectDir, 'node_modules'), { recursive: true });
     await mkdir(path.join(projectDir, 'src', '.git'), { recursive: true });
 
     const result = await collectDistributionFiles(projectDir);
 
     assert.deepEqual(result.nestedReservedDirectories, ['src/.git']);
+    assert.deepEqual(result.files, []);
   } finally {
     await rm(projectDir, { force: true, recursive: true });
   }
