@@ -1,10 +1,16 @@
 export { PublicFinalPreview } from './PublicFinalPreview';
+export { PublicFormatToolbar, type PublicFormatCommand } from './PublicFormatToolbar';
 export { PublicEditableMarkdown } from './PublicEditableMarkdown';
 export { PublicFlatFinalEditor, patchPublicMornDraftFlatHtml } from './PublicFlatFinalEditor';
 export { PublicAiPanel } from './PublicAiPanel';
 export { PublicDialog } from './PublicDialog';
 export { PublicDeliveryToolbar } from './PublicDeliveryToolbar';
 export { PublicSourceEditor } from './PublicSourceEditor';
+export {
+  analyzePublicDeterministicRepair,
+  type PublicDeterministicRepairAnalysis,
+} from '@morndraft/core/oss-public';
+export { inferPublicDocumentTitle, sanitizePublicDocumentFileStem } from './publicTitleInference';
 export { PublicWorkspace } from './PublicWorkspace';
 export {
   createFinalWorkspaceSnapshot,
@@ -34,6 +40,7 @@ export {
 } from './publicImport';
 export { getDefaultPublicSyntaxEntries } from './publicSamples';
 export { patchPublicMarkdownVisibleText, resolvePublicMarkdownVisibleSourceRange } from './publicMarkdownPatch';
+export { resolvePublicMarkdownDomSelection } from './publicMarkdownDomSelection';
 export {
   getPublicFlatInsertEntries,
   getPublicSyntaxEntries,
