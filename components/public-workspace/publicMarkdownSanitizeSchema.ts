@@ -1,7 +1,16 @@
 import { defaultSchema } from 'rehype-sanitize';
 
-const SAFE_MARKDOWN_INLINE_STYLE_PATTERN =
-  /^(?:\s*(?:color:\s*#[0-9a-fA-F]{6}|font-size:\s*(?:12|14|15|16|18|20|24)px|font-family:\s*[-"'.,A-Za-z0-9\u4e00-\u9fff\s]+|line-height:\s*(?:1\.35|1\.5|2)|letter-spacing:\s*(?:0\.02|0\.05|0\.08)em)\s*;?\s*)+$/;
+const SAFE_MARKDOWN_INLINE_STYLE_DECLARATION = [
+  String.raw`color:[ \t]*#[0-9a-fA-F]{6}`,
+  String.raw`font-size:[ \t]*(?:12|14|15|16|18|20|24)px`,
+  String.raw`font-family:[ \t]*(?:"MornDraft Sans SC",[ \t]*"Noto Sans SC",[ \t]*"Source Han Sans SC",[ \t]*"PingFang SC",[ \t]*"Microsoft YaHei",[ \t]*sans-serif|"MornDraft Serif SC",[ \t]*"Noto Serif SC",[ \t]*"Source Han Serif SC",[ \t]*"Songti SC",[ \t]*"SimSun",[ \t]*serif)`,
+  String.raw`line-height:[ \t]*(?:1\.35|1\.5|2)`,
+  String.raw`letter-spacing:[ \t]*(?:0\.02|0\.05|0\.08)em`,
+].join('|');
+const SAFE_MARKDOWN_INLINE_STYLE_PATTERN = new RegExp(
+  `^[ \\t]*(?:${SAFE_MARKDOWN_INLINE_STYLE_DECLARATION})(?:;[ \\t]*(?:${SAFE_MARKDOWN_INLINE_STYLE_DECLARATION}))*;?[ \\t]*$`,
+  'u',
+);
 const SAFE_MARKDOWN_IMAGE_SRC_PATTERN =
   /^(?:data:image\/(?:png|jpe?g|webp|avif|gif);base64,(?:[a-zA-Z0-9+/=\s]|%[0-9a-fA-F]{2})+|(?!data:).+)$/i;
 const DEFAULT_MARKDOWN_IMAGE_ATTRIBUTES = (defaultSchema.attributes?.img || [])

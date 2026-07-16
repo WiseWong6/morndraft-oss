@@ -47,6 +47,16 @@ test('Final renders only the safe inline formatting vocabulary as reversible DOM
   assert.doesNotMatch(unsafe, /background-image|javascript:|<script/u);
 });
 
+test('Final rejects repeated hostile style declarations without backtracking', { timeout: 20_000 }, () => {
+  const hostileStyle = 'font-family:\t'.repeat(64 * 1024);
+  const startedAt = performance.now();
+  const rendered = renderFinalMarkdown(`<span style="${hostileStyle}">Unsafe</span>`);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.doesNotMatch(rendered, /style=/u);
+  assert.ok(elapsedMs < 10_000, `style sanitization exceeded the 10s watchdog: ${elapsedMs}ms`);
+});
+
 test('Final preserves valid percent-encoded local image bytes but rejects malformed escapes', () => {
   const valid = renderFinalMarkdown('![valid](data:image/png;base64,iVBORw0KGgo%0A=)');
   assert.match(valid, /src="data:image\/png;base64,iVBORw0KGgo%0A="/u);

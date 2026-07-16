@@ -141,8 +141,9 @@ const parseJson = (source: string, format: JsonFormat) => {
 const getTrailingContainerCompletion = (content: string, format: JsonFormat) => {
   if (parseJson(content, format)) return null;
   const stack: string[] = [];
-  const trailingWhitespace = content.match(/\s*$/u)?.[0] ?? '';
-  const insertionOffset = content.length - trailingWhitespace.length;
+  let insertionOffset = content.length;
+  while (insertionOffset > 0 && content[insertionOffset - 1].trim() === '') insertionOffset -= 1;
+  const trailingWhitespace = content.slice(insertionOffset);
   let quote: string | null = null;
   let escaped = false;
   let lineComment = false;

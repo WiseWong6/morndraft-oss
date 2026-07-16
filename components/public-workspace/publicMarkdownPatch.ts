@@ -347,7 +347,7 @@ const looksLikeInlineHtmlStart = (source: string, start: number) => {
   return PUBLIC_INLINE_HTML_START.test(source);
 };
 
-const PUBLIC_SAFE_INLINE_FORMAT_TAG = /^(?:<\/?(?:em|mark|strong|u)>|<\/span>|<span style="(?:[^"<>]|&quot;)+">)/iu;
+const PUBLIC_SAFE_INLINE_FORMAT_TAG = /^(?:<\/?(?:em|mark|strong|u)>|<\/span>|<span style="[^"<>]+">)/iu;
 const getSafePublicInlineFormatTagEnd = (source: string, start: number) => {
   const match = PUBLIC_SAFE_INLINE_FORMAT_TAG.exec(source.slice(start));
   return match ? start + match[0].length : null;

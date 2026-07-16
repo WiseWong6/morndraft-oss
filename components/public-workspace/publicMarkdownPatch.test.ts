@@ -357,6 +357,16 @@ test('safe public inline format tags preserve exact rendered selection mapping',
   }
 });
 
+test('safe public inline span scanning stays linear for quote entities', { timeout: 20_000 }, () => {
+  const source = `<span style="${'&quot;'.repeat(256 * 1024)}`;
+  const startedAt = performance.now();
+  const result = inspectPublicMarkdownMappingWorkForTest(source, source);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.equal(result.mappedUnits, -1);
+  assert.ok(elapsedMs < 10_000, `inline span scan exceeded the 10s watchdog: ${elapsedMs}ms`);
+});
+
 test('rendered selections map through formatting, links, entities, repeats, and emoji', () => {
   const source = '**bold** [label](https://example.com) &amp; repeat repeat 😀';
   const visibleText = 'bold label & repeat repeat 😀';

@@ -39,6 +39,14 @@ test('public repair supports explicitly typed standalone JSON and JSON5', () => 
   );
 });
 
+test('public repair scans long trailing whitespace without regex backtracking', { timeout: 20_000 }, () => {
+  const trailingWhitespace = ' '.repeat(2 * 1024 * 1024);
+  const source = `{"items":[1${trailingWhitespace}`;
+  const result = analyzePublicDeterministicRepair(source, { format: 'json' });
+
+  assert.equal(result.candidateSource, `{"items":[1]}${trailingWhitespace}`);
+});
+
 test('public repair appends the matching missing Markdown fence', () => {
   const source = '# Demo\n\n~~~~markdown\nEditable body';
   const result = analyzePublicDeterministicRepair(source);
