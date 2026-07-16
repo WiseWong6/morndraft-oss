@@ -4,6 +4,7 @@ dist/
 artifacts/
 output/
 .playwright-*
+__pycache__/
 .env
 .env.*
 !.env.example

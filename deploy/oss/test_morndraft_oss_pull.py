@@ -1,0 +1,214 @@
+import hashlib
+import io
+import json
+from pathlib import Path
+import stat
+import tarfile
+import tempfile
+import unittest
+from unittest.mock import patch
+import zipfile
+
+import morndraft_oss_pull as pull
+
+
+SOURCE_SHA = "1234567890abcdef1234567890abcdef12345678"
+RUN_ID = 42
+
+
+def build_release(files, *, source_sha=SOURCE_SHA, run_id=RUN_ID):
+    file_entries = []
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w:gz") as archive:
+        site = tarfile.TarInfo("site")
+        site.type = tarfile.DIRTYPE
+        site.mode = 0o755
+        archive.addfile(site)
+        for path, value in sorted(files.items()):
+            info = tarfile.TarInfo(f"site/{path}")
+            info.size = len(value)
+            info.mode = 0o644
+            archive.addfile(info, io.BytesIO(value))
+            file_entries.append({
+                "path": path,
+                "sha256": hashlib.sha256(value).hexdigest(),
+                "size": len(value),
+            })
+    archive_bytes = tar_buffer.getvalue()
+    archive_name = f"morndraft-oss-{source_sha}.tar.gz"
+    manifest = {
+        "schemaVersion": 1,
+        "repository": pull.REPOSITORY,
+        "sourceSha": source_sha,
+        "workflowRunId": run_id,
+        "workflowName": "OSS release",
+        "buildProfile": "oss-full",
+        "distributionProfile": "oss",
+        "archive": {
+            "fileName": archive_name,
+            "sha256": hashlib.sha256(archive_bytes).hexdigest(),
+            "size": len(archive_bytes),
+        },
+        "fileCount": len(file_entries),
+        "totalBytes": sum(entry["size"] for entry in file_entries),
+        "files": file_entries,
+    }
+    manifest_bytes = (json.dumps(manifest, indent=2) + "\n").encode()
+    sums = (
+        f"{manifest['archive']['sha256']}  {archive_name}\n"
+        f"{hashlib.sha256(manifest_bytes).hexdigest()}  release-manifest.json\n"
+    ).encode()
+    outer = io.BytesIO()
+    with zipfile.ZipFile(outer, mode="w") as artifact:
+        artifact.writestr(archive_name, archive_bytes)
+        artifact.writestr("release-manifest.json", manifest_bytes)
+        artifact.writestr("SHA256SUMS", sums)
+    return manifest, archive_bytes, outer.getvalue()
+
+
+class PullReleaseTests(unittest.TestCase):
+    def test_validates_and_extracts_every_manifest_file(self):
+        files = {"assets/app.js": b"console.log('oss')\n", "index.html": b"<!doctype html>\n"}
+        manifest, _, artifact_bytes = build_release(files)
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact_path = Path(temporary) / "artifact.zip"
+            artifact_path.write_bytes(artifact_bytes)
+            validated, archive_bytes = pull.validate_artifact_zip(
+                artifact_path,
+                expected_digest=hashlib.sha256(artifact_bytes).hexdigest(),
+                expected_run_id=RUN_ID,
+                expected_sha=SOURCE_SHA,
+            )
+            self.assertEqual(validated, manifest)
+            release_dir = Path(temporary) / "release"
+            pull.extract_verified_tar(archive_bytes, validated, release_dir)
+            self.assertEqual((release_dir / "index.html").read_bytes(), files["index.html"])
+            pull.verify_release_directory(release_dir, validated)
+
+    def test_rejects_outer_zip_path_traversal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact_path = Path(temporary) / "artifact.zip"
+            with zipfile.ZipFile(artifact_path, mode="w") as artifact:
+                artifact.writestr("../release-manifest.json", b"{}")
+                artifact.writestr("SHA256SUMS", b"x")
+                artifact.writestr("archive.tar.gz", b"x")
+            with self.assertRaisesRegex(pull.ReleaseError, "Unsafe archive path"):
+                pull.validate_artifact_zip(
+                    artifact_path,
+                    expected_digest=pull.sha256_file(artifact_path),
+                    expected_run_id=RUN_ID,
+                    expected_sha=SOURCE_SHA,
+                )
+
+    def test_rejects_tar_symbolic_links(self):
+        files = {"index.html": b"<!doctype html>\n"}
+        manifest, archive_bytes, _ = build_release(files)
+        original = io.BytesIO(archive_bytes)
+        malicious = io.BytesIO()
+        with tarfile.open(fileobj=original, mode="r:gz") as source, tarfile.open(fileobj=malicious, mode="w:gz") as target:
+            for member in source.getmembers():
+                target.addfile(member, source.extractfile(member) if member.isreg() else None)
+            link = tarfile.TarInfo("site/escape")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "../../outside"
+            link.mode = stat.S_IFLNK | 0o777
+            target.addfile(link)
+        with self.assertRaisesRegex(pull.ReleaseError, "link or special file"):
+            pull.inspect_tar(malicious.getvalue(), manifest)
+
+    def test_rejects_tar_before_crossing_the_decompression_budget(self):
+        manifest, archive_bytes, _ = build_release({"index.html": b"x" * 65_536})
+        with patch.object(pull, "MAX_TAR_STREAM_BYTES", 1_024):
+            with self.assertRaisesRegex(pull.ReleaseError, "decompression budget"):
+                pull.inspect_tar(archive_bytes, manifest)
+
+    def test_atomic_switch_keeps_the_previous_exact_sha(self):
+        second_sha = "abcdef1234567890abcdef1234567890abcdef12"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "releases" / SOURCE_SHA).mkdir(parents=True)
+            (root / "releases" / second_sha).mkdir(parents=True)
+            current = root / "current"
+            self.assertIsNone(pull.atomic_switch(current, SOURCE_SHA))
+            self.assertEqual(pull.read_current_sha(current), SOURCE_SHA)
+            self.assertEqual(pull.atomic_switch(current, second_sha), SOURCE_SHA)
+            self.assertEqual(pull.read_current_sha(current), second_sha)
+
+    def test_current_link_must_stay_inside_the_release_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = root / "current"
+            current.symlink_to(f"/tmp/{SOURCE_SHA}")
+            with self.assertRaisesRegex(pull.ReleaseError, "releases/<exact-sha>"):
+                pull.read_current_sha(current)
+
+    def test_cleanup_keeps_exactly_five_releases_including_current(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            releases = Path(temporary) / "releases"
+            releases.mkdir()
+            shas = [f"{index:040x}" for index in range(1, 8)]
+            for run_id, source_sha in enumerate(shas, start=1):
+                release = releases / source_sha
+                release.mkdir()
+                (release / ".release-manifest.json").write_text(
+                    json.dumps({"workflowRunId": run_id}),
+                    encoding="utf-8",
+                )
+            current_sha = shas[0]
+            pull.cleanup_releases(releases, current_sha, keep=5)
+            retained = sorted(path.name for path in releases.iterdir())
+            self.assertEqual(len(retained), 5)
+            self.assertIn(current_sha, retained)
+
+    def test_deployment_lock_prevents_pull_and_rollback_overlap(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            with pull.deployment_lock(state):
+                with self.assertRaisesRegex(pull.ReleaseError, "already running"):
+                    with pull.deployment_lock(state):
+                        self.fail("The second deployment lock must never be acquired")
+
+    def test_manual_rollback_marks_the_outgoing_run_failed(self):
+        target_sha = SOURCE_SHA
+        outgoing_sha = "abcdef1234567890abcdef1234567890abcdef12"
+        files = {"index.html": b"<!doctype html>\n"}
+        target_manifest, target_archive, _ = build_release(
+            files,
+            source_sha=target_sha,
+            run_id=RUN_ID,
+        )
+        outgoing_manifest, outgoing_archive, _ = build_release(
+            files,
+            source_sha=outgoing_sha,
+            run_id=RUN_ID + 1,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            releases = root / "releases"
+            state = root / "state"
+            releases.mkdir()
+            state.mkdir()
+            pull.extract_verified_tar(target_archive, target_manifest, releases / target_sha)
+            pull.extract_verified_tar(outgoing_archive, outgoing_manifest, releases / outgoing_sha)
+            current = root / "current"
+            current.symlink_to(f"releases/{outgoing_sha}")
+
+            with patch.object(pull, "verify_health", return_value=None):
+                pull.rollback_release(
+                    current_link=current,
+                    releases_dir=releases,
+                    state_dir=state,
+                    source_sha=target_sha,
+                    health_url="https://morndraft.com/",
+                )
+
+            self.assertEqual(pull.read_current_sha(current), target_sha)
+            failed = json.loads((state / "failed-runs" / f"{RUN_ID + 1}.json").read_text())
+            self.assertEqual(failed["reason"], "manual-rollback")
+            self.assertEqual(failed["rolledBackTo"], target_sha)
+            deployed = json.loads((state / "deployed.json").read_text())
+            self.assertEqual(deployed["workflowRunId"], RUN_ID)
+
+
+if __name__ == "__main__":
+    unittest.main()
