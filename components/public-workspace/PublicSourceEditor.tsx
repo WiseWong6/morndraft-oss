@@ -1,5 +1,14 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  getPublicSourceLineSelectionRange,
+  shouldHandlePublicPlainMouseGesture,
+} from '@morndraft/core/oss-public';
 import { applyPublicInsert, findPublicSlashTrigger } from './publicDocument';
+import {
+  getFirstPublicClipboardImageFile,
+  insertPublicClipboardImageMarkdown,
+  resolvePublicClipboardImageMarkdown,
+} from './publicClipboardImage';
 import type { PublicFlatInsertEntry, PublicTextSelection, PublicWorkspaceLocale, SourceChangeMeta } from './types';
 
 type PublicSourceEditorProps = {
@@ -9,6 +18,7 @@ type PublicSourceEditorProps = {
   flatInsertEntries?: readonly PublicFlatInsertEntry[];
   onSourceChange(next: string, meta: SourceChangeMeta): void;
   ariaLabel: string;
+  allowImagePaste?: boolean;
   className?: string;
   onSelectionChange?(selection: PublicTextSelection | null): void;
   onAiGenerateRequest?(range: { start: number; end: number }): void;
@@ -34,6 +44,7 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
   flatInsertEntries = [],
   onSourceChange,
   ariaLabel,
+  allowImagePaste = true,
   className,
   onSelectionChange,
   onAiGenerateRequest,
@@ -42,6 +53,9 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
   const latestSourceRef = useRef(source);
   const renderedSourceRef = useRef(source);
   const insertOperationRef = useRef(0);
+  const lastPointerTypeRef = useRef<string | null>(null);
+  const lastSelectionRef = useRef({ start: 0, end: 0 });
+  const selectionEpochRef = useRef(0);
   const [slashTrigger, setSlashTrigger] = useState<SlashTrigger | null>(null);
   const [insertError, setInsertError] = useState('');
   const entries = useMemo(() => [MARKDOWN_TABLE_ENTRY, ...flatInsertEntries], [flatInsertEntries]);
@@ -74,6 +88,10 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
 
   const updateSelection = (textarea: HTMLTextAreaElement) => {
     const { selectionStart: start, selectionEnd: end, value } = textarea;
+    if (lastSelectionRef.current.start !== start || lastSelectionRef.current.end !== end) {
+      lastSelectionRef.current = { start, end };
+      selectionEpochRef.current += 1;
+    }
     const text = value.slice(start, end);
     onSelectionChange?.(end > start ? { start, end, text, sourceText: text, source: value } : null);
   };
@@ -85,6 +103,64 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
     setInsertError('');
     onSourceChange(next, { origin });
     updateSlashTrigger(next, event.currentTarget.selectionStart);
+  };
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!allowImagePaste) return;
+    const file = getFirstPublicClipboardImageFile(event.clipboardData);
+    if (!file) return;
+    const textarea = event.currentTarget;
+    const requestSource = textarea.value;
+    const requestRange = { start: textarea.selectionStart, end: textarea.selectionEnd };
+    lastSelectionRef.current = requestRange;
+    const requestSelectionEpoch = selectionEpochRef.current;
+    const operation = insertOperationRef.current + 1;
+    insertOperationRef.current = operation;
+    event.preventDefault();
+    setInsertError('');
+    void resolvePublicClipboardImageMarkdown(file).then((markdown) => {
+      if (
+        !markdown
+        || insertOperationRef.current !== operation
+        || latestSourceRef.current !== requestSource
+        || selectionEpochRef.current !== requestSelectionEpoch
+        || textareaRef.current?.selectionStart !== requestRange.start
+        || textareaRef.current?.selectionEnd !== requestRange.end
+        || textareaRef.current?.ownerDocument.activeElement !== textareaRef.current
+      ) return;
+      const result = insertPublicClipboardImageMarkdown(requestSource, requestRange, markdown);
+      if (!result.ok) return;
+      latestSourceRef.current = result.source;
+      onSourceChange(result.source, { origin: 'paste-image' });
+      window.requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(result.insertedRange.end, result.insertedRange.end);
+        if (textareaRef.current) updateSelection(textareaRef.current);
+      });
+    }).catch(() => {
+      if (insertOperationRef.current !== operation || latestSourceRef.current !== requestSource) return;
+      setInsertError(locale === 'zh' ? '无法粘贴这张图片。' : 'Unable to paste this image.');
+    });
+  };
+
+  const handleDoubleClick = (event: React.MouseEvent<HTMLTextAreaElement>) => {
+    const pointerType = lastPointerTypeRef.current;
+    lastPointerTypeRef.current = null;
+    if (!shouldHandlePublicPlainMouseGesture({
+      altKey: event.altKey,
+      button: event.button,
+      ctrlKey: event.ctrlKey,
+      detail: event.detail,
+      metaKey: event.metaKey,
+      pointerType,
+      shiftKey: event.shiftKey,
+    })) return;
+    const textarea = event.currentTarget;
+    const range = getPublicSourceLineSelectionRange(textarea.value, textarea.selectionStart);
+    event.preventDefault();
+    textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(range.start, range.end, 'forward');
+    updateSelection(textarea);
   };
 
   const insertEntry = async (entry: PublicFlatInsertEntry) => {
@@ -125,6 +201,9 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
         value={source}
         onBlur={() => window.setTimeout(() => setSlashTrigger(null), 120)}
         onChange={handleChange}
+        onDoubleClick={handleDoubleClick}
+        onPaste={handlePaste}
+        onPointerDown={(event) => { lastPointerTypeRef.current = event.pointerType; }}
         onClick={(event) => {
           updateSlashTrigger(event.currentTarget.value, event.currentTarget.selectionStart);
           updateSelection(event.currentTarget);

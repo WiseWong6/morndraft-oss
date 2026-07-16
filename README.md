@@ -5,8 +5,11 @@ MornDraft OSS is the public local-first client for previewing, reviewing, and co
 ## What is included
 
 - Public preview syntax: Markdown, code blocks, JSON/JSON5, Mermaid, HTML preview, and MornDraft flat components.
-- Source and Final editing backed by one canonical Source document.
-- Browser-local import accepts one primary document plus local images (up to 10 files, 2 MiB of text, and 20 MiB per batch); images are compressed to data URLs and are never uploaded.
+- Source and Final editing backed by one canonical Source document, including full-line double-click selection and blank-space insertion in Final.
+- The complete formatting toolbar is available for reversible Markdown selections; code, tables, HTML, JSON, Mermaid, and cross-block selections remain disabled.
+- Deterministic JSON/JSON5 trailing-closure and Markdown fence repairs show a local diff before applying and provide one exact undo.
+- New documents infer a local title once from the filename or first meaningful Source line; the title drives the workspace header and PNG, PDF, and HTML download filenames without account, Draft Box, or localStorage persistence.
+- Browser-local import accepts one primary document plus local images (up to 10 files, 2 MiB of text, and 20 MiB per batch). Source and Markdown Final can also paste the first supported clipboard bitmap. Images are compressed to data URLs, never uploaded or moderated, and stripped from AI requests.
 - Browser-local OpenAI-compatible AI using a user-supplied Base URL and API Key, with separate generate, modify, and summarize models.
 - Browser-local delivery: copy image, download a scale-2 PNG, download an image-based A4 PDF, or save a portable standalone HTML file without a MornDraft API, quota, watermark, or hosted link.
 - Portable HTML keeps user-selected remote image, font, and CSS URLs as URLs; raw HTML and the rendered Markdown/mixed document remain inside opaque `allow-scripts` sandboxes without `allow-same-origin`.
