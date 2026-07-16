@@ -65,7 +65,7 @@ mv -Tf "$cutover_link" /srv/morndraft-static/current
 
 Use a fresh suffix for every attempt and stop if either `ln` or `readlink` fails; never move a temporary link left by an earlier attempt.
 
-Then set `MORNDRAFT_STAGE_ONLY=0`, install and test `nginx-morndraft-oss.conf`, run the pull service once, and only then enable the timer. The non-stage run intentionally revalidates GitHub and the artifact, verifies the live HTTPS body hash, and writes the deployment state:
+Then set `MORNDRAFT_STAGE_ONLY=0`, install and test `nginx-morndraft-oss.conf`, run the pull service once, and only then enable the timer. Before enabling the OSS site, move every enabled commercial MornDraft server block out of Nginx's active include paths while retaining a root-only rollback copy. There must be exactly one active `server_name morndraft.com` block: duplicate-name warnings are a cutover failure even when `nginx -t` exits successfully. The non-stage run intentionally revalidates GitHub and the artifact, verifies the live HTTPS body hash, and writes the deployment state:
 
 ```bash
 printf '%s\n' 'MORNDRAFT_STAGE_ONLY=0' > /etc/morndraft-oss/pull.conf
@@ -81,6 +81,8 @@ systemctl enable --now morndraft-oss-pull.timer
 ```
 
 The pull and rollback units turn `SIGTERM` and `SIGINT` into catchable deployment failures. Their explicit start timeouts therefore still restore the previous `current` link if systemd interrupts the process while post-switch health verification is pending.
+
+The pull service allows up to 15 minutes for a verified Actions artifact to cross slow international links and emits bounded, non-secret progress markers for metadata lookup, download, verification, and staging. Individual API and socket operations still keep their shorter fail-closed timeouts.
 
 The Nginx template intentionally has no upstream or API proxy. It serves only `morndraft.com`, returns `404` for retired application paths, treats hashed assets as immutable, keeps HTML uncached, and permits browser-side HTTPS OpenAI-compatible requests. It uses the current DigiCert paths during the first cutover. Only after Certbot issuance and `renew --dry-run` both succeed, switch the two directives to `/etc/letsencrypt/live/morndraft.com/fullchain.pem` and `/etc/letsencrypt/live/morndraft.com/privkey.pem`.
 

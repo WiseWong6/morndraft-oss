@@ -60,6 +60,10 @@ def raise_on_termination(signum, _frame) -> None:
     raise ReleaseError(f"Deployment interrupted by {signal_name}")
 
 
+def log(message: str) -> None:
+    print(f"[morndraft-oss-pull] {message}", flush=True)
+
+
 class BoundedReader:
     """Count bytes emitted by a decompressor and fail before its hard limit is crossed."""
 
@@ -803,13 +807,15 @@ def deploy_locked(args, *, releases_dir: Path, state_dir: Path, current_link: Pa
             source_sha=args.rollback,
             health_url=args.health_url,
         )
-        print(f"[morndraft-oss-pull] rolled back to {read_current_sha(current_link)}")
+        log(f"rolled back to {read_current_sha(current_link)}")
         return
 
     client = GitHubClient(read_credential())
+    log("checking the current main release workflow")
     run = find_current_successful_run(client)
     run_id = run["id"]
     source_sha = run["head_sha"]
+    log(f"selected {source_sha} from workflow run {run_id}")
     failed_marker = state_dir / "failed-runs" / f"{run_id}.json"
     if failed_marker.exists():
         raise ReleaseError("Current main release run is marked failed; a new main SHA is required")
@@ -817,22 +823,26 @@ def deploy_locked(args, *, releases_dir: Path, state_dir: Path, current_link: Pa
     if deployed_path.exists():
         deployed = strict_json_loads(deployed_path.read_bytes())
         if deployed.get("sourceSha") == source_sha and read_current_sha(current_link) == source_sha:
-            print(f"[morndraft-oss-pull] {source_sha} is already current")
+            log(f"{source_sha} is already current")
             return
 
+    log("checking the exact-SHA release artifact metadata")
     artifact, artifact_digest = find_release_artifact(client, run)
     with tempfile.TemporaryDirectory(prefix="morndraft-oss-artifact-", dir=state_dir) as temporary:
         artifact_path = Path(temporary) / "artifact.zip"
+        log(f"downloading artifact {artifact['id']} ({artifact['size_in_bytes']} bytes)")
         client.download(artifact["archive_download_url"], artifact_path)
+        log(f"downloaded {artifact_path.stat().st_size} bytes; verifying release contents")
         manifest, archive_bytes = validate_artifact_zip(
             artifact_path,
             expected_digest=artifact_digest,
             expected_run_id=run_id,
             expected_sha=source_sha,
         )
+    log(f"verified {source_sha}; staging the release directory")
     stage_release(releases_dir, manifest, archive_bytes)
     if args.stage_only:
-        print(f"[morndraft-oss-pull] staged {source_sha} without switching current")
+        log(f"staged {source_sha} without switching current")
         return
 
     expected_index = next(entry["sha256"] for entry in manifest["files"] if entry["path"] == "index.html")
@@ -852,7 +862,7 @@ def deploy_locked(args, *, releases_dir: Path, state_dir: Path, current_link: Pa
         {"sourceSha": source_sha, "workflowRunId": run_id, "artifactId": artifact["id"]},
     )
     cleanup_releases(releases_dir, source_sha)
-    print(f"[morndraft-oss-pull] deployed {source_sha} from workflow run {run_id}")
+    log(f"deployed {source_sha} from workflow run {run_id}")
 
 
 def deploy(args) -> None:
