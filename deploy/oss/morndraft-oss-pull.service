@@ -14,7 +14,7 @@ Environment=MORNDRAFT_HEALTH_URL=https://morndraft.com/
 EnvironmentFile=-/etc/morndraft-oss/pull.conf
 LoadCredential=github_token:/etc/morndraft-oss/credentials/github_token
 ExecStart=/usr/bin/python3 /usr/local/libexec/morndraft-oss-pull
-TimeoutStartSec=5min
+TimeoutStartSec=15min
 TimeoutStopSec=30s
 
 NoNewPrivileges=yes
