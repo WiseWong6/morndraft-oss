@@ -217,6 +217,159 @@ try {
   assert.ok(layout.editor.height >= 650, `Source editor collapsed to ${layout.editor.height}px.`);
   assert.ok(layout.textarea.height >= 650, `Source textarea collapsed to ${layout.textarea.height}px.`);
 
+  await sourceEditor.fill('first\nsecond line\nthird');
+  const sourceLineSelection = await sourceEditor.evaluate((textarea) => {
+    textarea.focus();
+    textarea.setSelectionRange(8, 8);
+    textarea.dispatchEvent(new globalThis.PointerEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      pointerType: 'mouse',
+    }));
+    textarea.dispatchEvent(new MouseEvent('dblclick', {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      detail: 2,
+    }));
+    return {
+      end: textarea.selectionEnd,
+      start: textarea.selectionStart,
+      text: textarea.value.slice(textarea.selectionStart, textarea.selectionEnd),
+    };
+  });
+  assert.deepEqual(
+    sourceLineSelection,
+    { start: 6, end: 17, text: 'second line' },
+    'Source double-click must select one physical line without its newline.',
+  );
+
+  const repairBefore = '# Repair\n\n```markdown\nbody';
+  const repairAfter = `${repairBefore}\n\`\`\``;
+  await sourceEditor.fill(repairBefore);
+  await page.getByRole('button', { name: /^(Check repair|检查修复)$/u }).click();
+  const repairDialog = page.getByRole('dialog', { name: /^(Confirm deterministic repair|确认确定性修复)$/u });
+  await repairDialog.waitFor({ state: 'visible' });
+  await repairDialog.getByRole('button', { name: /^(Apply repair|应用修复)$/u }).click();
+  assert.equal(await sourceEditor.inputValue(), repairAfter);
+  await page.evaluate((content) => {
+    const input = document.querySelector('.md-public-file-input');
+    if (!(input instanceof HTMLInputElement)) throw new Error('Missing public import file input.');
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([content], 'same-repair.md', { type: 'text/markdown' }));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }, repairAfter);
+  await page.locator('.md-public-status--done').waitFor({ state: 'visible' });
+  assert.equal(
+    await page.getByRole('button', { name: /^(Undo repair|撤销修复)$/u }).count(),
+    0,
+    'A same-source document replacement must invalidate the previous document repair undo.',
+  );
+  assert.equal(await page.locator('.md-public-title').textContent(), 'same-repair');
+  const [htmlDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByTestId('oss-delivery-download-html').click(),
+  ]);
+  assert.equal(htmlDownload.suggestedFilename(), 'same-repair.html');
+  await htmlDownload.delete();
+
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  await sourceEditor.fill('Alpha beta');
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
+  const formatParagraph = page.locator('.md-public-markdown-preview > p').first();
+  await formatParagraph.evaluate((element) => {
+    const text = element.firstChild;
+    if (!text || text.nodeType !== Node.TEXT_NODE) throw new Error('Missing format fixture text.');
+    const range = element.ownerDocument.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 5);
+    const selection = element.ownerDocument.defaultView?.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  });
+  const boldButton = page.getByRole('button', { name: /^(Bold|粗体)$/u });
+  assert.equal(await boldButton.isDisabled(), false);
+  await boldButton.click();
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  assert.equal(await sourceEditor.inputValue(), '**Alpha** beta');
+
+  await sourceEditor.fill('[Alpha](https://example.com)');
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
+  const linkParagraph = page.locator('.md-public-markdown-preview > p').first();
+  await linkParagraph.evaluate((element) => {
+    const text = element.querySelector('a')?.firstChild;
+    if (!text || text.nodeType !== Node.TEXT_NODE) throw new Error('Missing link fixture text.');
+    const range = element.ownerDocument.createRange();
+    range.selectNodeContents(text);
+    const selection = element.ownerDocument.defaultView?.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  });
+  assert.equal(
+    await page.getByRole('button', { name: /^(Bold|粗体)$/u }).isDisabled(),
+    true,
+    'Unsupported inline markup must disable inline formatting instead of silently failing.',
+  );
+  assert.equal(
+    await page.getByRole('combobox', { name: /^(Paragraph format|段落格式)$/u }).isDisabled(),
+    false,
+    'A Markdown link at the start of the document must not be misclassified as raw JSON.',
+  );
+
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  await sourceEditor.fill('First line\n\nSecond line');
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
+  const finalParagraphs = page.locator('.md-public-markdown-preview > p');
+  await finalParagraphs.nth(0).dblclick();
+  assert.equal(
+    await page.evaluate(() => window.getSelection()?.toString() ?? ''),
+    'First line',
+    'Final double-click must select the complete reversible Markdown line.',
+  );
+  await page.locator('.md-public-final-document').evaluate((documentRoot) => {
+    const blocks = [...documentRoot.querySelectorAll('[data-public-final-block="true"]')];
+    const first = blocks.at(0)?.getBoundingClientRect();
+    const second = blocks.at(1)?.getBoundingClientRect();
+    if (!first || !second) throw new Error('Missing blank-line insertion blocks.');
+    documentRoot.dispatchEvent(new globalThis.PointerEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: first.left + 8,
+      clientY: (first.bottom + second.top) / 2,
+      pointerType: 'mouse',
+    }));
+  });
+  const blankLineInput = page.getByPlaceholder(/^(Type a new paragraph|输入新段落)$/u);
+  await blankLineInput.fill('Inserted line');
+  await blankLineInput.press('Enter');
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  assert.equal(await sourceEditor.inputValue(), 'First line\n\nInserted line\n\nSecond line');
+
+  const clipboardPixelBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  await sourceEditor.fill('before\n\nafter');
+  await sourceEditor.evaluate((textarea, base64) => {
+    const bytes = Uint8Array.from(globalThis.atob(base64), character => character.charCodeAt(0));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([bytes], 'pasted.png', { type: 'image/png' }));
+    textarea.focus();
+    textarea.setSelectionRange(8, 8);
+    const paste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', { value: transfer });
+    textarea.dispatchEvent(paste);
+  }, clipboardPixelBase64);
+  await page.waitForFunction(() => {
+    const textarea = document.querySelector('.md-public-source-editor textarea');
+    return textarea instanceof globalThis.HTMLTextAreaElement && textarea.value.includes('![pasted.png](data:image/');
+  });
+  assert.match(await sourceEditor.inputValue(), /^before\n\n!\[pasted\.png\]\(data:image\/(?:avif|webp|png);base64,/u);
+
   await sourceEditor.fill('/');
   const insertMenu = page.getByRole('menu', { name: /^(Insert content|插入内容)$/u });
   await insertMenu.waitFor({ state: 'visible' });
