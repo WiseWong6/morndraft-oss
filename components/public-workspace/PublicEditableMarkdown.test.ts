@@ -35,6 +35,32 @@ test('Final exposes contentEditable only for reversible Markdown blocks', () => 
   assert.match(hardBreak, /data-public-final-reversible="false"/u);
 });
 
+test('Final renders only the safe inline formatting vocabulary as reversible DOM', () => {
+  const safe = renderFinalMarkdown('<span style="color: #244E3A; font-size: 18px">Alpha</span> <u>Beta</u> <mark>Gamma</mark>');
+  assert.match(safe, /<span style="color:#244E3A;font-size:18px">Alpha<\/span>/u);
+  assert.match(safe, /<u>Beta<\/u>/u);
+  assert.match(safe, /<mark>Gamma<\/mark>/u);
+  assert.match(safe, /contentEditable="true"/u);
+  assert.match(safe, /data-public-final-reversible="true"/u);
+
+  const unsafe = renderFinalMarkdown('<span style="background-image: url(javascript:alert(1))">Unsafe</span><script>alert(1)</script>');
+  assert.doesNotMatch(unsafe, /background-image|javascript:|<script/u);
+});
+
+test('Final preserves valid percent-encoded local image bytes but rejects malformed escapes', () => {
+  const valid = renderFinalMarkdown('![valid](data:image/png;base64,iVBORw0KGgo%0A=)');
+  assert.match(valid, /src="data:image\/png;base64,iVBORw0KGgo%0A="/u);
+
+  const malformed = renderFinalMarkdown('![invalid](data:image/png;base64,iVBORw0KGgo%0G=)');
+  assert.doesNotMatch(malformed, /src="data:image/u);
+});
+
+test('Final canonicalizes case-insensitive local image data URL prefixes', () => {
+  const upper = renderFinalMarkdown('![pixel](DATA:IMAGE/PNG;BASE64,iVBORw0KGgo=)');
+  assert.match(upper, /src="data:image\/png;base64,iVBORw0KGgo="/u);
+  assert.doesNotMatch(upper, /DATA:IMAGE|BASE64/u);
+});
+
 test('irreversible Markdown AST nodes fail the Final editability guard', () => {
   assert.equal(isPublicMarkdownNodeSafelyEditable({
     type: 'element',

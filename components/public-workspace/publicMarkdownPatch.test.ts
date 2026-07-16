@@ -341,6 +341,22 @@ test('unsupported inline HTML fails closed instead of corrupting source', () => 
   }), null);
 });
 
+test('safe public inline format tags preserve exact rendered selection mapping', () => {
+  const source = '<span style="color: #244E3A">Alpha</span> <u>Beta</u> <mark>Gamma</mark>';
+  const visibleText = 'Alpha Beta Gamma';
+  for (const selected of ['Alpha', 'Beta', 'Gamma']) {
+    const visibleStart = visibleText.indexOf(selected);
+    const resolved = resolvePublicMarkdownVisibleSourceRange({
+      source,
+      range: { start: 0, end: source.length },
+      visibleText,
+      visibleStart,
+      visibleEnd: visibleStart + selected.length,
+    });
+    assert.equal(resolved?.sourceText, selected);
+  }
+});
+
 test('rendered selections map through formatting, links, entities, repeats, and emoji', () => {
   const source = '**bold** [label](https://example.com) &amp; repeat repeat 😀';
   const visibleText = 'bold label & repeat repeat 😀';

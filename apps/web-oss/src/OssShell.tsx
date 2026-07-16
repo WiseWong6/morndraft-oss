@@ -1,14 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  PublicDialog,
-  PublicWorkspace,
-  createLocalPublicImportAdapter,
-  type PublicDeliveryAdapter,
-  type PublicDeliveryInput,
-  type PublicWorkspaceLocale,
-  type PublicWorkspaceTheme,
-  type SourceChangeMeta,
-} from '../../../components/public-workspace';
+import { PublicDialog } from '../../../components/public-workspace/PublicDialog';
+import { PublicWorkspace } from '../../../components/public-workspace/PublicWorkspace';
+import { createLocalPublicImportAdapter } from '../../../components/public-workspace/publicImport';
+import { inferPublicDocumentTitle } from '../../../components/public-workspace/publicTitleInference';
+import type {
+  PublicDeliveryAdapter,
+  PublicDeliveryInput,
+  PublicWorkspaceLocale,
+  PublicWorkspaceTheme,
+  SourceChangeMeta,
+} from '../../../components/public-workspace/types';
 import {
   PUBLIC_AI_CONFIG_REQUEST_EVENT,
   PublicAiSettingsForm,
@@ -69,6 +70,10 @@ export const OssShell: React.FC = () => {
   const [locale, setLocale] = useState<PublicWorkspaceLocale>(() => readPreference(LOCALE_KEY, ['zh', 'en'], 'zh'));
   const [theme, setTheme] = useState<PublicWorkspaceTheme>(() => readPreference(THEME_KEY, ['light', 'dark'], 'light'));
   const [source, setSource] = useState(INITIAL_SOURCE);
+  const [title, setTitle] = useState(() => inferPublicDocumentTitle({
+    fallbackTitle: 'MornDraft OSS',
+    source: INITIAL_SOURCE,
+  }).title);
   const [documentEpoch, setDocumentEpoch] = useState(0);
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [aiConfig, setAiConfig] = useState<PublicAiConfig>(() => readPublicAiConfig());
@@ -99,7 +104,10 @@ export const OssShell: React.FC = () => {
 
   const handleSourceChange = useCallback((next: string, meta: SourceChangeMeta) => {
     setSource(next);
-    if (meta.resetDocument) setDocumentEpoch((value) => value + 1);
+    if (meta.resetDocument) {
+      setDocumentEpoch((value) => value + 1);
+      if (meta.suggestedTitle) setTitle(meta.suggestedTitle);
+    }
   }, []);
 
   return (
@@ -112,7 +120,7 @@ export const OssShell: React.FC = () => {
         locale={locale}
         source={source}
         theme={theme}
-        title="MornDraft OSS"
+        title={title}
         onLocaleChange={setLocale}
         onAiSettingsOpen={openAiSettings}
         onSourceChange={handleSourceChange}
