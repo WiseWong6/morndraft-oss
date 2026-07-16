@@ -8,10 +8,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: oss-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  check:
+  quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -27,17 +31,94 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: python3 -m unittest discover -s deploy/oss -p 'test_*.py'
+      - run: npm audit --audit-level=high
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
       - run: npm run build:oss
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: oss-ci-dist-${{ github.run_id }}
+          path: dist/oss
+          if-no-files-found: error
+          retention-days: 1
+
+  editing_e2e:
+    name: editing-e2e
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: oss-ci-dist-${{ github.run_id }}
+          path: dist/oss
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e:oss:editing
+      - if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: oss-editing-e2e-evidence-${{ github.run_id }}
+          path: output/playwright/oss-editing-layout
+          if-no-files-found: ignore
+          retention-days: 7
+
+  full_e2e:
+    name: full-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e:oss
       - if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: oss-e2e-evidence
-          path: |
-            output/playwright/oss-editing-layout
-            output/playwright/oss-e2e
+          name: oss-full-e2e-evidence-${{ github.run_id }}
+          path: output/playwright/oss-e2e
           if-no-files-found: ignore
           retention-days: 7
-      - run: npm audit --audit-level=high
+
+  check:
+    if: always()
+    needs: [quality, build, editing_e2e, full_e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every OSS gate
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          EDITING_E2E_RESULT: ${{ needs.editing_e2e.result }}
+          FULL_E2E_RESULT: ${{ needs.full_e2e.result }}
+        run: |
+          test "$QUALITY_RESULT" = success
+          test "$BUILD_RESULT" = success
+          test "$EDITING_E2E_RESULT" = success
+          test "$FULL_E2E_RESULT" = success

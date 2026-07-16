@@ -1,0 +1,37 @@
+[Unit]
+Description=Roll MornDraft OSS back to release %i
+Documentation=https://github.com/WiseWong6/morndraft-oss/tree/main/deploy/oss
+Wants=network-online.target
+After=network-online.target nginx.service
+
+[Service]
+Type=oneshot
+User=morndraft-release
+Group=morndraft-release
+UMask=0027
+Environment=MORNDRAFT_STATIC_ROOT=/srv/morndraft-static
+Environment=MORNDRAFT_HEALTH_URL=https://morndraft.com/
+EnvironmentFile=-/etc/morndraft-oss/pull.conf
+ExecStart=/usr/bin/python3 /usr/local/libexec/morndraft-oss-pull --rollback %i
+
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectProc=invisible
+ProtectSystem=strict
+ReadWritePaths=/srv/morndraft-static
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
