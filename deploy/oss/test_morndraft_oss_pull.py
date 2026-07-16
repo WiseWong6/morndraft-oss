@@ -100,6 +100,36 @@ class PullReleaseTests(unittest.TestCase):
         self.assertIn("location ^~ /admin {\n        return 404;\n    }", nginx)
         self.assertNotIn("proxy_pass", nginx)
 
+    def test_nginx_caches_only_successful_static_resources(self):
+        nginx = (Path(__file__).parent / "nginx-morndraft-oss.conf").read_text(encoding="utf-8")
+
+        self.assertIn('map "$status:$uri" $morndraft_cache_control {', nginx)
+        self.assertIn(
+            '~^(?:200|206|304):/assets/ "public, max-age=31536000, immutable";',
+            nginx,
+        )
+        self.assertIn(
+            '~^(?:200|304):/fonts/morndraft-fonts-critical\\.css$ '
+            '"public, max-age=300, must-revalidate";',
+            nginx,
+        )
+        self.assertIn(
+            '~^(?:200|206|304):/fonts/noto-sc/[^/]+\\.woff2$ '
+            '"public, max-age=86400, must-revalidate";',
+            nginx,
+        )
+        self.assertIn(
+            '~^(?:200|206|304):/morndraft-icon-(?:dark|light)\\.webp$ '
+            '"public, max-age=86400, must-revalidate";',
+            nginx,
+        )
+        self.assertIn("location ^~ /fonts/ {\n        try_files $uri =404;", nginx)
+        self.assertIn(
+            "location ~ ^/morndraft-icon-(?:dark|light)\\.webp$ {\n"
+            "        try_files $uri =404;",
+            nginx,
+        )
+
     def test_stage_progress_is_ordered_and_does_not_log_credentials_or_signed_urls(self):
         run = {"id": RUN_ID, "head_sha": SOURCE_SHA}
         signed_url = "https://api.github.com/artifact?sig=DO_NOT_LOG"
