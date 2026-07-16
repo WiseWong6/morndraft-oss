@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import stat
 import tarfile
@@ -67,6 +68,17 @@ def build_release(files, *, source_sha=SOURCE_SHA, run_id=RUN_ID):
 
 
 class PullReleaseTests(unittest.TestCase):
+    def test_systemd_units_bound_runtime_and_preserve_recovery_window(self):
+        deploy_dir = Path(__file__).parent
+        pull_unit = (deploy_dir / "morndraft-oss-pull.service").read_text(encoding="utf-8")
+        rollback_unit = (deploy_dir / "morndraft-oss-rollback@.service").read_text(encoding="utf-8")
+
+        self.assertIn("UMask=0027\n", pull_unit)
+        self.assertIn("TimeoutStartSec=5min\n", pull_unit)
+        self.assertIn("TimeoutStopSec=30s\n", pull_unit)
+        self.assertIn("TimeoutStartSec=90s\n", rollback_unit)
+        self.assertIn("TimeoutStopSec=30s\n", rollback_unit)
+
     def test_validates_and_extracts_every_manifest_file(self):
         files = {"assets/app.js": b"console.log('oss')\n", "index.html": b"<!doctype html>\n"}
         manifest, _, artifact_bytes = build_release(files)
@@ -84,6 +96,47 @@ class PullReleaseTests(unittest.TestCase):
             pull.extract_verified_tar(archive_bytes, validated, release_dir)
             self.assertEqual((release_dir / "index.html").read_bytes(), files["index.html"])
             pull.verify_release_directory(release_dir, validated)
+
+    def test_static_directories_stay_public_under_restrictive_umask(self):
+        files = {
+            "assets/nested/app.js": b"console.log('oss')\n",
+            "index.html": b"<!doctype html>\n",
+        }
+        manifest, archive_bytes, _ = build_release(files)
+        with tempfile.TemporaryDirectory() as temporary:
+            release_dir = Path(temporary) / "release"
+            previous_umask = os.umask(0o027)
+            try:
+                pull.extract_verified_tar(archive_bytes, manifest, release_dir)
+            finally:
+                os.umask(previous_umask)
+
+            directories = [release_dir, release_dir / "assets", release_dir / "assets" / "nested"]
+            self.assertEqual(
+                [stat.S_IMODE(path.stat().st_mode) for path in directories],
+                [0o755, 0o755, 0o755],
+            )
+
+    def test_existing_verified_release_repairs_old_directory_modes(self):
+        files = {
+            "assets/nested/app.js": b"console.log('oss')\n",
+            "index.html": b"<!doctype html>\n",
+        }
+        manifest, archive_bytes, _ = build_release(files)
+        with tempfile.TemporaryDirectory() as temporary:
+            releases = Path(temporary) / "releases"
+            releases.mkdir()
+            release_dir = releases / SOURCE_SHA
+            pull.extract_verified_tar(archive_bytes, manifest, release_dir)
+            directories = [release_dir, release_dir / "assets", release_dir / "assets" / "nested"]
+            for path in directories:
+                path.chmod(0o750)
+
+            self.assertEqual(pull.stage_release(releases, manifest, archive_bytes), release_dir)
+            self.assertEqual(
+                [stat.S_IMODE(path.stat().st_mode) for path in directories],
+                [0o755, 0o755, 0o755],
+            )
 
     def test_rejects_outer_zip_path_traversal(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -141,6 +194,85 @@ class PullReleaseTests(unittest.TestCase):
             current.symlink_to(f"/tmp/{SOURCE_SHA}")
             with self.assertRaisesRegex(pull.ReleaseError, "releases/<exact-sha>"):
                 pull.read_current_sha(current)
+
+    def test_failed_first_switch_removes_current_link(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "releases" / SOURCE_SHA).mkdir(parents=True)
+            current = root / "current"
+            with patch.object(pull, "verify_health", side_effect=pull.ReleaseError("offline")):
+                with self.assertRaisesRegex(pull.LiveVerificationError, "offline"):
+                    pull.switch_and_verify(
+                        current,
+                        SOURCE_SHA,
+                        "https://morndraft.com/",
+                        "0" * 64,
+                    )
+            self.assertFalse(current.exists())
+            self.assertFalse(current.is_symlink())
+
+    def test_failed_switch_restores_previous_release(self):
+        previous_sha = "abcdef1234567890abcdef1234567890abcdef12"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "releases" / SOURCE_SHA).mkdir(parents=True)
+            (root / "releases" / previous_sha).mkdir(parents=True)
+            current = root / "current"
+            current.symlink_to(f"releases/{previous_sha}")
+            with patch.object(pull, "verify_health", side_effect=pull.ReleaseError("mismatch")):
+                with self.assertRaisesRegex(pull.LiveVerificationError, "mismatch"):
+                    pull.switch_and_verify(
+                        current,
+                        SOURCE_SHA,
+                        "https://morndraft.com/",
+                        "0" * 64,
+                    )
+            self.assertEqual(pull.read_current_sha(current), previous_sha)
+
+    def test_interruption_after_replace_restores_previous_release(self):
+        previous_sha = "abcdef1234567890abcdef1234567890abcdef12"
+        real_atomic_switch = pull.atomic_switch
+        calls = 0
+
+        def switch_then_interrupt(current_link, source_sha):
+            nonlocal calls
+            calls += 1
+            previous = real_atomic_switch(current_link, source_sha)
+            if calls == 1:
+                raise pull.ReleaseError("Deployment interrupted by SIGTERM")
+            return previous
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "releases" / SOURCE_SHA).mkdir(parents=True)
+            (root / "releases" / previous_sha).mkdir(parents=True)
+            current = root / "current"
+            current.symlink_to(f"releases/{previous_sha}")
+            with patch.object(pull, "atomic_switch", side_effect=switch_then_interrupt):
+                with self.assertRaisesRegex(pull.LiveVerificationError, "SIGTERM"):
+                    pull.switch_and_verify(
+                        current,
+                        SOURCE_SHA,
+                        "https://morndraft.com/",
+                        "0" * 64,
+                    )
+            self.assertEqual(pull.read_current_sha(current), previous_sha)
+
+    def test_local_switch_error_before_activation_is_not_live_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "releases" / SOURCE_SHA).mkdir(parents=True)
+            current = root / "current"
+            current.symlink_to(f"releases/{SOURCE_SHA}")
+            with patch.object(pull, "atomic_switch", side_effect=OSError("permission denied")):
+                with self.assertRaisesRegex(OSError, "permission denied"):
+                    pull.switch_and_verify(
+                        current,
+                        SOURCE_SHA,
+                        "https://morndraft.com/",
+                        "0" * 64,
+                    )
+            self.assertEqual(pull.read_current_sha(current), SOURCE_SHA)
 
     def test_cleanup_keeps_exactly_five_releases_including_current(self):
         with tempfile.TemporaryDirectory() as temporary:

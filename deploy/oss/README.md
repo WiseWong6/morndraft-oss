@@ -52,15 +52,35 @@ systemctl daemon-reload
 systemctl start morndraft-oss-pull.service
 ```
 
-Inspect `/srv/morndraft-static/releases/<sha>`, point a temporary Nginx server at that exact directory, and complete browser acceptance. Then set `MORNDRAFT_STAGE_ONLY=0`, install and test `nginx-morndraft-oss.conf`, run the pull service once, and only then enable the timer:
+Inspect `/srv/morndraft-static/releases/<sha>`, confirm every static directory is mode `0755`, point a temporary Nginx server at that exact directory, and complete browser acceptance. Before reloading the main Nginx configuration, create `current` as a strict relative link to that already verified exact-SHA directory. Preparing the link first prevents the new Nginx root from ever pointing at a missing path during the initial cutover:
+
+```bash
+set -eu
+release_sha="<40-character-sha>"
+cutover_link="/srv/morndraft-static/.current.initial-$(cat /proc/sys/kernel/random/uuid)"
+ln -s "releases/$release_sha" "$cutover_link"
+test "$(readlink "$cutover_link")" = "releases/$release_sha"
+mv -Tf "$cutover_link" /srv/morndraft-static/current
+```
+
+Use a fresh suffix for every attempt and stop if either `ln` or `readlink` fails; never move a temporary link left by an earlier attempt.
+
+Then set `MORNDRAFT_STAGE_ONLY=0`, install and test `nginx-morndraft-oss.conf`, run the pull service once, and only then enable the timer. The non-stage run intentionally revalidates GitHub and the artifact, verifies the live HTTPS body hash, and writes the deployment state:
 
 ```bash
 printf '%s\n' 'MORNDRAFT_STAGE_ONLY=0' > /etc/morndraft-oss/pull.conf
 nginx -t
 systemctl reload nginx
 systemctl start morndraft-oss-pull.service
+```
+
+Keep the reviewed commercial Nginx configuration available until that first non-stage health check and the live browser acceptance both pass. If either fails, restore that configuration and reload Nginx before investigating; the puller can roll back between retained static releases, but it does not manage the one-time commercial Nginx rollback. Enable the timer only after both gates pass:
+
+```bash
 systemctl enable --now morndraft-oss-pull.timer
 ```
+
+The pull and rollback units turn `SIGTERM` and `SIGINT` into catchable deployment failures. Their explicit start timeouts therefore still restore the previous `current` link if systemd interrupts the process while post-switch health verification is pending.
 
 The Nginx template intentionally has no upstream or API proxy. It serves only `morndraft.com`, returns `404` for retired application paths, treats hashed assets as immutable, keeps HTML uncached, and permits browser-side HTTPS OpenAI-compatible requests. It uses the current DigiCert paths during the first cutover. Only after Certbot issuance and `renew --dry-run` both succeed, switch the two directives to `/etc/letsencrypt/live/morndraft.com/fullchain.pem` and `/etc/letsencrypt/live/morndraft.com/privkey.pem`.
 
