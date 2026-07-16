@@ -26,6 +26,8 @@ This file lists the exact direct dependency versions kept in the generated publi
 | `react` | 19.2.4 | MIT |
 | `react-dom` | 19.2.4 | MIT |
 | `react-markdown` | 10.1.0 | MIT |
+| `rehype-raw` | 7.0.0 | MIT |
+| `rehype-sanitize` | 6.0.0 | MIT |
 | `remark-gfm` | 4.0.1 | MIT |
 | `tsx` | 4.22.3 | MIT |
 | `typescript` | 5.8.3 | Apache-2.0 |
