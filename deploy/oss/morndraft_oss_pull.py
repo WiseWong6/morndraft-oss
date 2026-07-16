@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import stat
 import sys
 import tarfile
@@ -39,6 +40,24 @@ MAX_TAR_STREAM_BYTES = MAX_UNPACKED_BYTES + (MAX_RELEASE_FILES * 1024) + (1024 *
 
 class ReleaseError(RuntimeError):
     """A validation or deployment gate failed."""
+
+
+class LiveVerificationError(ReleaseError):
+    """The target became current but did not complete live verification."""
+
+    def __init__(self, cause: Exception):
+        super().__init__(str(cause))
+        self.reason = type(cause).__name__
+
+
+def raise_on_termination(signum, _frame) -> None:
+    """Turn service termination into a catchable deployment failure."""
+
+    try:
+        signal_name = signal.Signals(signum).name
+    except ValueError:
+        signal_name = str(signum)
+    raise ReleaseError(f"Deployment interrupted by {signal_name}")
 
 
 class BoundedReader:
@@ -334,6 +353,21 @@ def inspect_tar(archive_bytes: bytes, manifest: dict) -> None:
         raise ReleaseError("Release archive is missing files declared by the manifest")
 
 
+def ensure_public_directory_modes(root_dir: Path) -> None:
+    """Keep verified static directories traversable despite the service umask."""
+
+    for root, directories, _ in os.walk(root_dir, followlinks=False):
+        root_path = Path(root)
+        if root_path.is_symlink():
+            raise ReleaseError("Release directory contains a symbolic link")
+        root_path.chmod(0o755)
+        for directory in directories:
+            directory_path = root_path / directory
+            if directory_path.is_symlink():
+                raise ReleaseError("Release directory contains a symbolic link")
+            directory_path.chmod(0o755)
+
+
 def extract_verified_tar(archive_bytes: bytes, manifest: dict, target_dir: Path) -> None:
     inspect_tar(archive_bytes, manifest)
     target_dir.mkdir(mode=0o755)
@@ -360,6 +394,9 @@ def extract_verified_tar(archive_bytes: bytes, manifest: dict, target_dir: Path)
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        # The service deliberately keeps a restrictive umask for state files.
+        # Static directories must nevertheless remain traversable by Nginx.
+        ensure_public_directory_modes(target_dir)
     except Exception:
         shutil.rmtree(target_dir, ignore_errors=True)
         raise
@@ -549,6 +586,7 @@ def stage_release(
         if not release_dir.is_dir() or release_dir.is_symlink():
             raise ReleaseError("Exact-SHA release path exists but is not a regular directory")
         verify_release_directory(release_dir, manifest)
+        ensure_public_directory_modes(release_dir)
         return release_dir
     for stale in releases_dir.glob(f".{source_sha}.staging-*"):
         if stale.is_dir() and not stale.is_symlink():
@@ -586,6 +624,37 @@ def atomic_switch(current_link: Path, source_sha: str) -> str | None:
         os.replace(next_link, current_link)
     finally:
         next_link.unlink(missing_ok=True)
+    return previous_sha
+
+
+def switch_and_verify(
+    current_link: Path,
+    source_sha: str,
+    health_url: str,
+    expected_index_sha256: str,
+) -> str | None:
+    """Switch to a release and restore the prior link on any failure or signal."""
+
+    previous_sha = read_current_sha(current_link)
+    switch_completed = False
+    try:
+        atomic_switch(current_link, source_sha)
+        switch_completed = True
+        verify_health(health_url, expected_index_sha256)
+    except Exception as cause:
+        # Re-read the link because SIGTERM can arrive after os.replace() but
+        # before atomic_switch() returns to this frame.
+        active_sha = read_current_sha(current_link)
+        target_became_current = active_sha == source_sha and (
+            switch_completed or previous_sha != source_sha
+        )
+        if target_became_current:
+            if previous_sha and previous_sha != source_sha:
+                atomic_switch(current_link, previous_sha)
+            elif previous_sha is None:
+                current_link.unlink(missing_ok=True)
+            raise LiveVerificationError(cause) from cause
+        raise
     return previous_sha
 
 
@@ -704,13 +773,7 @@ def rollback_release(
     outgoing_manifest = None
     if outgoing_sha and outgoing_sha != source_sha:
         _, outgoing_manifest = load_installed_manifest(releases_dir, outgoing_sha)
-    old_sha = atomic_switch(current_link, source_sha)
-    try:
-        verify_health(health_url, expected_index)
-    except Exception:
-        if old_sha:
-            atomic_switch(current_link, old_sha)
-        raise
+    old_sha = switch_and_verify(current_link, source_sha, health_url, expected_index)
     if old_sha:
         (state_dir / "previous-sha").write_text(f"{old_sha}\n", encoding="ascii")
     if outgoing_manifest is not None:
@@ -773,17 +836,13 @@ def deploy_locked(args, *, releases_dir: Path, state_dir: Path, current_link: Pa
         return
 
     expected_index = next(entry["sha256"] for entry in manifest["files"] if entry["path"] == "index.html")
-    previous_sha = atomic_switch(current_link, source_sha)
+    previous_sha = read_current_sha(current_link)
     try:
-        verify_health(args.health_url, expected_index)
-    except Exception as cause:
-        if previous_sha:
-            atomic_switch(current_link, previous_sha)
-        else:
-            current_link.unlink(missing_ok=True)
+        switch_and_verify(current_link, source_sha, args.health_url, expected_index)
+    except LiveVerificationError as cause:
         write_json_atomic(
             failed_marker,
-            {"sourceSha": source_sha, "workflowRunId": run_id, "reason": type(cause).__name__},
+            {"sourceSha": source_sha, "workflowRunId": run_id, "reason": cause.reason},
         )
         raise
     if previous_sha and previous_sha != source_sha:
@@ -834,6 +893,8 @@ def parse_args(argv: list[str]):
 
 
 def main(argv: list[str] | None = None) -> int:
+    signal.signal(signal.SIGTERM, raise_on_termination)
+    signal.signal(signal.SIGINT, raise_on_termination)
     try:
         deploy(parse_args(sys.argv[1:] if argv is None else argv))
         return 0

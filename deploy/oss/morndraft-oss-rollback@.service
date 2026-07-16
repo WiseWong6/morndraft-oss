@@ -13,6 +13,8 @@ Environment=MORNDRAFT_STATIC_ROOT=/srv/morndraft-static
 Environment=MORNDRAFT_HEALTH_URL=https://morndraft.com/
 EnvironmentFile=-/etc/morndraft-oss/pull.conf
 ExecStart=/usr/bin/python3 /usr/local/libexec/morndraft-oss-pull --rollback %i
+TimeoutStartSec=90s
+TimeoutStopSec=30s
 
 NoNewPrivileges=yes
 PrivateDevices=yes
