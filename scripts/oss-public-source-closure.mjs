@@ -5,6 +5,7 @@ import { normalizeExternalPackageSpecifier } from './oss-public-distribution.mjs
 
 export const OSS_PUBLIC_WORKSPACE_ALIASES = Object.freeze(new Map([
   ['@morndraft/release-app', 'apps/web-oss/src/PublicAppImpl.tsx'],
+  ['@morndraft/core/oss-json-repair', 'packages/core/src/artifact-document-analysis.js'],
   ['@morndraft/core/oss-public', 'packages/core/src/oss-public.ts'],
   ['@morndraft/features-personal/ai', 'packages/features-personal/src/ai/index.ts'],
   ['@morndraft/public-delivery', 'packages/public-delivery/src/index.ts'],

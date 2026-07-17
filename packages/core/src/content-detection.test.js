@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 
 import {
   detectArtifactContent,
@@ -132,6 +133,23 @@ test('detectArtifactContent keeps rich inline HTML Markdown editable', () => {
   assert.equal(detectArtifactContent(styledText).primaryType, 'markdown');
   assert.equal(detectArtifactContent(styledTable).primaryType, 'markdown');
   assert.equal(detectArtifactContent(styledHeading).primaryType, 'markdown');
+});
+
+test('HTML and fence detection stay linear on repeated uncontrolled prefixes', () => {
+  const openingFence = `\`\`\`${'\t'.repeat(512 * 1024)}html-preview ignored`;
+  const standaloneSource = [
+    openingFence,
+    '<!doctype html><html><body>Preview</body></html>',
+    '```',
+  ].join('\n');
+  const repeatedOpeningTags = `Prefix ${'<a '.repeat(160_000)}</a>`;
+  const repeatedInlineAttributes = `# ${'<span '.repeat(100_000)}>`;
+  const startedAt = performance.now();
+
+  assert.match(extractStandaloneHtmlPreviewFence(standaloneSource)?.html ?? '', /Preview/u);
+  assert.equal(looksLikeHtml(repeatedOpeningTags), true);
+  assert.equal(detectArtifactContent(repeatedInlineAttributes).primaryType, 'markdown');
+  assert.ok(performance.now() - startedAt < 1_500);
 });
 
 test('detectArtifactContent routes pure HTML and pure Mermaid to preview blocks', () => {
