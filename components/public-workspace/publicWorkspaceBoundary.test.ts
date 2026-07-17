@@ -20,6 +20,11 @@ const standaloneImplementationSources = readdirSync(directory)
   .join('\n');
 const finalPreviewSource = readFileSync(join(directory, 'PublicFinalPreview.tsx'), 'utf8');
 const publicImportSource = readFileSync(join(directory, 'publicImport.ts'), 'utf8');
+const publicSourceEditorSource = readFileSync(join(directory, 'PublicSourceEditor.tsx'), 'utf8');
+const publicEditableMarkdownSource = readFileSync(
+  join(directory, 'PublicEditableMarkdown.tsx'),
+  'utf8',
+);
 const publicDistribution = JSON.parse(
   readFileSync(join(directory, '../../profiles/oss-public-distribution.json'), 'utf8'),
 ) as { copyFiles: string[] };
@@ -109,6 +114,20 @@ test('Final uses rendered contenteditable blocks and keeps HTML frames stable', 
     finalPreviewSource,
     /content=\{source\.slice\(segment\.start, segment\.end\)\}/u,
     'ordinary raw and mixed Markdown fences must keep their exact wrapper in the editable Markdown path',
+  );
+});
+
+test('Source and Final wire mouse double-click selection through the public line helper', () => {
+  assert.match(publicSourceEditorSource, /getPublicSourceLineSelectionRange/u);
+  assert.match(publicSourceEditorSource, /onPointerDown=\{\(event\) =>/u);
+  assert.match(publicSourceEditorSource, /onDoubleClick=\{\(event\) =>/u);
+  assert.match(publicEditableMarkdownSource, /selectPublicFinalLogicalLine/u);
+  assert.match(publicEditableMarkdownSource, /onPointerDown: \(event:/u);
+  assert.match(publicEditableMarkdownSource, /onDoubleClick: \(event:/u);
+  assert.ok(
+    publicDistribution.copyFiles.includes(
+      'components/public-workspace/publicLineSelection.ts',
+    ),
   );
 });
 

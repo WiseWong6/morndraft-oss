@@ -6,6 +6,10 @@ import {
   resolvePublicMarkdownVisibleSourceOffset,
   resolvePublicMarkdownVisibleSourceRange,
 } from './publicMarkdownPatch';
+import {
+  selectPublicFinalLogicalLine,
+  shouldHandlePublicLineDoubleClick,
+} from './publicLineSelection';
 import type { PublicTextSelection } from './types';
 
 type EditableTag = 'blockquote' | 'code' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'li' | 'p' | 'td' | 'th';
@@ -141,6 +145,7 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
   onSelectionChange,
 }) => {
   const focusSnapshotRef = useRef<{ source: string; visibleText: string } | null>(null);
+  const lastPointerTypeRef = useRef<string | null>(null);
   const [recoveryEpoch, setRecoveryEpoch] = useState(0);
   const relativeStart = position?.start?.offset;
   const relativeEnd = position?.end?.offset;
@@ -154,34 +159,31 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
     setRecoveryEpoch((value) => value + 1);
   };
 
-  const updateRenderedSelection = (event: React.SyntheticEvent<HTMLElement>) => {
-    if (!onSelectionChange || !canPatch) return;
-    const selection = event.currentTarget.ownerDocument.defaultView?.getSelection();
+  const publishRenderedSelection = (element: HTMLElement) => {
+    if (!onSelectionChange || !canPatch) return false;
+    const selection = element.ownerDocument.defaultView?.getSelection();
     const browserRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
     if (!selection || selection.isCollapsed || !browserRange) {
-      event.stopPropagation();
       onSelectionChange(null);
-      return;
+      return true;
     }
     if (!sourceReversible) {
-      event.stopPropagation();
       onSelectionChange(null);
-      return;
+      return true;
     }
     if (
-      !event.currentTarget.contains(browserRange.startContainer)
-      || !event.currentTarget.contains(browserRange.endContainer)
+      !element.contains(browserRange.startContainer)
+      || !element.contains(browserRange.endContainer)
     ) {
       // A selection spanning multiple rendered blocks is resolved once at the
       // workspace root. Let the event bubble so exact source offsets can be
       // derived from both boundary blocks.
-      return;
+      return false;
     }
-    event.stopPropagation();
-    const prefixRange = event.currentTarget.ownerDocument.createRange();
-    prefixRange.selectNodeContents(event.currentTarget);
+    const prefixRange = element.ownerDocument.createRange();
+    prefixRange.selectNodeContents(element);
     prefixRange.setEnd(browserRange.startContainer, browserRange.startOffset);
-    const visibleText = event.currentTarget.textContent ?? '';
+    const visibleText = element.textContent ?? '';
     const visibleStart = prefixRange.toString().length;
     const visibleSelection = selection.toString();
     const resolved = resolvePublicMarkdownVisibleSourceRange({
@@ -200,6 +202,11 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
       visibleText: visibleSelection,
       source,
     } : null);
+    return true;
+  };
+
+  const updateRenderedSelection = (event: React.SyntheticEvent<HTMLElement>) => {
+    if (publishRenderedSelection(event.currentTarget)) event.stopPropagation();
   };
 
   return React.createElement(tag, {
@@ -257,6 +264,26 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
       // owned by the browser composition session.
       event.preventDefault();
       event.currentTarget.blur();
+    },
+    onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
+      lastPointerTypeRef.current = event.pointerType;
+    },
+    onDoubleClick: (event: React.MouseEvent<HTMLElement>) => {
+      const pointerType = lastPointerTypeRef.current;
+      lastPointerTypeRef.current = null;
+      if (!shouldHandlePublicLineDoubleClick({
+        altKey: event.altKey,
+        button: event.button,
+        ctrlKey: event.ctrlKey,
+        detail: event.detail,
+        metaKey: event.metaKey,
+        pointerType,
+        shiftKey: event.shiftKey,
+      })) return;
+      if (!selectPublicFinalLogicalLine(event.currentTarget)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (sourceReversible) publishRenderedSelection(event.currentTarget);
     },
     onMouseUp: updateRenderedSelection,
     onKeyUp: updateRenderedSelection,
