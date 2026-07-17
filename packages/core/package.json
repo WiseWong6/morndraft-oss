@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/oss-public.ts",
-    "./oss-public": "./src/oss-public.ts"
+    "./oss-public": "./src/oss-public.ts",
+    "./oss-json-repair": "./src/artifact-document-analysis.js"
   }
 }
