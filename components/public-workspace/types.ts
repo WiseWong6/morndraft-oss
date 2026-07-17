@@ -25,6 +25,7 @@ export type PublicContentType = PublicDeliveryContentType;
 export type SourceChangeMeta = {
   origin: 'source' | 'final' | 'import' | 'syntax' | 'insert' | 'ai';
   resetDocument?: boolean;
+  suggestedTitle?: string;
 };
 
 export type ImportedDocument = {
