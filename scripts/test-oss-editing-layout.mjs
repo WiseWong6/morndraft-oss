@@ -1,4 +1,4 @@
-/* global Blob, console, DataTransfer, document, DOMParser, Event, fetch, File, HTMLCanvasElement, HTMLElement, HTMLInputElement, KeyboardEvent, MouseEvent, Node, performance, process, setTimeout, TextEncoder, window */
+/* global Blob, console, DataTransfer, document, DOMParser, Event, fetch, File, HTMLCanvasElement, HTMLElement, HTMLIFrameElement, HTMLInputElement, KeyboardEvent, MouseEvent, Node, performance, process, setTimeout, TextEncoder, window */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
@@ -431,6 +431,150 @@ try {
     await sourceEditor.inputValue(),
     "```json5\n{title:'fenced after', items:[2,],}\n```",
     'Fenced JSON5 Final editing must preserve the exact fence while replacing only its body.',
+  );
+
+  const rawHtmlAfter = '<!doctype html><html><body><main>Raw after</main></body></html>';
+  await sourceEditor.fill('<!doctype html><html><body><main>Raw before</main></body></html>');
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await enterFinalEditing(page);
+  const rawHtmlEditor = page.getByRole('textbox', { name: /^(Final content editor|最终内容编辑器)$/u });
+  await rawHtmlEditor.fill(rawHtmlAfter);
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  assert.equal(
+    await sourceEditor.inputValue(),
+    rawHtmlAfter,
+    'Raw HTML Final editing must atomically replace only the raw document Source.',
+  );
+
+  await sourceEditor.fill('~~~HTML preview linenums\n<main>Fenced before</main>\n~~~');
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await enterFinalEditing(page);
+  const standaloneHtmlEditor = page.getByRole('textbox', { name: /^(Final content editor|最终内容编辑器)$/u });
+  await standaloneHtmlEditor.fill('<main>Fenced after</main>\n~~~\n<footer>Still HTML</footer>');
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  assert.equal(
+    await sourceEditor.inputValue(),
+    '~~~~HTML preview linenums\n<main>Fenced after</main>\n~~~\n<footer>Still HTML</footer>\n~~~~',
+    'Standalone fenced HTML Final editing must preserve its info string and expand only its own marker.',
+  );
+
+  const repeatedHtml = '<section data-copy="same">Repeated</section>';
+  const updatedHtml = '<section data-copy="second">Updated second</section>';
+  const buildLongMixedHtmlSource = (secondHtml) => [
+    '# Long mixed document',
+    ...Array.from({ length: 160 }, (_, index) => `Before paragraph ${index}`),
+    '```html',
+    repeatedHtml,
+    '```',
+    ...Array.from({ length: 160 }, (_, index) => `Middle paragraph ${index}`),
+    '```html',
+    secondHtml,
+    '```',
+    ...Array.from({ length: 160 }, (_, index) => `After paragraph ${index}`),
+    '```html',
+    '<section data-copy="third">Third</section>',
+    '```',
+    ...Array.from({ length: 160 }, (_, index) => `Tail paragraph ${index}`),
+  ].join('\n');
+  await sourceEditor.fill(buildLongMixedHtmlSource(repeatedHtml));
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await enterFinalEditing(page);
+  const mixedHtmlFrames = page.locator('.md-public-html-fence-block > iframe.md-public-html-frame');
+  const mixedHtmlEditors = page.getByRole('textbox', { name: /^(Final HTML editor|Final HTML 编辑器)$/u });
+  assert.equal(await mixedHtmlFrames.count(), 3, 'Long mixed fixture must render all three HTML fences.');
+  assert.equal(await mixedHtmlEditors.count(), 3, 'Final editing must expose one scoped editor per HTML fence.');
+  await page.waitForFunction(() => (
+    [...document.querySelectorAll('.md-public-html-fence-block > iframe.md-public-html-frame')]
+      .every(frame => frame instanceof HTMLIFrameElement && frame.contentWindow !== null)
+  ));
+  await page.evaluate(() => {
+    const frames = [...document.querySelectorAll('.md-public-html-fence-block > iframe.md-public-html-frame')];
+    window.__ossHtmlAtomicEditing = {
+      frames,
+      windows: frames.map(frame => frame.contentWindow),
+    };
+  });
+  await mixedHtmlEditors.nth(1).fill('<section>Uncommitted draft');
+  assert.equal(
+    await mixedHtmlFrames.nth(1).getAttribute('srcdoc'),
+    repeatedHtml,
+    'An in-progress HTML draft must not replace the stable preview before commit.',
+  );
+  assert.equal(
+    await page.locator('.md-public-final-surface').isVisible(),
+    true,
+    'An incomplete HTML draft must not blank the Final surface.',
+  );
+  await mixedHtmlEditors.nth(1).fill(updatedHtml);
+  await mixedHtmlEditors.nth(1).evaluate(element => element.blur());
+  await page.waitForFunction((expected) => (
+    document.querySelectorAll('.md-public-html-fence-block > iframe.md-public-html-frame')[1]
+      ?.getAttribute('srcdoc') === expected
+  ), updatedHtml);
+  const htmlFrameIdentity = await page.evaluate(() => {
+    const snapshot = window.__ossHtmlAtomicEditing;
+    const current = [...document.querySelectorAll('.md-public-html-fence-block > iframe.md-public-html-frame')];
+    return {
+      count: current.length,
+      firstSameFrame: current[0] === snapshot.frames[0],
+      firstSameWindow: current[0]?.contentWindow === snapshot.windows[0],
+      secondSameFrame: current[1] === snapshot.frames[1],
+      thirdSameFrame: current[2] === snapshot.frames[2],
+      thirdSameWindow: current[2]?.contentWindow === snapshot.windows[2],
+    };
+  });
+  assert.deepEqual(
+    htmlFrameIdentity,
+    {
+      count: 3,
+      firstSameFrame: true,
+      firstSameWindow: true,
+      secondSameFrame: true,
+      thirdSameFrame: true,
+      thirdSameWindow: true,
+    },
+    'Editing one HTML fence in a long document must preserve unrelated iframe identity and avoid their reload.',
+  );
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  assert.equal(
+    await sourceEditor.inputValue(),
+    buildLongMixedHtmlSource(updatedHtml),
+    'Repeated HTML bodies must patch only the selected fence in the complete long-document Source.',
+  );
+
+  const repeatedMixedJson = [
+    '# Repeated JSON5',
+    '',
+    '```json5',
+    "{slot:'same',}",
+    '```',
+    '',
+    '```json5',
+    "{slot:'same',}",
+    '```',
+  ].join('\n');
+  await sourceEditor.fill(repeatedMixedJson);
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await enterFinalEditing(page);
+  const mixedJsonEditors = page.getByRole('textbox', { name: /^(Final JSON5 editor|Final JSON5 编辑器)$/u });
+  assert.equal(await mixedJsonEditors.count(), 2, 'Final editing must expose one scoped editor per JSON5 fence.');
+  await mixedJsonEditors.nth(1).fill("{slot:'second',}");
+  await mixedJsonEditors.nth(1).evaluate(element => element.blur());
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  assert.equal(
+    await sourceEditor.inputValue(),
+    [
+      '# Repeated JSON5',
+      '',
+      '```json5',
+      "{slot:'same',}",
+      '```',
+      '',
+      '```json5',
+      "{slot:'second',}",
+      '```',
+    ].join('\n'),
+    'Repeated JSON5 bodies must patch only the selected fence in the complete Source.',
   );
 
   await sourceEditor.fill('First **bold** block\n\nsecond');
@@ -926,7 +1070,7 @@ try {
   await context.tracing.stop();
   tracing = false;
   await rm(outputDir, { force: true, recursive: true });
-  console.log(`[oss-editing-e2e] 720px layout, shared Final format writeback, scrollable 32-item Slash menu, 30 flat previews, Markdown/code Final editing, zero-request cross-resource selection, browser-loaded Markdown data resources, provider-body redaction, and ${largeImagePerformance.elapsed.toFixed(0)}ms large-image import (${largeImagePerformance.encodeCalls} encodes, ${largeImagePerformance.maxHeartbeatGap.toFixed(0)}ms max heartbeat gap) passed: ${JSON.stringify(layout)}`);
+  console.log(`[oss-editing-e2e] 720px layout, shared Final format writeback, scrollable 32-item Slash menu, 30 flat previews, Markdown/code Final editing, raw/fenced/multi-fence HTML atomic editing, long-document local iframe rerender, zero-request cross-resource selection, browser-loaded Markdown data resources, provider-body redaction, and ${largeImagePerformance.elapsed.toFixed(0)}ms large-image import (${largeImagePerformance.encodeCalls} encodes, ${largeImagePerformance.maxHeartbeatGap.toFixed(0)}ms max heartbeat gap) passed: ${JSON.stringify(layout)}`);
 } catch (error) {
   await mkdir(outputDir, { recursive: true });
   if (page) await page.screenshot({ fullPage: true, path: path.join(outputDir, 'failure.png') }).catch(() => undefined);
