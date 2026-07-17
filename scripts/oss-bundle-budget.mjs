@@ -2,7 +2,9 @@ import { gzipSync } from 'node:zlib';
 
 export const OSS_H61_ENTRY_GZIP_BYTES = 130_476;
 export const OSS_H61_INITIAL_STATIC_GZIP_BYTES = 198_874;
-export const OSS_ENTRY_GZIP_GROWTH_BUDGET_BYTES = 3 * 1024;
+// The 7·10 shared Final toolbar adds a lazy UI chunk plus a small controller
+// edge to the initial graph. Keep the reviewed allowance bounded to 4 KiB.
+export const OSS_ENTRY_GZIP_GROWTH_BUDGET_BYTES = 4 * 1024;
 export const OSS_PARSE5_LAZY_GZIP_BUDGET_BYTES = 55 * 1024;
 
 const isParserModule = moduleId => (

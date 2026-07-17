@@ -1,60 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { PublicDialog } from '../../../components/public-workspace/PublicDialog';
-import { PublicWorkspace } from '../../../components/public-workspace/PublicWorkspace';
-import { createLocalPublicImportAdapter } from '../../../components/public-workspace/publicImport';
-import { inferPublicDocumentTitle } from '../../../components/public-workspace/publicTitleInference';
-import type {
-  PublicDeliveryAdapter,
-  PublicDeliveryInput,
-  PublicWorkspaceLocale,
-  PublicWorkspaceTheme,
-  SourceChangeMeta,
-} from '../../../components/public-workspace/types';
+import {
+  PublicDialog,
+  PublicWorkspace,
+  type PublicWorkspaceLocale,
+  type PublicWorkspaceTheme,
+  type SourceChangeMeta,
+} from '../../../components/public-workspace';
 import {
   PUBLIC_AI_CONFIG_REQUEST_EVENT,
   PublicAiSettingsForm,
-  createPublicAiAdapter,
   readPublicAiConfig,
   type PublicAiConfig,
 } from '@morndraft/features-personal/ai';
-import './oss-shell.css';
+import { createOssReleaseAdapters } from './releaseAdapters';
+import './release.css';
 
 const LOCALE_KEY = 'morndraft.oss.locale';
 const THEME_KEY = 'morndraft.oss.theme';
-
-type PublicDeliveryAction = 'copyImage' | 'downloadImage' | 'downloadPdf' | 'downloadHtml';
-
-const runPublicDeliveryAction = async (action: PublicDeliveryAction, input: PublicDeliveryInput) => {
-  const { runBrowserPublicDeliveryAction } = await import('./publicDeliveryAdapter');
-  await runBrowserPublicDeliveryAction(action, input);
-};
-
-const createLazyPublicDeliveryAdapter = (): PublicDeliveryAdapter => ({
-  copyImage: (input) => runPublicDeliveryAction('copyImage', input),
-  downloadImage: (input) => runPublicDeliveryAction('downloadImage', input),
-  downloadPdf: (input) => runPublicDeliveryAction('downloadPdf', input),
-  downloadHtml: (input) => runPublicDeliveryAction('downloadHtml', input),
-});
-
-const INITIAL_SOURCE = `# MornDraft Open Source
-
-Source 是唯一真相源；你可以在 Source 或 Final 修改内容。
-
-\`\`\`json5
-{
-  // JSON5 支持注释、单引号和尾逗号
-  edition: 'open-source',
-  storage: 'browser-local',
-}
-\`\`\`
-
-\`\`\`mermaid
-flowchart LR
-  Agent[Agent 生成] --> Review[人工审核]
-  Review --> Deliver[本地交付]
-\`\`\`
-
-输入 \`/\` 可以插入 Markdown 表格和 MornDraft flat 组件；输入 \`/AI\` 可以调用你配置的生成模型。`;
 
 const readPreference = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
   if (typeof window === 'undefined') return fallback;
@@ -66,20 +28,14 @@ const readPreference = <T extends string>(key: string, allowed: readonly T[], fa
   }
 };
 
-export const OssShell: React.FC = () => {
+export const PublicAppImpl: React.FC = () => {
+  const adapters = useMemo(() => createOssReleaseAdapters(), []);
   const [locale, setLocale] = useState<PublicWorkspaceLocale>(() => readPreference(LOCALE_KEY, ['zh', 'en'], 'zh'));
   const [theme, setTheme] = useState<PublicWorkspaceTheme>(() => readPreference(THEME_KEY, ['light', 'dark'], 'light'));
-  const [source, setSource] = useState(INITIAL_SOURCE);
-  const [title, setTitle] = useState(() => inferPublicDocumentTitle({
-    fallbackTitle: 'MornDraft OSS',
-    source: INITIAL_SOURCE,
-  }).title);
+  const [source, setSource] = useState(() => adapters.persistence.readInitialSource());
   const [documentEpoch, setDocumentEpoch] = useState(0);
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [aiConfig, setAiConfig] = useState<PublicAiConfig>(() => readPublicAiConfig());
-  const importAdapter = useMemo(() => createLocalPublicImportAdapter(), []);
-  const aiAdapter = useMemo(() => createPublicAiAdapter(), []);
-  const deliveryAdapter = useMemo(() => createLazyPublicDeliveryAdapter(), []);
 
   const openAiSettings = useCallback(() => {
     setAiConfig(readPublicAiConfig());
@@ -104,23 +60,28 @@ export const OssShell: React.FC = () => {
 
   const handleSourceChange = useCallback((next: string, meta: SourceChangeMeta) => {
     setSource(next);
-    if (meta.resetDocument) {
-      setDocumentEpoch((value) => value + 1);
-      if (meta.suggestedTitle) setTitle(meta.suggestedTitle);
-    }
+    if (meta.resetDocument) setDocumentEpoch((value) => value + 1);
   }, []);
 
   return (
-    <div className="oss-app" data-build-profile="oss" data-oss-shell="public">
+    <div
+      className="oss-app"
+      data-auth-mode={adapters.auth.mode}
+      data-build-profile="oss-full"
+      data-link-sharing-mode={adapters.linkSharing.mode}
+      data-persistence-mode={adapters.persistence.mode}
+      data-public-release-app="true"
+      data-telemetry-mode={adapters.telemetry.mode}
+    >
       <PublicWorkspace
-        aiAdapter={aiAdapter}
-        deliveryAdapter={deliveryAdapter}
+        aiAdapter={adapters.ai}
+        deliveryAdapter={adapters.delivery}
         documentEpoch={documentEpoch}
-        importAdapter={importAdapter}
+        importAdapter={adapters.import}
         locale={locale}
         source={source}
         theme={theme}
-        title={title}
+        title="MornDraft"
         onLocaleChange={setLocale}
         onAiSettingsOpen={openAiSettings}
         onSourceChange={handleSourceChange}
@@ -147,4 +108,4 @@ export const OssShell: React.FC = () => {
   );
 };
 
-export default OssShell;
+export default PublicAppImpl;

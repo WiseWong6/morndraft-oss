@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global AbortController, Buffer, Element, HTMLButtonElement, Navigator, URL, clearTimeout, console, document, fetch, localStorage, navigator, process, requestAnimationFrame, sessionStorage, setTimeout, window */
+/* global AbortController, Buffer, Element, HTMLButtonElement, HTMLElement, Navigator, URL, clearTimeout, console, document, fetch, getComputedStyle, localStorage, navigator, process, requestAnimationFrame, sessionStorage, setTimeout, window */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -956,26 +956,17 @@ const runImportFlow = async (page, canonicalFlatSource) => {
       const flatFrame = page.locator('[data-public-preview-root="true"] iframe.md-public-html-frame');
       await flatFrame.waitFor({ state: 'attached' });
       assert.match(await flatFrame.getAttribute('srcdoc') ?? '', /data-morndraft-source="morndraft-flat"/u);
-      await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
-      const flatField = page.locator('[data-public-flat="true"] [data-testid="oss-flat-final-field"][data-flat-path="$.items[0].label"]');
-      await flatField.waitFor({ state: 'visible' });
-      await flatField.fill('OSS flat edited in Final');
-      await flatField.blur();
-      await page.waitForFunction((expected) => (
-        document.querySelector('[data-public-flat="true"] iframe.md-public-html-frame')?.getAttribute('srcdoc')?.includes(expected)
-      ), 'OSS flat edited in Final');
-      await sourceButton.click();
-      const editedFlatSource = await page.locator('.md-public-source-editor textarea').first().inputValue();
-      assert.match(editedFlatSource, /OSS flat edited in Final/u);
-      assert.match(editedFlatSource, /<!-- morndraft:structure /u);
-      assert.match(editedFlatSource, /data-morndraft-source="morndraft-flat"/u);
-      await finalButton.click();
+      assert.equal(
+        await page.locator('[data-testid="oss-flat-final-field"]').count(),
+        0,
+        'The 7·10 baseline keeps structured mixed-fence editing out of the initial public release.',
+      );
     }
     if (fixture.finalEdit) {
-      await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
+      await page.locator('.md-public-final-edit-toggle').click();
       const finalEditor = page.locator('[data-public-final="true"] .md-public-source-editor textarea');
       await finalEditor.fill(fixture.finalEdit);
-      await page.getByRole('button', { name: /^(Preview final content|预览最终内容)$/u }).click();
+      await page.locator('.md-public-final-edit-toggle').click();
       await sourceButton.click();
       assert.match(await page.locator('.md-public-source-editor textarea').first().inputValue(), new RegExp(fixture.finalMarker.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
       await finalButton.click();
@@ -1197,6 +1188,63 @@ const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
   await page.getByRole('dialog').getByRole('button', { name: /^(Close|关闭)$/u }).click();
 };
 
+const assertOss710VisualBaseline = async (page, { mobile = false } = {}) => {
+  await page.locator('.md-public-format-row .aad-preview-format-toolbar').waitFor({ state: 'visible' });
+  const geometry = await page.evaluate(() => {
+    const readRect = (selector) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) throw new Error(`Missing visual baseline element: ${selector}`);
+      const rect = element.getBoundingClientRect();
+      return {
+        height: rect.height,
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+      };
+    };
+    const workspace = document.querySelector('[data-public-workspace="true"]');
+    const main = document.querySelector('.md-public-main');
+    const surface = document.querySelector('.md-public-final-surface.aad-document-surface');
+    if (!(workspace instanceof HTMLElement) || !(main instanceof HTMLElement) || !(surface instanceof HTMLElement)) {
+      throw new Error('The 7·10 visual baseline fixture is incomplete.');
+    }
+    return {
+      format: readRect('.md-public-format-row'),
+      header: readRect('.md-public-toolbar'),
+      main: readRect('.md-public-main'),
+      surface: readRect('.md-public-final-surface.aad-document-surface'),
+      canvasColor: getComputedStyle(main).backgroundColor,
+      paperColor: getComputedStyle(surface).backgroundColor,
+      paperRadius: getComputedStyle(surface).borderRadius,
+      viewportWidth: window.innerWidth,
+      workspaceClientWidth: workspace.clientWidth,
+      workspaceScrollWidth: workspace.scrollWidth,
+    };
+  });
+  assert.ok(Math.abs(geometry.header.height - 48) <= 1, `7·10 header height drifted to ${geometry.header.height}px.`);
+  assert.ok(Math.abs(geometry.format.top - 48) <= 1, `7·10 format row starts at ${geometry.format.top}px.`);
+  assert.ok(Math.abs(geometry.format.height - 42) <= 1, `7·10 format row height drifted to ${geometry.format.height}px.`);
+  assert.ok(Math.abs(geometry.main.top - 90) <= 1, `7·10 canvas starts at ${geometry.main.top}px.`);
+  assert.equal(geometry.paperRadius, '0px', 'The A4 paper regained rounded application chrome.');
+  assert.notEqual(geometry.canvasColor, geometry.paperColor, 'The 7·10 canvas and white paper lost their visual separation.');
+  assert.ok(
+    geometry.workspaceScrollWidth <= geometry.workspaceClientWidth + 1,
+    `The workspace leaks horizontal overflow: ${geometry.workspaceScrollWidth}/${geometry.workspaceClientWidth}.`,
+  );
+  if (mobile) {
+    assert.ok(
+      geometry.surface.width <= geometry.viewportWidth - 15 && geometry.surface.width >= geometry.viewportWidth - 18,
+      `Mobile paper width drifted to ${geometry.surface.width}px at ${geometry.viewportWidth}px.`,
+    );
+  } else {
+    assert.ok(Math.abs(geometry.surface.width - 794) <= 1, `Desktop A4 paper width drifted to ${geometry.surface.width}px.`);
+  }
+  const filing = await page.locator('.aad-preview-icp-footer').innerText();
+  assert.match(filing, /粤ICP备2026082169号-1/u);
+  assert.match(filing, /粤公网安备44030002014257号/u);
+  assert.match(filing, /深圳明日回声科技有限公司/u);
+};
+
 const runFinalEditingFlow = async (page) => {
   const sourceButton = page.getByRole('button', { name: /^(Source|源码)$/u });
   await sourceButton.click();
@@ -1219,7 +1267,6 @@ const runFinalEditingFlow = async (page) => {
   await frame.waitFor({ state: 'attached' });
   await frame.evaluate((element) => { window.__ossStableFrame = element.contentWindow; });
 
-  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
   assert.equal(await previewRoot.count(), 1, 'Final editing must keep the rendered preview root mounted.');
   const editable = previewRoot.locator('[data-public-final-editable="true"]').filter({ hasText: 'Editable paragraph' });
   await editable.waitFor({ state: 'visible' });
@@ -1234,7 +1281,6 @@ const runFinalEditingFlow = async (page) => {
     );
     assert.match(html, /Precisely patched paragraph before the iframe\./u);
   });
-  await page.getByRole('button', { name: /^(Preview final content|预览最终内容)$/u }).click();
   const identityPreserved = await frame.evaluate((element) => element.contentWindow === window.__ossStableFrame);
   assert.equal(identityPreserved, true, 'An adjacent Markdown patch remounted an unchanged HTML iframe.');
 
@@ -2121,7 +2167,7 @@ const runDeliveryHardeningFlow = async (
   );
   const mediaContextPixels = await inspectPngPixels(page, mediaContextPng.content, [
     { xRatio: 0.02, yRatio: 0.02 },
-    { xRatio: 0.5, yRatio: 0.5 },
+    { xRatio: 0.5, yRatio: 0.25 },
   ]);
   assertRgbaNear(mediaContextPixels.pixels[0], [16, 32, 48, 255], 'media-context page background', 14);
   assertRgbaNear(mediaContextPixels.pixels[1], [37, 199, 104, 255], 'active screen CSS image', 18);
@@ -2150,7 +2196,7 @@ const runDeliveryHardeningFlow = async (
   );
   const slowPixels = await inspectPngPixels(page, slowPng.content, [
     { xRatio: 0.02, yRatio: 0.02 },
-    { xRatio: 0.5, yRatio: 0.5 },
+    { xRatio: 0.5, yRatio: 0.25 },
   ]);
   assert.ok(slowPixels.width >= 1_354, 'Scale-2 PNG width did not preserve the public capture policy.');
   assertRgbaNear(slowPixels.pixels[0], [16, 32, 48, 255], 'slow stylesheet page background', 14);
@@ -2841,7 +2887,7 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
     assert.deepEqual([...content.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   });
   const darkMixedPixels = await inspectPngPixels(page, darkMixedPng.content, [{ xRatio: 0.08, yRatio: 0.04 }]);
-  assertRgbaNear(darkMixedPixels.pixels[0], [34, 34, 29, 255], 'dark mixed Final paper', 12);
+  assertRgbaNear(darkMixedPixels.pixels[0], [22, 22, 24, 255], 'dark mixed Final paper', 12);
 
   await page.evaluate(async () => {
     const link = document.createElement('link');
@@ -2884,7 +2930,7 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
       embeddedCssPayloads.some(cssText => /data:image\/svg\+xml;base64,/u.test(cssText)),
       'Portable nested CSS did not embed its same-origin SVG dependency.',
     );
-    assert.match(html, /--md-public-paper:#22221d/u);
+    assert.match(html, /--md-public-paper:#161618/u);
     assert.equal(html.includes(appUrl), false, 'Portable HTML retained a dependency on the OSS preview server.');
   });
   const portableContext = await createNetworkTrackedContext();
@@ -2911,8 +2957,8 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
       const style = window.getComputedStyle(element);
       return { backgroundColor: style.backgroundColor, borderColor: style.borderColor, color: style.color };
     });
-    assert.equal(portableTheme.backgroundColor, 'rgb(34, 34, 29)', 'Portable dark paper lost the Final theme variable.');
-    assert.equal(portableTheme.color, 'rgb(244, 244, 237)', 'Portable dark text lost the Final theme variable.');
+    assert.equal(portableTheme.backgroundColor, 'rgb(22, 22, 24)', 'Portable dark paper lost the Final theme variable.');
+    assert.equal(portableTheme.color, 'rgb(209, 209, 214)', 'Portable dark text lost the Final theme variable.');
     const nestedCssState = await portableSurface.evaluate((element) => ({
       marker: window.getComputedStyle(element, '::after').backgroundImage,
       state: window.getComputedStyle(element).getPropertyValue('--oss-e2e-nested-import').trim(),
@@ -3078,7 +3124,10 @@ const main = async () => {
       trackedContext.on('request', (request) => networkUrls.push(request.url()));
       return trackedContext;
     };
-    const context = await createNetworkTrackedContext({ acceptDownloads: true });
+    const context = await createNetworkTrackedContext({
+      acceptDownloads: true,
+      viewport: { width: 1440, height: 900 },
+    });
     await startTracing(context);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: appUrl });
     const page = await context.newPage();
@@ -3088,6 +3137,11 @@ const main = async () => {
     });
     await page.goto(appUrl, { waitUntil: 'networkidle' });
     await page.locator('[data-public-workspace="true"]').waitFor({ state: 'visible' });
+    await assertOss710VisualBaseline(page);
+    await page.screenshot({
+      fullPage: true,
+      path: path.join(outputDir, 'oss-710-desktop-1440x900.png'),
+    });
     await installDeliveryResourceAudit(page);
     const deliveryResourceBaseline = Object.freeze(await readDeliveryResourceAudit(page));
     assertZeroDeliveryResourceBaseline(deliveryResourceBaseline, 'Initial OSS delivery audit');
@@ -3250,6 +3304,11 @@ const main = async () => {
     });
     await mobilePage.goto(appUrl, { waitUntil: 'networkidle' });
     await mobilePage.locator('[data-public-workspace="true"]').waitFor({ state: 'visible' });
+    await assertOss710VisualBaseline(mobilePage, { mobile: true });
+    await mobilePage.screenshot({
+      fullPage: true,
+      path: path.join(outputDir, 'oss-710-mobile-390x844.png'),
+    });
     assert.deepEqual(mobileErrors, [], `Mobile browser console errors: ${mobileErrors.join('\n')}`);
     await closeTracedContext(mobile);
 

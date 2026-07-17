@@ -1,13 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  applyPublicFormatCommand,
-  getPublicFormatSelectionAvailability,
-  getPublicSourcePhysicalLineBounds,
-  insertPublicMarkdownParagraph,
-  resolvePublicBlankLineInsertionTarget,
-  shouldHandlePublicPlainMouseGesture,
-} from '@morndraft/core/oss-public';
-import { PublicFormatToolbar, type PublicFormatCommand } from './PublicFormatToolbar';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   detectPublicDocument,
   formatPublicJson5,
@@ -23,15 +14,8 @@ import {
   PublicHtmlFenceFinalEditor,
 } from './PublicFlatFinalEditor';
 import { PublicSourceEditor } from './PublicSourceEditor';
-import {
-  PublicEditableMarkdown,
-  type PublicMarkdownImagePasteRequest,
-} from './PublicEditableMarkdown';
-import { resolvePublicMarkdownDomSelection } from './publicMarkdownDomSelection';
-import {
-  insertPublicClipboardImageMarkdown,
-  resolvePublicClipboardImageMarkdown,
-} from './publicClipboardImage';
+import { PublicEditableMarkdown } from './PublicEditableMarkdown';
+import { PublicComplianceFooter } from './PublicComplianceFooter';
 import {
   assertPublicMermaidSourceBudget,
   createLatestOnlyPublicMermaidRenderer,
@@ -47,23 +31,15 @@ import type {
 type PublicFinalPreviewProps = PublicFinalRendererProps;
 
 const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
-  edit: '编辑最终内容',
-  preview: '预览最终内容',
   editLabel: '最终内容编辑器',
   invalidJson: 'JSON5 暂时无法解析；你仍可以继续编辑。',
   mermaidError: 'Mermaid 暂时无法渲染。',
   htmlTitle: 'HTML 安全预览',
-  pasteImageFailed: '无法粘贴这张图片。',
-  insertLinePlaceholder: '输入新段落',
 } : {
-  edit: 'Edit final content',
-  preview: 'Preview final content',
   editLabel: 'Final content editor',
   invalidJson: 'JSON5 cannot be parsed yet; you can keep editing.',
   mermaidError: 'Mermaid could not be rendered.',
   htmlTitle: 'Sandboxed HTML preview',
-  pasteImageFailed: 'Unable to paste this image.',
-  insertLinePlaceholder: 'Type a new paragraph',
 };
 
 const PublicHtmlFrame = React.memo<{ html: string; title: string }>(({ html, title }) => (
@@ -189,10 +165,10 @@ const PublicMixedPreview: React.FC<{
   locale: PublicWorkspaceLocale;
   theme: PublicWorkspaceTheme;
   editable: boolean;
+  structuredEditing: boolean;
   onSourcePatch(next: string): void;
   onSelectionChange?(selection: PublicTextSelection | null): void;
-  onImagePaste?(request: PublicMarkdownImagePasteRequest): void;
-}> = ({ source, locale, theme, editable, onSourcePatch, onSelectionChange, onImagePaste }) => {
+}> = ({ source, locale, theme, editable, structuredEditing, onSourcePatch, onSelectionChange }) => {
   const labels = getLabels(locale);
   const segments = useMemo(() => splitPublicDocumentSegments(source), [source]);
   return (
@@ -208,7 +184,6 @@ const PublicMixedPreview: React.FC<{
               editable={editable}
               onSourcePatch={onSourcePatch}
               onSelectionChange={onSelectionChange}
-              onImagePaste={onImagePaste}
             />
           );
         }
@@ -222,7 +197,7 @@ const PublicMixedPreview: React.FC<{
             <PublicHtmlFenceBlock
               key={`html-${index}`}
               content={segment.content}
-              editable={editable}
+              editable={structuredEditing}
               locale={locale}
               title={labels.htmlTitle}
               onChange={updateFence}
@@ -233,7 +208,7 @@ const PublicMixedPreview: React.FC<{
           return (
             <div key={`json-${index}`} className="md-public-json-fence-block">
               <PublicJsonPreview source={segment.content} invalidLabel={labels.invalidJson} />
-              {editable && (
+              {structuredEditing && (
                 <PublicFenceSourceEditor
                   content={segment.content}
                   label={locale === 'zh' ? 'Final JSON5 编辑器' : 'Final JSON5 editor'}
@@ -255,7 +230,6 @@ const PublicMixedPreview: React.FC<{
             editable={editable}
             onSourcePatch={onSourcePatch}
             onSelectionChange={onSelectionChange}
-            onImagePaste={onImagePaste}
           />
         );
       })}
@@ -270,7 +244,6 @@ const renderDetectedDocument = (
   editable: boolean,
   onSourcePatch: (next: string) => void,
   onSelectionChange?: (selection: PublicTextSelection | null) => void,
-  onImagePaste?: (request: PublicMarkdownImagePasteRequest) => void,
 ) => {
   const labels = getLabels(locale);
   const document = detectPublicDocument(source);
@@ -293,82 +266,22 @@ const renderDetectedDocument = (
               editable={editable}
               onSourcePatch={onSourcePatch}
               onSelectionChange={onSelectionChange}
-              onImagePaste={onImagePaste}
             />
           </div>
         );
       }
-      return <PublicMixedPreview source={source} locale={locale} theme={theme} editable={editable} onSourcePatch={onSourcePatch} onSelectionChange={onSelectionChange} onImagePaste={onImagePaste} />;
+      return (
+        <PublicMixedPreview
+          source={source}
+          locale={locale}
+          theme={theme}
+          editable={editable}
+          structuredEditing={false}
+          onSourcePatch={onSourcePatch}
+          onSelectionChange={onSelectionChange}
+        />
+      );
   }
-};
-
-type PublicPendingLineInsert = {
-  source: string;
-  sourceOffset: number;
-  top: number;
-};
-
-const PUBLIC_FINAL_PROTECTED_TARGETS = [
-  'button', 'input', 'select', 'textarea', 'a', 'iframe', 'table', 'pre', 'code',
-  '[data-public-final-reversible="false"]',
-].join(',');
-
-const readPublicSourceOffset = (element: HTMLElement, attribute: string) => {
-  const raw = element.getAttribute(attribute);
-  if (raw === null || !/^-?\d+$/u.test(raw)) return null;
-  const value = Number(raw);
-  return Number.isSafeInteger(value) ? value : null;
-};
-
-const getPublicFinalLogicalTextNodes = (block: HTMLElement) => {
-  const nodes: Text[] = [];
-  const walker = block.ownerDocument.createTreeWalker(block, NodeFilter.SHOW_TEXT);
-  let current = walker.nextNode();
-  while (current) {
-    const text = current as Text;
-    const owner = text.parentElement?.closest<HTMLElement>('[data-public-final-block="true"]');
-    if (owner === block && text.data.length > 0) nodes.push(text);
-    current = walker.nextNode();
-  }
-  return nodes;
-};
-
-const PublicBlankLineInput: React.FC<{
-  locale: PublicWorkspaceLocale;
-  top: number;
-  onCancel(): void;
-  onCommit(value: string): void;
-}> = ({ locale, top, onCancel, onCommit }) => {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const valueRef = useRef('');
-  const committedRef = useRef(false);
-  useEffect(() => inputRef.current?.focus({ preventScroll: true }), []);
-  const commit = () => {
-    if (committedRef.current) return;
-    committedRef.current = true;
-    if (valueRef.current.trim()) onCommit(valueRef.current);
-    else onCancel();
-  };
-  return (
-    <input
-      ref={inputRef}
-      className="md-public-final-line-input"
-      data-morndraft-delivery-exclude="true"
-      style={{ top }}
-      placeholder={getLabels(locale).insertLinePlaceholder}
-      onBlur={commit}
-      onChange={(event) => { valueRef.current = event.currentTarget.value; }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          committedRef.current = true;
-          onCancel();
-        } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-          event.preventDefault();
-          commit();
-        }
-      }}
-    />
-  );
 };
 
 export const PublicFinalPreview: React.FC<PublicFinalPreviewProps> = ({
@@ -376,140 +289,23 @@ export const PublicFinalPreview: React.FC<PublicFinalPreviewProps> = ({
   documentEpoch,
   locale,
   theme,
+  editing = false,
+  includeA4Pagination = true,
+  showCode = true,
   onSourceChange,
-  selection,
   onSelectionChange,
   onAiGenerateRequest,
 }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [pasteError, setPasteError] = useState('');
-  const [pendingLineInsert, setPendingLineInsert] = useState<PublicPendingLineInsert | null>(null);
-  const latestSourceRef = useRef(source);
-  const pasteOperationRef = useRef(0);
-  const lastPointerTypeRef = useRef('');
   const labels = getLabels(locale);
   const document = useMemo(() => detectPublicDocument(source), [source]);
-  const canEdit = document.kind !== 'mermaid';
   const editableContent = document.kind === 'markdown' ? source : document.content;
   const editableContentOffset = getPublicDocumentContentOffset(source, document);
-
-  useLayoutEffect(() => {
-    if (latestSourceRef.current === source) return;
-    latestSourceRef.current = source;
-    pasteOperationRef.current += 1;
-  }, [source]);
-  useEffect(() => {
-    setIsEditing(false);
-    setPasteError('');
-    setPendingLineInsert(null);
-    pasteOperationRef.current += 1;
-  }, [documentEpoch]);
-  useEffect(() => {
-    setPendingLineInsert(current => current?.source === source ? current : null);
-  }, [source]);
 
   const handleEdit = (next: string, meta: SourceChangeMeta) => {
     const nextSource = document.kind === 'markdown' ? next : serializePublicDocumentEdit(document, next);
     onSourceChange(nextSource, { ...meta, origin: meta.origin === 'insert' ? 'insert' : 'final' });
   };
   const handleDirectSourcePatch = (next: string) => onSourceChange(next, { origin: 'final' });
-
-  const handleImagePaste = (request: PublicMarkdownImagePasteRequest) => {
-    if (request.source !== source) return;
-    const requestSource = source;
-    const operation = pasteOperationRef.current + 1;
-    pasteOperationRef.current = operation;
-    setPasteError('');
-    void resolvePublicClipboardImageMarkdown(request.file).then((markdown) => {
-      if (
-        !markdown
-        || pasteOperationRef.current !== operation
-        || latestSourceRef.current !== requestSource
-        || !request.isSelectionCurrent()
-      ) return;
-      const result = insertPublicClipboardImageMarkdown(requestSource, request.range, markdown);
-      if (!result.ok) return;
-      onSourceChange(result.source, { origin: 'paste-image' });
-    }).catch(() => {
-      if (pasteOperationRef.current !== operation || latestSourceRef.current !== requestSource) return;
-      setPasteError(labels.pasteImageFailed);
-    });
-  };
-
-  const handleFinalDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    const pointerType = lastPointerTypeRef.current;
-    lastPointerTypeRef.current = '';
-    if (!shouldHandlePublicPlainMouseGesture({
-      altKey: event.altKey,
-      button: event.button,
-      ctrlKey: event.ctrlKey,
-      detail: event.detail,
-      metaKey: event.metaKey,
-      pointerType,
-      shiftKey: event.shiftKey,
-    })) return;
-    const target = event.target instanceof Element ? event.target : null;
-    const block = target?.closest<HTMLElement>('[data-public-final-block="true"]');
-    if (
-      !block
-      || !event.currentTarget.contains(block)
-      || block.getAttribute('data-public-final-reversible') !== 'true'
-      || block.matches('td, th, code')
-      || Boolean(target?.closest(PUBLIC_FINAL_PROTECTED_TARGETS))
-    ) return;
-    const textNodes = getPublicFinalLogicalTextNodes(block);
-    const first = textNodes[0];
-    const last = textNodes.at(-1);
-    if (!first || !last) return;
-    const range = block.ownerDocument.createRange();
-    range.setStart(first, 0);
-    range.setEnd(last, last.data.length);
-    const browserSelection = block.ownerDocument.defaultView?.getSelection();
-    if (!browserSelection) return;
-    event.preventDefault();
-    browserSelection.removeAllRanges();
-    browserSelection.addRange(range);
-    const resolved = resolvePublicMarkdownDomSelection(event.currentTarget, browserSelection, source);
-    onSelectionChange?.(resolved);
-  };
-
-  const handleFinalPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    lastPointerTypeRef.current = event.pointerType;
-    if (!isEditing || !shouldHandlePublicPlainMouseGesture({
-      altKey: event.altKey,
-      button: event.button,
-      ctrlKey: event.ctrlKey,
-      metaKey: event.metaKey,
-      pointerType: event.pointerType,
-      shiftKey: event.shiftKey,
-    })) return;
-    const target = event.target instanceof Element ? event.target : null;
-    if (
-      !target
-      || target.closest('[data-public-final-block="true"]')
-      || target.closest(PUBLIC_FINAL_PROTECTED_TARGETS)
-      || (!target.closest('.md-public-markdown-preview') && target !== event.currentTarget)
-    ) return;
-    const root = event.currentTarget;
-    const blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-public-final-block="true"][data-public-final-reversible="true"]')).flatMap((block) => {
-      if (block.matches('td, th, code')) return [];
-      const sourceStart = readPublicSourceOffset(block, 'data-public-source-start');
-      const sourceEnd = readPublicSourceOffset(block, 'data-public-source-end');
-      if (sourceStart === null || sourceEnd === null) return [];
-      const physicalLine = getPublicSourcePhysicalLineBounds(source, sourceStart, sourceEnd);
-      const { bottom, top } = block.getBoundingClientRect();
-      return [{ bottom, sourceEnd: physicalLine.end, sourceStart: physicalLine.start, top }];
-    });
-    const insertion = resolvePublicBlankLineInsertionTarget(event.clientY, blocks);
-    if (!insertion) return;
-    event.preventDefault();
-    const rootTop = root.getBoundingClientRect().top;
-    setPendingLineInsert({
-      source,
-      sourceOffset: insertion.sourceOffset,
-      top: Math.max(4, event.clientY - rootTop),
-    });
-  };
 
   const handleInnerSelection = (selection: PublicTextSelection | null) => {
     onSelectionChange?.(selection ? {
@@ -527,42 +323,21 @@ export const PublicFinalPreview: React.FC<PublicFinalPreviewProps> = ({
     });
   };
 
-  const formatAvailability = getPublicFormatSelectionAvailability(source, selection);
-  const handleFormatCommand = (command: PublicFormatCommand) => {
-    const result = applyPublicFormatCommand(source, selection, command);
-    if (!result.ok || result.source === source) return;
-    onSourceChange(result.source, { origin: 'format' });
-  };
-
   return (
     <section
-      className="md-public-final"
+      className={`md-public-final aad-preview-shell has-icp-filing${includeA4Pagination ? ' is-a4-pagination' : ' is-continuous'}`}
       data-public-final="true"
       data-theme={theme}
       data-document-kind={document.kind}
+      data-final-editing={editing ? 'true' : 'false'}
+      data-show-code={showCode ? 'true' : 'false'}
     >
-      {canEdit && (
-        <div className="md-public-final-toolbar">
-          {isEditing && (
-            <PublicFormatToolbar
-              canApplyBlockFormat={formatAvailability.canApplyBlockFormat}
-              canFormat={formatAvailability.canFormat}
-              locale={locale}
-              onCommand={handleFormatCommand}
-            />
-          )}
-          <button type="button" aria-pressed={isEditing} onClick={() => setIsEditing((value) => !value)}>
-            {isEditing ? labels.preview : labels.edit}
-          </button>
-        </div>
-      )}
-      {isEditing && document.kind !== 'markdown' ? (
+      {editing && document.kind !== 'markdown' ? (
         <PublicSourceEditor
           key={`final-editor-${documentEpoch}`}
           source={editableContent}
           locale={locale}
           origin="final"
-          allowImagePaste={false}
           flatInsertEntries={[]}
           ariaLabel={labels.editLabel}
           onSourceChange={handleEdit}
@@ -570,32 +345,11 @@ export const PublicFinalPreview: React.FC<PublicFinalPreviewProps> = ({
           onAiGenerateRequest={onAiGenerateRequest ? handleInnerGenerateRequest : undefined}
         />
       ) : (
-        <div className="md-public-final-surface" data-public-preview-root="true">
-          <div
-            className="md-public-final-document"
-            data-public-final-document="true"
-            onDoubleClick={handleFinalDoubleClick}
-            onPointerDown={handleFinalPointerDown}
-          >
-            {renderDetectedDocument(source, locale, theme, isEditing, handleDirectSourcePatch, onSelectionChange, handleImagePaste)}
-            {pendingLineInsert && (
-              <PublicBlankLineInput
-                locale={locale}
-                top={pendingLineInsert.top}
-                onCancel={() => setPendingLineInsert(null)}
-                onCommit={(value) => {
-                  const pending = pendingLineInsert;
-                  setPendingLineInsert(null);
-                  if (!pending || pending.source !== source) return;
-                  const next = insertPublicMarkdownParagraph(source, pending.sourceOffset, value);
-                  if (next !== source) onSourceChange(next, { origin: 'insert' });
-                }}
-              />
-            )}
-          </div>
+        <div className="md-public-final-surface aad-document-surface" data-public-preview-root="true">
+          {renderDetectedDocument(source, locale, theme, editing, handleDirectSourcePatch, onSelectionChange)}
         </div>
       )}
-      {pasteError && <p className="md-public-inline-error" role="alert">{pasteError}</p>}
+      <PublicComplianceFooter />
     </section>
   );
 };
