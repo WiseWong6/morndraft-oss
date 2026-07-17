@@ -200,3 +200,29 @@ test('public workspace exposes the browser-local AI interaction hooks', () => {
     assert.match(implementationSources, new RegExp(`data-testid=["']${testId}["']`, 'u'), testId);
   }
 });
+
+test('local import title resolution stays public-only and exported', () => {
+  const publicApp = readFileSync(
+    new URL('../../apps/web-oss/src/PublicAppImpl.tsx', import.meta.url),
+    'utf8',
+  );
+  const publicWorkspace = readFileSync(
+    new URL('./PublicWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(publicWorkspace, /suggestedTitle: imported\.suggestedTitle/u);
+  assert.match(publicApp, /derivePublicImportedDocumentTitle/u);
+  assert.match(publicApp, /if \(meta\.resetDocument\) \{/u);
+  assert.match(publicApp, /meta\.origin === 'import'[\s\S]*?: 'MornDraft'/u);
+  assert.ok(
+    publicDistribution.copyFiles.includes(
+      'components/public-workspace/publicDocumentTitle.ts',
+    ),
+  );
+  assert.ok(
+    publicDistribution.testFiles.includes(
+      'components/public-workspace/publicDocumentTitle.test.ts',
+    ),
+  );
+});
