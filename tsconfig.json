@@ -22,6 +22,9 @@
       "@morndraft/release-app": [
         "./apps/web-oss/src/PublicAppImpl.tsx"
       ],
+      "@morndraft/core/oss-json-repair": [
+        "./packages/core/src/artifact-document-analysis.js"
+      ],
       "@morndraft/core/oss-public": [
         "./packages/core/src/oss-public.ts"
       ],

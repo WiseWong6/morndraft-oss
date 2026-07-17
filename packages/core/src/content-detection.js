@@ -282,6 +282,41 @@ const HTML_PREVIEW_FENCE_LANGUAGES = new Set(['html', 'htmlpreview']);
 const normalizeStandaloneHtmlFenceLanguage = (language) =>
   String(language ?? '').trim().toLowerCase().replace(/[\s_-]+/g, '');
 
+const isJavaScriptWhitespace = (value) => Boolean(value) && value.trim() === '';
+
+const parseStandaloneFenceOpeningLine = (line) => {
+  const markerChar = line[0];
+  if (markerChar !== '`' && markerChar !== '~') return null;
+  let markerEnd = 1;
+  while (line[markerEnd] === markerChar) markerEnd += 1;
+  if (markerEnd < 3) return null;
+
+  let languageStart = markerEnd;
+  while (line[languageStart] === ' ' || line[languageStart] === '\t') languageStart += 1;
+  let languageEnd = languageStart;
+  while (
+    languageEnd < line.length &&
+    !isJavaScriptWhitespace(line[languageEnd]) &&
+    line[languageEnd] !== '`' &&
+    line[languageEnd] !== '~'
+  ) {
+    languageEnd += 1;
+  }
+  return {
+    language: line.slice(languageStart, languageEnd),
+    marker: line.slice(0, markerEnd),
+  };
+};
+
+const isStandaloneFenceClosingLine = (line, markerChar, minimumLength) => {
+  const trimmed = line.trim();
+  if (trimmed.length < minimumLength) return false;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    if (trimmed[index] !== markerChar) return false;
+  }
+  return true;
+};
+
 const looksLikeFullHtmlDocument = (rawCode) => {
   const trimmed = String(rawCode ?? '').trim();
   return /^<!doctype\s+html[\s>]/i.test(trimmed) || /^<html[\s>]/i.test(trimmed);
@@ -294,18 +329,17 @@ export const extractStandaloneHtmlPreviewFence = (rawCode) => {
   const lines = source.split(/\r?\n/);
   if (lines.length < 3) return null;
 
-  const openingMatch = lines[0].match(/^(`{3,}|~{3,})[ \t]*([^\s`~]*)[^\r\n]*$/);
-  if (!openingMatch) return null;
+  const opening = parseStandaloneFenceOpeningLine(lines[0]);
+  if (!opening) return null;
 
-  const language = normalizeStandaloneHtmlFenceLanguage(openingMatch[2]);
+  const language = normalizeStandaloneHtmlFenceLanguage(opening.language);
   if (!HTML_PREVIEW_FENCE_LANGUAGES.has(language)) return null;
 
-  const marker = openingMatch[1];
+  const marker = opening.marker;
   const markerChar = marker[0];
-  const closingFencePattern = new RegExp(`^${markerChar === '`' ? '`' : '~'}{${marker.length},}\\s*$`);
   let closingIndex = -1;
   for (let index = 1; index < lines.length; index += 1) {
-    if (!closingFencePattern.test(lines[index].trim())) continue;
+    if (!isStandaloneFenceClosingLine(lines[index], markerChar, marker.length)) continue;
     closingIndex = index;
     break;
   }
@@ -341,6 +375,54 @@ export const looksLikeJsonCandidate = (rawCode) => {
   );
 };
 
+const isAsciiLetter = (value) => {
+  const code = value?.charCodeAt(0) ?? 0;
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+};
+
+const isHtmlTagNameCharacter = (value) => {
+  const code = value?.charCodeAt(0) ?? 0;
+  return isAsciiLetter(value) ||
+    (code >= 48 && code <= 57) ||
+    value === '_' ||
+    value === ':' ||
+    value === '-';
+};
+
+const readHtmlTagName = (source, start) => {
+  if (!isAsciiLetter(source[start])) return null;
+  let end = start + 1;
+  while (end < source.length && isHtmlTagNameCharacter(source[end])) end += 1;
+  return { end, name: source.slice(start, end).toLowerCase() };
+};
+
+const startsWithHtmlTag = (source) => {
+  if (source[0] !== '<') return false;
+  const tag = readHtmlTagName(source, 1);
+  if (!tag) return false;
+  const boundary = source[tag.end];
+  return boundary === '>' || boundary === '/' || isJavaScriptWhitespace(boundary);
+};
+
+const hasPairedHtmlTag = (source) => {
+  const openedTagNames = new Set();
+  for (let index = 0; index < source.length - 2; index += 1) {
+    if (source[index] !== '<') continue;
+    const isClosing = source[index + 1] === '/';
+    const tag = readHtmlTagName(source, index + (isClosing ? 2 : 1));
+    if (!tag) continue;
+    const boundary = source[tag.end];
+    if (isClosing) {
+      if (boundary === '>' && openedTagNames.has(tag.name)) return true;
+      continue;
+    }
+    if (boundary === '>' || isJavaScriptWhitespace(boundary)) {
+      openedTagNames.add(tag.name);
+    }
+  }
+  return false;
+};
+
 export const looksLikeHtml = (rawCode) => {
   const trimmed = rawCode.trim();
   if (!trimmed) return false;
@@ -355,9 +437,7 @@ export const looksLikeHtml = (rawCode) => {
 
   // Accept standard and custom elements, while avoiding Markdown autolinks like
   // <https://example.com> or comparison text that does not start with a tag.
-  const startsWithHtmlTag = /^<[a-z][\w:-]*(?:\s|>|\/)/i.test(trimmed);
-  const hasPairedHtmlTag = /<([a-z][\w:-]*)(?:\s|>)[\s\S]*<\/\1>/i.test(trimmed);
-  return startsWithHtmlTag || hasPairedHtmlTag;
+  return startsWithHtmlTag(trimmed) || hasPairedHtmlTag(trimmed);
 };
 
 const MARKDOWN_RICH_INLINE_HTML_TAGS = new Set([
@@ -380,12 +460,26 @@ const looksLikeMarkdownRichInlineHtml = (rawCode) => {
   const trimmed = String(rawCode ?? '').trim();
   if (!trimmed) return false;
 
-  const tagPattern = /<\/?([a-z][\w:-]*)(?:\s[^>]*)?>/gi;
   let sawTag = false;
-  let match;
-  while ((match = tagPattern.exec(trimmed))) {
+  for (let index = 0; index < trimmed.length; index += 1) {
+    if (trimmed[index] !== '<') continue;
+    const nameStart = index + (trimmed[index + 1] === '/' ? 2 : 1);
+    const tag = readHtmlTagName(trimmed, nameStart);
+    if (!tag) continue;
+    const boundary = trimmed[tag.end];
+    let tagEnd = tag.end;
+    if (boundary === '>') {
+      tagEnd += 1;
+    } else if (isJavaScriptWhitespace(boundary)) {
+      const closingBracket = trimmed.indexOf('>', tag.end + 1);
+      if (closingBracket < 0) break;
+      tagEnd = closingBracket + 1;
+    } else {
+      continue;
+    }
     sawTag = true;
-    if (!MARKDOWN_RICH_INLINE_HTML_TAGS.has(match[1].toLowerCase())) return false;
+    if (!MARKDOWN_RICH_INLINE_HTML_TAGS.has(tag.name)) return false;
+    index = tagEnd - 1;
   }
   return sawTag;
 };
