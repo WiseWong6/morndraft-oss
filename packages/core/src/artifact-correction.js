@@ -254,10 +254,17 @@ const correctHtml = (source) => {
   };
 };
 
+const MERMAID_EDGE_SUFFIXES = Object.freeze(['-->', '---', '==>', '-.->', '--o', '--x']);
+
+const endsWithMermaidEdge = (value) => {
+  const normalized = value.trimEnd().toLowerCase();
+  return MERMAID_EDGE_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+};
+
 const getIncompleteMermaidEdgeLine = (source) => {
   const lines = source.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
-    if (/(?:-->|---|==>|-.->|--o|--x)\s*$/i.test(lines[index].trim())) {
+    if (endsWithMermaidEdge(lines[index])) {
       return index + 1;
     }
   }
@@ -290,7 +297,7 @@ const hasSingleArrowMermaidFlowEdge = (line) => {
         pipeLabel = false;
         continue;
       }
-      if (/(?:-->|---|==>|-.->|--o|--x)$/i.test(line.slice(0, index).trimEnd())) {
+      if (endsWithMermaidEdge(line.slice(0, index))) {
         pipeLabel = true;
         continue;
       }

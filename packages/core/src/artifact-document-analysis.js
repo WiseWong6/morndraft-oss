@@ -805,20 +805,26 @@ const analyzeBlock = (args) => {
 
 const getLineRecords = (source) => {
   const records = [];
-  let offset = 0;
-  const matches = source.matchAll(/.*(?:\r?\n|$)/g);
-  for (const match of matches) {
-    const raw = match[0];
-    if (!raw && offset >= source.length) break;
-    const newlineMatch = raw.match(/\r?\n$/);
-    const text = newlineMatch ? raw.slice(0, -newlineMatch[0].length) : raw;
+  let start = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] !== '\n') continue;
+    const hasCarriageReturn = index > start && source[index - 1] === '\r';
+    const end = hasCarriageReturn ? index - 1 : index;
     records.push({
-      text,
-      start: offset,
-      end: offset + text.length,
-      newlineLength: newlineMatch?.[0].length ?? 0,
+      text: source.slice(start, end),
+      start,
+      end,
+      newlineLength: hasCarriageReturn ? 2 : 1,
     });
-    offset += raw.length;
+    start = index + 1;
+  }
+  if (start < source.length) {
+    records.push({
+      text: source.slice(start),
+      start,
+      end: source.length,
+      newlineLength: 0,
+    });
   }
   return records.length ? records : [{ text: '', start: 0, end: 0, newlineLength: 0 }];
 };
