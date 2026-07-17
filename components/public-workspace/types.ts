@@ -23,9 +23,8 @@ export type PublicWorkspaceMode = 'source' | 'final';
 export type PublicContentType = PublicDeliveryContentType;
 
 export type SourceChangeMeta = {
-  origin: 'source' | 'final' | 'import' | 'syntax' | 'insert' | 'ai' | 'format' | 'repair' | 'paste-image';
+  origin: 'source' | 'final' | 'import' | 'syntax' | 'insert' | 'ai';
   resetDocument?: boolean;
-  suggestedTitle?: string;
 };
 
 export type ImportedDocument = {
@@ -63,12 +62,6 @@ export type PublicTextSelection = {
   visibleText?: string;
   sourceText?: string;
   source: string;
-  formatContext?: {
-    blockEnd: number;
-    blockStart: number;
-    visibleEnd: number;
-    visibleStart: number;
-  };
 };
 
 export type PublicFinalRendererProps = {
@@ -76,8 +69,10 @@ export type PublicFinalRendererProps = {
   documentEpoch: number;
   locale: PublicWorkspaceLocale;
   theme: PublicWorkspaceTheme;
+  editing?: boolean;
+  includeA4Pagination?: boolean;
+  showCode?: boolean;
   onSourceChange(next: string, meta: SourceChangeMeta): void;
-  selection?: PublicTextSelection | null;
   onSelectionChange?(selection: PublicTextSelection | null): void;
   onAiGenerateRequest?(range: { start: number; end: number }): void;
 };

@@ -10,26 +10,33 @@ import { detectPublicDocument, normalizePublicFenceLanguage } from '../../../com
 
 const read = (relativePath: string) => readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 
-test('OSS entry mounts an independent public shell without commercial imports', () => {
+test('OSS entry mounts the shared App facade with a fail-closed public composition', () => {
   const entry = read('./index.ts');
-  const shell = read('./OssShell.tsx');
+  const app = read('../../../App.tsx');
+  const publicApp = read('./PublicAppImpl.tsx');
+  const adapters = read('./releaseAdapters.ts');
   const deliveryAdapter = read('./publicDeliveryAdapter.ts');
   const workspace = read('../../../components/public-workspace/PublicWorkspace.tsx');
   const publicDialog = read('../../../components/public-workspace/PublicDialog.tsx');
   const preview = read('../../../components/public-workspace/PublicFinalPreview.tsx');
 
-  assert.match(entry, /import OssShell from '\.\/OssShell'/);
-  assert.match(entry, /App: OssShell/);
-  assert.doesNotMatch(`${entry}\n${shell}\n${workspace}\n${preview}`, /AppImpl|ArtifactPreview|AccountMenu|billing|hosted-link|\/api\//);
-  assert.match(shell, /data-oss-shell="public"/);
-  assert.match(shell, /<PublicWorkspace/);
-  assert.match(shell, /createPublicAiAdapter/);
-  assert.doesNotMatch(shell, /createBrowserPublicDeliveryAdapter/);
-  assert.match(shell, /import\('\.\/publicDeliveryAdapter'\)/);
+  assert.match(entry, /import App from '\.\.\/\.\.\/\.\.\/App'/);
+  assert.match(entry, /App,/);
+  assert.match(app, /import ReleaseApp from '@morndraft\/release-app'/);
+  assert.doesNotMatch(`${entry}\n${publicApp}\n${adapters}\n${workspace}\n${preview}`, /ArtifactPreview|AccountMenu|billing|\/api\//);
+  assert.match(publicApp, /data-public-release-app="true"/);
+  assert.match(publicApp, /<PublicWorkspace/);
+  assert.match(adapters, /createPublicAiAdapter/);
+  assert.match(adapters, /auth: Object\.freeze\(\{ mode: 'none' \}\)/);
+  assert.match(adapters, /persistence: Object\.freeze\(\{[\s\S]*?mode: 'memory'/);
+  assert.match(adapters, /telemetry: Object\.freeze\(\{[\s\S]*?mode: 'noop'/);
+  assert.match(adapters, /linkSharing: Object\.freeze\(\{ mode: 'hidden' \}\)/);
+  assert.doesNotMatch(adapters, /createBrowserPublicDeliveryAdapter/);
+  assert.match(adapters, /import\('\.\/publicDeliveryAdapter'\)/);
   assert.match(deliveryAdapter, /createBrowserPublicDeliveryAdapter/);
-  assert.match(shell, /<PublicAiSettingsForm/);
-  assert.match(shell, /deliveryAdapter=\{deliveryAdapter\}/);
-  assert.match(shell, /onAiSettingsOpen=\{openAiSettings\}/);
+  assert.match(publicApp, /<PublicAiSettingsForm/);
+  assert.match(publicApp, /deliveryAdapter=\{adapters\.delivery\}/);
+  assert.match(publicApp, /onAiSettingsOpen=\{openAiSettings\}/);
   assert.match(workspace, /const closeMenus = useCallback/u);
   assert.match(workspace, /const closeMoreForDialog = useCallback/u);
   assert.match(publicDialog, /openerDetails && !openerDetails\.open/u);
@@ -39,14 +46,15 @@ test('OSS entry mounts an independent public shell without commercial imports', 
   assert.doesNotMatch(preview, /allow-same-origin/);
 });
 
-test('OSS shell gives the public workspace a definite viewport height', () => {
-  const styles = read('./oss-shell.css');
+test('OSS release App gives the public workspace a definite viewport height', () => {
+  const styles = read('./release.css');
   assert.match(styles, /\.oss-app\s*\{[\s\S]*?height:\s*100vh;[\s\S]*?height:\s*100dvh;/u);
   assert.match(styles, /\.oss-app\s*\{[\s\S]*?min-height:\s*100vh;[\s\S]*?min-height:\s*100dvh;/u);
 });
 
 test('OSS browser AI stays direct, role-based, local, and opt-in', () => {
-  const shell = read('./OssShell.tsx');
+  const publicApp = read('./PublicAppImpl.tsx');
+  const adapters = read('./releaseAdapters.ts');
   const client = read('../../../packages/features-personal/src/ai/client.ts');
   const config = read('../../../packages/features-personal/src/ai/config.ts');
   assert.match(config, /\/chat\/completions/);
@@ -56,7 +64,28 @@ test('OSS browser AI stays direct, role-based, local, and opt-in', () => {
   assert.match(config, /PUBLIC_AI_CONFIG_SESSION_STORAGE_KEY/);
   assert.match(config, /persistApiKey/);
   assert.match(config, /PUBLIC_AI_DEEPSEEK_PRESET/);
-  assert.doesNotMatch(`${shell}\n${client}\n${config}`, /MornDraft API|\/api\/ai|quota|usageLedger/);
+  assert.doesNotMatch(`${publicApp}\n${adapters}\n${client}\n${config}`, /MornDraft API|\/api\/ai|quota|usageLedger/);
+});
+
+test('OSS release App keeps the 7·10 workspace geometry and production filing', () => {
+  const workspace = read('../../../components/public-workspace/PublicWorkspace.tsx');
+  const preview = read('../../../components/public-workspace/PublicFinalPreview.tsx');
+  const compliance = read('../../../components/public-workspace/PublicComplianceFooter.tsx');
+  const filing = read('../../../components/public-workspace/publicCompliance.ts');
+  const styles = read('../../../components/public-workspace/public-workspace.css');
+
+  assert.match(workspace, /aad-commercial-workspace-shell is-public-workspace/);
+  assert.match(workspace, /aad-workspace-mode-switch/);
+  assert.match(workspace, /morndraft-wordmark-dark\.webp/);
+  assert.match(workspace, /<PublicFormatToolbar/);
+  assert.match(preview, /aad-document-surface/);
+  assert.match(preview, /<PublicComplianceFooter \/>/);
+  assert.match(compliance, /aria-label="网站备案信息"/);
+  assert.match(compliance, /© 2026 深圳明日回声科技有限公司/);
+  assert.match(filing, /粤ICP备2026082169号-1/);
+  assert.match(filing, /粤公网安备44030002014257号/);
+  assert.match(styles, /--aad-preview-live-page-width: 794px/);
+  assert.match(styles, /grid-template-rows: 48px 42px minmax\(0, 1fr\)/);
 });
 
 test('OSS document routing keeps HTML in an explicit sandbox path', () => {

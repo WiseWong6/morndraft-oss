@@ -212,10 +212,6 @@ export async function collectDistributionFiles(projectDir) {
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       const entryPath = path.join(directory, entry.name);
       const relativePath = repoPath(projectDir, entryPath);
-      // Linked Git worktrees expose their root metadata as a `.git` pointer
-      // file instead of a directory. It is repository metadata in both forms,
-      // never part of the public source candidate.
-      if (isRoot && entry.name === '.git') continue;
       if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) {
         if (!isRoot) nestedReservedDirectories.push(relativePath);
         continue;
