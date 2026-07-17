@@ -235,20 +235,104 @@ try {
   assert.ok(layout.editor.height >= 650, `Source editor collapsed to ${layout.editor.height}px.`);
   assert.ok(layout.textarea.height >= 650, `Source textarea collapsed to ${layout.textarea.height}px.`);
 
+  await sourceEditor.fill('# Source heading\n- Source middle\nlast line');
+  const sourceMiddleLinePoint = await sourceEditor.evaluate((element) => {
+    const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+    if (!style) throw new Error('Source editor has no computed style.');
+    const fontSize = Number.parseFloat(style.fontSize);
+    const lineHeight = Number.parseFloat(style.lineHeight);
+    return {
+      x: Number.parseFloat(style.paddingLeft) + 72,
+      y: Number.parseFloat(style.paddingTop) + (Number.isFinite(lineHeight) ? lineHeight : fontSize * 1.5) * 1.5,
+    };
+  });
+  await sourceEditor.dblclick({ position: sourceMiddleLinePoint });
+  assert.deepEqual(
+    await sourceEditor.evaluate(element => ({
+      end: element.selectionEnd,
+      selected: element.value.slice(element.selectionStart, element.selectionEnd),
+      start: element.selectionStart,
+    })),
+    { end: 32, selected: '- Source middle', start: 17 },
+    'A plain mouse double click must select the complete Source physical line without its LF.',
+  );
+
+  const publicLineSelectionSource = [
+    '# Final heading',
+    '',
+    'A long logical line with **bold** text',
+    '',
+    '> Quoted line',
+    '',
+    '- Parent line',
+    '  - Child line',
+  ].join('\n');
+  await sourceEditor.fill(publicLineSelectionSource);
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  const readBrowserSelection = () => page.evaluate(() => window.getSelection()?.toString() ?? '');
+  const finalHeading = page.getByRole('heading', { name: 'Final heading' });
+  await finalHeading.dblclick();
+  assert.equal(
+    await readBrowserSelection(),
+    'Final heading',
+    'Final heading double click must select the complete logical line.',
+  );
+  const finalParagraph = page.locator('.md-public-markdown-preview > p').filter({
+    hasText: 'A long logical line with bold text',
+  });
+  await finalParagraph.dblclick({ position: { x: 80, y: 12 } });
+  assert.equal(
+    await readBrowserSelection(),
+    'A long logical line with bold text',
+    'Final paragraph double click must span inline formatting without stopping at a visual word.',
+  );
+  const finalQuote = page.locator('.md-public-markdown-preview blockquote > p');
+  await finalQuote.dblclick();
+  assert.equal(
+    await readBrowserSelection(),
+    'Quoted line',
+    'Final quote double click must select its complete logical line.',
+  );
+  const finalParentListItem = page.locator('.md-public-markdown-preview > ul > li').first();
+  const parentLinePoint = await finalParentListItem.evaluate((element) => {
+    const text = Array.from(element.childNodes).find(node => (
+      node.nodeType === Node.TEXT_NODE && (node.nodeValue ?? '').includes('Parent line')
+    ));
+    if (!text) throw new Error('Parent list item has no direct logical-line text node.');
+    const range = element.ownerDocument.createRange();
+    range.selectNodeContents(text);
+    const textRect = range.getBoundingClientRect();
+    const itemRect = element.getBoundingClientRect();
+    return {
+      x: textRect.left - itemRect.left + Math.min(24, textRect.width / 2),
+      y: textRect.top - itemRect.top + textRect.height / 2,
+    };
+  });
+  await finalParentListItem.dblclick({ position: parentLinePoint });
+  assert.equal(
+    await readBrowserSelection(),
+    'Parent line',
+    'A parent list item double click must not absorb text from its nested child item.',
+  );
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  assert.equal(
+    await sourceEditor.inputValue(),
+    publicLineSelectionSource,
+    'Double-click line selection must not create a Source edit or history entry.',
+  );
+
   await sourceEditor.fill('Toolbar formatting target');
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
   const formattingTarget = page.locator(
     '[data-public-preview-root="true"] p[data-public-final-block="true"]',
   ).filter({ hasText: 'Toolbar formatting target' });
   await formattingTarget.waitFor({ state: 'visible' });
-  await formattingTarget.evaluate((element) => {
-    const range = element.ownerDocument.createRange();
-    range.selectNodeContents(element);
-    const selection = element.ownerDocument.defaultView?.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-  });
+  await formattingTarget.dblclick();
+  assert.equal(
+    await readBrowserSelection(),
+    'Toolbar formatting target',
+    'The shared format toolbar fixture must start from the public Final double-click range.',
+  );
   const boldButton = page.getByRole('button', { name: /^(Bold selection|加粗选区)$/u });
   await boldButton.waitFor({ state: 'visible' });
   assert.equal(await boldButton.isEnabled(), true, 'A valid Final text selection did not enable the shared format toolbar.');
