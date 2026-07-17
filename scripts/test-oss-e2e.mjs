@@ -805,6 +805,7 @@ const runPublicShowcaseSurfaceFlow = async (page) => {
 const dispatchNoisyImageDrop = (page, {
   dimension,
   documentName,
+  dropSelector = '[data-public-workspace="true"]',
   imageName,
   source,
 }) => page.evaluate(async (fixture) => {
@@ -832,13 +833,31 @@ const dispatchNoisyImageDrop = (page, {
   const transfer = new window.DataTransfer();
   transfer.items.add(new window.File([fixture.source], fixture.documentName, { type: 'text/markdown' }));
   transfer.items.add(new window.File([image], fixture.imageName, { type: 'image/png' }));
-  const workspace = document.querySelector('[data-public-workspace="true"]');
-  if (!workspace) throw new Error('Public workspace is unavailable for the drop fixture.');
-  workspace.dispatchEvent(new window.DragEvent('dragenter', { bubbles: true, dataTransfer: transfer }));
-  workspace.dispatchEvent(new window.DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }));
-  workspace.dispatchEvent(new window.DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  const dropTarget = document.querySelector(fixture.dropSelector);
+  if (!dropTarget) throw new Error(`Public drop target is unavailable: ${fixture.dropSelector}`);
+  dropTarget.dispatchEvent(new window.DragEvent('dragenter', { bubbles: true, dataTransfer: transfer }));
+  dropTarget.dispatchEvent(new window.DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  dropTarget.dispatchEvent(new window.DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
   return image.size;
-}, { dimension, documentName, imageName, source });
+}, { dimension, documentName, dropSelector, imageName, source });
+
+const dispatchTextDrop = (page, {
+  documentName,
+  dropSelector = '[data-public-preview-root="true"]',
+  source,
+}) => page.evaluate((fixture) => {
+  const transfer = new window.DataTransfer();
+  transfer.items.add(new window.File(
+    [fixture.source],
+    fixture.documentName,
+    { type: 'text/markdown' },
+  ));
+  const dropTarget = document.querySelector(fixture.dropSelector);
+  if (!dropTarget) throw new Error(`Public drop target is unavailable: ${fixture.dropSelector}`);
+  dropTarget.dispatchEvent(new window.DragEvent('dragenter', { bubbles: true, dataTransfer: transfer }));
+  dropTarget.dispatchEvent(new window.DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  dropTarget.dispatchEvent(new window.DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+}, { documentName, dropSelector, source });
 
 const selectRenderedOccurrence = async (block, needle, occurrence) => {
   let selectionResult;
@@ -996,10 +1015,13 @@ const runImportFlow = async (page, canonicalFlatSource) => {
     );
   }
 
+  await finalButton.click();
+  await page.locator('[data-public-preview-root="true"]').waitFor({ state: 'visible' });
   await armImportCompletion(page);
   const originalImageBytes = await dispatchNoisyImageDrop(page, {
     dimension: 900,
     documentName: 'with-image.md',
+    dropSelector: '[data-public-preview-root="true"]',
     imageName: 'noise.png',
     source: '# Imported image\n\n![noise](./noise.png)',
   });
@@ -1017,6 +1039,77 @@ const runImportFlow = async (page, canonicalFlatSource) => {
   const importedImage = page.locator('[data-public-preview-root="true"] img[alt="noise"]');
   await importedImage.waitFor({ state: 'visible' });
   assert.match(await importedImage.getAttribute('src') ?? '', /^data:image\/[a-z0-9.+-]+;base64,/iu);
+  const filenameFirstDownload = await assertDownload(
+    page,
+    'oss-delivery-download-html',
+    '.html',
+    (content) => assert.match(content.toString('utf8'), /Imported image/u),
+  );
+  assert.equal(
+    filenameFirstDownload.download.suggestedFilename(),
+    'with-image.html',
+    'Imported delivery did not prefer the local document filename.',
+  );
+  const filenameFirstPng = await assertDownload(
+    page,
+    'oss-delivery-download-png',
+    '.png',
+    (content) => assert.deepEqual(
+      [...content.subarray(0, 8)],
+      [137, 80, 78, 71, 13, 10, 26, 10],
+    ),
+  );
+  assert.equal(
+    filenameFirstPng.download.suggestedFilename(),
+    'with-image.png',
+    'Imported PNG delivery did not prefer the local document filename.',
+  );
+  const filenameFirstPdf = await assertDownload(
+    page,
+    'oss-delivery-download-pdf',
+    '.pdf',
+    (content) => assertA4ImagePdf(content, 'Imported filename PDF'),
+  );
+  assert.equal(
+    filenameFirstPdf.download.suggestedFilename(),
+    'with-image.pdf',
+    'Imported PDF delivery did not prefer the local document filename.',
+  );
+
+  await armImportCompletion(page);
+  await dispatchTextDrop(page, {
+    documentName: '',
+    source: '\n\n# First content heading\n\nFallback title body.',
+  });
+  await waitForImportCompletion(page);
+  const firstLineDownload = await assertDownload(
+    page,
+    'oss-delivery-download-html',
+    '.html',
+    (content) => assert.match(content.toString('utf8'), /First content heading/u),
+  );
+  assert.equal(
+    firstLineDownload.download.suggestedFilename(),
+    'First content heading.html',
+    'Imported delivery did not fall back to the first content line.',
+  );
+
+  await page.locator('summary').filter({ hasText: /^(Syntax|语法)$/u }).click();
+  await page.getByRole('menu', { name: /^(Syntax|语法)$/u }).getByRole('menuitem').first().click();
+  await page.waitForFunction(() => (
+    document.querySelector('.aad-workspace-brand-mark')?.getAttribute('aria-label') === 'MornDraft'
+  ));
+  const resetTitleDownload = await assertDownload(
+    page,
+    'oss-delivery-download-html',
+    '.html',
+    () => undefined,
+  );
+  assert.equal(
+    resetTitleDownload.download.suggestedFilename(),
+    'MornDraft.html',
+    'A non-import document reset retained a stale imported filename.',
+  );
 
   await sourceButton.click();
   await armImportCompletion(page);
