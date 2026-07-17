@@ -1,6 +1,15 @@
 {
-  "lineBudgets": [],
+  "lineBudgets": [
+    {
+      "path": "App.tsx",
+      "maxLines": 430,
+      "softWarnPercent": 90,
+      "rationale": "Root app orchestration should not keep absorbing feature state and case-by-case UI wiring.",
+      "suggestedExtractionTarget": "Move focused state or capability workflows into hooks or feature modules before adding new root behavior."
+    }
+  ],
   "productionRoots": [
+    "App.tsx",
     "components",
     "packages"
   ],

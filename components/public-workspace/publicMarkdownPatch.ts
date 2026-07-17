@@ -347,12 +347,6 @@ const looksLikeInlineHtmlStart = (source: string, start: number) => {
   return PUBLIC_INLINE_HTML_START.test(source);
 };
 
-const PUBLIC_SAFE_INLINE_FORMAT_TAG = /^(?:<\/?(?:em|mark|strong|u)>|<\/span>|<span style="[^"<>]+">)/iu;
-const getSafePublicInlineFormatTagEnd = (source: string, start: number) => {
-  const match = PUBLIC_SAFE_INLINE_FORMAT_TAG.exec(source.slice(start));
-  return match ? start + match[0].length : null;
-};
-
 const getFencedCodeContentRange = (markdown: string) => {
   const firstCr = markdown.indexOf('\r');
   const firstLf = markdown.indexOf('\n');
@@ -447,11 +441,6 @@ const mapMarkdownToVisibleUnits = (
         if (autolink && autolink.sourceEnd <= end) {
           if (!appendRange(autolink.textStart, autolink.textEnd, false, nestingDepth + 1)) return false;
           index = autolink.sourceEnd;
-          continue;
-        }
-        const safeInlineFormatTagEnd = getSafePublicInlineFormatTagEnd(markdown, index);
-        if (safeInlineFormatTagEnd !== null && safeInlineFormatTagEnd <= end) {
-          index = safeInlineFormatTagEnd;
           continue;
         }
         if (looksLikeInlineHtmlStart(markdown, index)) return false;

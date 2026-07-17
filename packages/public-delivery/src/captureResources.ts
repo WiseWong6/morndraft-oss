@@ -9,9 +9,7 @@ import {
 } from './captureResourceFormats';
 import { hasPublicDynamicCaptureCss } from './dynamicMarkup';
 
-// The bundled CJK font set is roughly 8 MB. Keep the preflight fail-closed,
-// while allowing a first export to finish on a slower uncached connection.
-export const PUBLIC_CAPTURE_RESOURCE_TIMEOUT_MS = 30_000;
+const PUBLIC_CAPTURE_RESOURCE_TIMEOUT_MS = 10_000;
 const PUBLIC_CAPTURE_MAX_REMOTE_RESOURCES = 100;
 const PUBLIC_CAPTURE_MAX_RESOURCE_BYTES = 25 * 1024 * 1024;
 const PUBLIC_CAPTURE_MAX_TOTAL_RESOURCE_BYTES = 50 * 1024 * 1024;
