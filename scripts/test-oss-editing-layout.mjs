@@ -577,6 +577,166 @@ try {
     'Repeated JSON5 bodies must patch only the selected fence in the complete Source.',
   );
 
+  const blankInsertionSource = [
+    'Before paragraph',
+    '',
+    '- protected list',
+    '',
+    '![pixel](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mNk+M/wHwAF/gL+AvcX8QAAAABJRU5ErkJggg==)',
+    '',
+    '| A | B |',
+    '| - | - |',
+    '| 1 | 2 |',
+    '',
+    '```js',
+    'const safe = true;',
+    '```',
+    '',
+    '```html',
+    '<button type="button">Sandbox content</button>',
+    '```',
+    '',
+    'After paragraph',
+  ].join('\n');
+  await sourceEditor.fill(blankInsertionSource);
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await enterFinalEditing(page);
+  const blankLineEditor = page.getByRole('textbox', {
+    name: /^(Final blank line editor|Final 空白行编辑器)$/u,
+  });
+  const blankPreview = page.locator('.md-public-markdown-preview');
+  const protectedList = blankPreview.locator(':scope > ul');
+  const protectedImage = blankPreview.locator(':scope > p').filter({ has: page.locator('img') });
+  const protectedTable = blankPreview.locator(':scope > table');
+  const protectedCode = blankPreview.locator(':scope > pre');
+  const protectedHtml = blankPreview.locator(':scope > .md-public-html-fence-block');
+  const protectedParagraph = blankPreview.locator(':scope > p').filter({ hasText: 'Before paragraph' });
+  for (const protectedBlock of [
+    protectedParagraph,
+    protectedList,
+    protectedImage,
+    protectedTable,
+    protectedCode,
+    protectedHtml,
+  ]) {
+    await protectedBlock.click();
+    assert.equal(
+      await blankLineEditor.count(),
+      0,
+      'Clicking rendered content must never create a Final blank-line editor.',
+    );
+  }
+  await protectedImage.scrollIntoViewIfNeeded();
+  const listImageGap = await page.evaluate(() => {
+    const previewRoot = document.querySelector('.md-public-markdown-preview');
+    const list = previewRoot?.querySelector(':scope > ul');
+    const image = [...(previewRoot?.querySelectorAll(':scope > p') ?? [])]
+      .find(element => element.querySelector('img'));
+    if (!(previewRoot instanceof HTMLElement) || !(list instanceof HTMLElement) || !(image instanceof HTMLElement)) {
+      throw new Error('Final blank-line insertion fixture is incomplete.');
+    }
+    const rootRect = previewRoot.getBoundingClientRect();
+    const listRect = list.getBoundingClientRect();
+    const imageRect = image.getBoundingClientRect();
+    if (imageRect.top <= listRect.bottom) throw new Error('Final blank-line fixture has no list/image gap.');
+    return {
+      x: rootRect.left + Math.min(96, rootRect.width / 3),
+      y: (listRect.bottom + imageRect.top) / 2,
+    };
+  });
+  await page.keyboard.down('Shift');
+  await page.mouse.click(listImageGap.x, listImageGap.y);
+  await page.keyboard.up('Shift');
+  assert.equal(
+    await blankLineEditor.count(),
+    0,
+    'A modified mouse action must remain owned by normal Final selection behavior.',
+  );
+  await page.mouse.click(listImageGap.x, listImageGap.y);
+  await blankLineEditor.waitFor({ state: 'visible' });
+  await blankLineEditor.fill('Cancelled blank paragraph');
+  await blankLineEditor.press('Escape');
+  assert.equal(await blankLineEditor.count(), 0, 'Escape must cancel the transient Final blank-line editor.');
+  await page.mouse.click(listImageGap.x, listImageGap.y);
+  await blankLineEditor.fill('Inserted from blank area');
+  await blankLineEditor.press('Enter');
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  const blankInsertionExpected = blankInsertionSource.replace(
+    '\n\n![pixel]',
+    '\n\nInserted from blank area\n\n![pixel]',
+  );
+  assert.equal(
+    await sourceEditor.inputValue(),
+    blankInsertionExpected,
+    'Final gap insertion must add one paragraph at the adjacent exact Source boundary.',
+  );
+
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await enterFinalEditing(page);
+  const finalParagraphAfterInsertion = page.locator('.md-public-markdown-preview > p').filter({
+    hasText: 'After paragraph',
+  });
+  await finalParagraphAfterInsertion.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  const finalBottomGap = await finalParagraphAfterInsertion.evaluate((element) => {
+    const root = element.closest('.md-public-markdown-preview');
+    const surface = element.closest('[data-public-preview-root="true"]');
+    if (!(root instanceof HTMLElement) || !(surface instanceof HTMLElement)) {
+      throw new Error('Final bottom insertion root is missing.');
+    }
+    const rootRect = root.getBoundingClientRect();
+    const paragraphRect = element.getBoundingClientRect();
+    const surfaceRect = surface.getBoundingClientRect();
+    if (paragraphRect.bottom + 8 >= surfaceRect.bottom) {
+      throw new Error('Final bottom insertion fixture has no surface whitespace.');
+    }
+    return {
+      x: rootRect.left + Math.min(96, rootRect.width / 3),
+      y: paragraphRect.bottom + 8,
+    };
+  });
+  await page.mouse.click(finalBottomGap.x, finalBottomGap.y);
+  await blankLineEditor.fill('Bottom paragraph');
+  await blankLineEditor.evaluate(element => element.blur());
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  const blankInsertionWithBottom = `${blankInsertionExpected}\n\nBottom paragraph`;
+  assert.equal(
+    await sourceEditor.inputValue(),
+    blankInsertionWithBottom,
+    'Final trailing whitespace insertion must append one Source paragraph.',
+  );
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await enterFinalEditing(page);
+  const bottomParagraph = page.locator('.md-public-markdown-preview > p').filter({
+    hasText: 'Bottom paragraph',
+  });
+  await bottomParagraph.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  const whitespaceBottomGap = await bottomParagraph.evaluate((element) => {
+    const root = element.closest('.md-public-markdown-preview');
+    const surface = element.closest('[data-public-preview-root="true"]');
+    if (!(root instanceof HTMLElement) || !(surface instanceof HTMLElement)) {
+      throw new Error('Final whitespace no-op root is missing.');
+    }
+    const rootRect = root.getBoundingClientRect();
+    const paragraphRect = element.getBoundingClientRect();
+    const surfaceRect = surface.getBoundingClientRect();
+    if (paragraphRect.bottom + 8 >= surfaceRect.bottom) {
+      throw new Error('Final whitespace no-op fixture has no surface whitespace.');
+    }
+    return {
+      x: rootRect.left + Math.min(96, rootRect.width / 3),
+      y: paragraphRect.bottom + 8,
+    };
+  });
+  await page.mouse.click(whitespaceBottomGap.x, whitespaceBottomGap.y);
+  await blankLineEditor.fill('   ');
+  await blankLineEditor.evaluate(element => element.blur());
+  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  assert.equal(
+    await sourceEditor.inputValue(),
+    blankInsertionWithBottom,
+    'Whitespace-only Final blank-line input must not mutate Source.',
+  );
+
   await sourceEditor.fill('First **bold** block\n\nsecond');
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
   await enterFinalEditing(page);

@@ -25,9 +25,13 @@ const publicEditableMarkdownSource = readFileSync(
   join(directory, 'PublicEditableMarkdown.tsx'),
   'utf8',
 );
+const publicFinalBlankLineControllerSource = readFileSync(
+  join(directory, 'PublicFinalBlankLineController.tsx'),
+  'utf8',
+);
 const publicDistribution = JSON.parse(
   readFileSync(join(directory, '../../profiles/oss-public-distribution.json'), 'utf8'),
-) as { copyFiles: string[] };
+) as { copyFiles: string[]; testFiles: string[] };
 const publicAiSourceKindSource = readFileSync(
   join(directory, '../../packages/features-personal/src/ai/sourceKind.ts'),
   'utf8',
@@ -127,6 +131,27 @@ test('Source and Final wire mouse double-click selection through the public line
   assert.ok(
     publicDistribution.copyFiles.includes(
       'components/public-workspace/publicLineSelection.ts',
+    ),
+  );
+});
+
+test('Final blank-space insertion stays mouse-only, source-controlled, and in the public closure', () => {
+  assert.match(finalPreviewSource, /PublicFinalBlankLineController/u);
+  assert.match(finalPreviewSource, /document\.kind === 'markdown'/u);
+  assert.match(finalPreviewSource, /enabled=\{editing\}/u);
+  assert.match(finalPreviewSource, /import\('\.\/PublicFinalBlankLineController'\)/u);
+  assert.match(publicFinalBlankLineControllerSource, /shouldHandlePublicFinalBlankLinePointer/u);
+  assert.match(publicFinalBlankLineControllerSource, /latestSourceRef\.current !== requestSource/u);
+  assert.match(publicFinalBlankLineControllerSource, /insertPublicFinalBlankLineSource/u);
+  for (const sourcePath of [
+    'components/public-workspace/PublicFinalBlankLineController.tsx',
+    'components/public-workspace/publicFinalBlankLine.ts',
+  ]) {
+    assert.ok(publicDistribution.copyFiles.includes(sourcePath), sourcePath);
+  }
+  assert.ok(
+    publicDistribution.testFiles.includes(
+      'components/public-workspace/publicFinalBlankLine.test.ts',
     ),
   );
 });
