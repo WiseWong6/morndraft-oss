@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import test from 'node:test';
 
-import { createOssBundleBudgetPlugin, resolveOssManualChunk } from './oss-bundle-budget.mjs';
+import {
+  createOssBundleBudgetPlugin,
+  OSS_ENTRY_GZIP_GROWTH_BUDGET_BYTES,
+  resolveOssManualChunk,
+} from './oss-bundle-budget.mjs';
 
 const chunk = ({
   code = 'export const value = 1;',
@@ -46,6 +50,7 @@ test('OSS bundle budget accepts a bounded entry graph with a lazy parser chunk',
 });
 
 test('OSS manual chunk policy is stable across source and exported builds', () => {
+  assert.equal(OSS_ENTRY_GZIP_GROWTH_BUDGET_BYTES, 5 * 1024);
   assert.equal(resolveOssManualChunk('/repo/node_modules/react/index.js'), 'vendor-react');
   assert.equal(resolveOssManualChunk('C:\\repo\\node_modules\\html2canvas\\dist.js'), 'vendor-capture');
   assert.equal(resolveOssManualChunk('/repo/node_modules/lucide-react/dist.js'), 'vendor-icons');
