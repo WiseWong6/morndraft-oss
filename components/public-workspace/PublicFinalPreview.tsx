@@ -10,7 +10,6 @@ import {
 } from './publicDocument';
 import {
   isPublicMornDraftFlatHtml,
-  PublicFlatFinalEditor,
   PublicHtmlFenceFinalEditor,
 } from './PublicFlatFinalEditor';
 import { PublicSourceEditor } from './PublicSourceEditor';
@@ -96,9 +95,9 @@ const PublicHtmlFenceBlock: React.FC<{
   return (
     <div className="md-public-html-fence-block" data-public-flat={isFlat ? 'true' : undefined}>
       <PublicHtmlFrame html={content} title={title} />
-      {editable && (isFlat
-        ? <PublicFlatFinalEditor html={content} locale={locale} onHtmlChange={onChange} />
-        : <PublicHtmlFenceFinalEditor html={content} locale={locale} onHtmlChange={onChange} />)}
+      {editable && !isFlat && (
+        <PublicHtmlFenceFinalEditor html={content} locale={locale} onHtmlChange={onChange} />
+      )}
     </div>
   );
 };
@@ -165,10 +164,9 @@ const PublicMixedPreview: React.FC<{
   locale: PublicWorkspaceLocale;
   theme: PublicWorkspaceTheme;
   editable: boolean;
-  structuredEditing: boolean;
   onSourcePatch(next: string): void;
   onSelectionChange?(selection: PublicTextSelection | null): void;
-}> = ({ source, locale, theme, editable, structuredEditing, onSourcePatch, onSelectionChange }) => {
+}> = ({ source, locale, theme, editable, onSourcePatch, onSelectionChange }) => {
   const labels = getLabels(locale);
   const segments = useMemo(() => splitPublicDocumentSegments(source), [source]);
   return (
@@ -197,7 +195,7 @@ const PublicMixedPreview: React.FC<{
             <PublicHtmlFenceBlock
               key={`html-${index}`}
               content={segment.content}
-              editable={structuredEditing}
+              editable={editable}
               locale={locale}
               title={labels.htmlTitle}
               onChange={updateFence}
@@ -208,7 +206,7 @@ const PublicMixedPreview: React.FC<{
           return (
             <div key={`json-${index}`} className="md-public-json-fence-block">
               <PublicJsonPreview source={segment.content} invalidLabel={labels.invalidJson} />
-              {structuredEditing && (
+              {editable && (
                 <PublicFenceSourceEditor
                   content={segment.content}
                   label={locale === 'zh' ? 'Final JSON5 编辑器' : 'Final JSON5 editor'}
@@ -276,7 +274,6 @@ const renderDetectedDocument = (
           locale={locale}
           theme={theme}
           editable={editable}
-          structuredEditing={false}
           onSourcePatch={onSourcePatch}
           onSelectionChange={onSelectionChange}
         />
