@@ -13,6 +13,7 @@ import {
 import type { PublicTextSelection } from './types';
 
 type EditableTag = 'blockquote' | 'code' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'li' | 'p' | 'td' | 'th';
+type StructuralTag = 'hr' | 'ol' | 'table' | 'ul';
 type MarkdownPosition = { start?: { offset?: number }; end?: { offset?: number } } | undefined;
 type MarkdownRenderNode = {
   type?: string;
@@ -318,6 +319,26 @@ const PublicContextEditableBlock: React.FC<{
   );
 };
 
+const PublicContextStructuralBlock: React.FC<{
+  tag: StructuralTag;
+  className?: string;
+  children?: React.ReactNode;
+  node: MarkdownRenderNode | null | undefined;
+  start?: number;
+}> = ({ tag, className, children, node, start }) => {
+  const context = useContext(PublicEditableMarkdownContext);
+  if (!context) throw new Error('Public structural Markdown block requires its render context.');
+  const relativeStart = (node as { position?: MarkdownPosition } | null | undefined)?.position?.start?.offset;
+  const relativeEnd = (node as { position?: MarkdownPosition } | null | undefined)?.position?.end?.offset;
+  const canLocate = Number.isInteger(relativeStart) && Number.isInteger(relativeEnd);
+  return React.createElement(tag, {
+    className,
+    start: tag === 'ol' ? start : undefined,
+    'data-public-source-start': canLocate ? context.segmentStart + (relativeStart ?? 0) : undefined,
+    'data-public-source-end': canLocate ? context.segmentStart + (relativeEnd ?? 0) : undefined,
+  }, children);
+};
+
 const renderPublicEditableBlock = (
   tag: EditableTag,
   node: MarkdownRenderNode | null | undefined,
@@ -368,10 +389,26 @@ const PUBLIC_MARKDOWN_COMPONENTS: Components = {
   h4: ({ node, children, className }) => renderPublicEditableBlock('h4', node, node?.position, children, className),
   h5: ({ node, children, className }) => renderPublicEditableBlock('h5', node, node?.position, children, className),
   h6: ({ node, children, className }) => renderPublicEditableBlock('h6', node, node?.position, children, className),
+  hr: ({ node, className }) => <PublicContextStructuralBlock tag="hr" node={node} className={className} />,
   li: ({ node, children, className }) => renderPublicEditableBlock('li', node, getChildContentPosition(node), children, className),
+  ol: ({ node, children, className, start }) => (
+    <PublicContextStructuralBlock tag="ol" node={node} className={className} start={start}>
+      {children}
+    </PublicContextStructuralBlock>
+  ),
   p: ({ node, children, className }) => renderPublicEditableBlock('p', node, node?.position, children, className),
+  table: ({ node, children, className }) => (
+    <PublicContextStructuralBlock tag="table" node={node} className={className}>
+      {children}
+    </PublicContextStructuralBlock>
+  ),
   td: ({ node, children, className }) => renderPublicEditableBlock('td', node, getChildContentPosition(node), children, className),
   th: ({ node, children, className }) => renderPublicEditableBlock('th', node, getChildContentPosition(node), children, className),
+  ul: ({ node, children, className }) => (
+    <PublicContextStructuralBlock tag="ul" node={node} className={className}>
+      {children}
+    </PublicContextStructuralBlock>
+  ),
 };
 
 const PUBLIC_MARKDOWN_REMARK_PLUGINS = [remarkGfm];
