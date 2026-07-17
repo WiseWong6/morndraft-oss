@@ -1,5 +1,9 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { applyPublicInsert, findPublicSlashTrigger } from './publicDocument';
+import {
+  getPublicSourceLineSelectionRange,
+  shouldHandlePublicLineDoubleClick,
+} from './publicLineSelection';
 import type { PublicFlatInsertEntry, PublicTextSelection, PublicWorkspaceLocale, SourceChangeMeta } from './types';
 
 type PublicSourceEditorProps = {
@@ -42,6 +46,7 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
   const latestSourceRef = useRef(source);
   const renderedSourceRef = useRef(source);
   const insertOperationRef = useRef(0);
+  const lastPointerTypeRef = useRef<string | null>(null);
   const [slashTrigger, setSlashTrigger] = useState<SlashTrigger | null>(null);
   const [insertError, setInsertError] = useState('');
   const entries = useMemo(() => [MARKDOWN_TABLE_ENTRY, ...flatInsertEntries], [flatInsertEntries]);
@@ -127,6 +132,30 @@ export const PublicSourceEditor: React.FC<PublicSourceEditorProps> = ({
         onChange={handleChange}
         onClick={(event) => {
           updateSlashTrigger(event.currentTarget.value, event.currentTarget.selectionStart);
+          updateSelection(event.currentTarget);
+        }}
+        onPointerDown={(event) => {
+          lastPointerTypeRef.current = event.pointerType;
+        }}
+        onDoubleClick={(event) => {
+          const pointerType = lastPointerTypeRef.current;
+          lastPointerTypeRef.current = null;
+          if (!shouldHandlePublicLineDoubleClick({
+            altKey: event.altKey,
+            button: event.button,
+            ctrlKey: event.ctrlKey,
+            detail: event.detail,
+            metaKey: event.metaKey,
+            pointerType,
+            shiftKey: event.shiftKey,
+          })) return;
+          const { start, end } = getPublicSourceLineSelectionRange(
+            event.currentTarget.value,
+            event.currentTarget.selectionStart,
+          );
+          event.preventDefault();
+          event.currentTarget.setSelectionRange(start, end);
+          updateSlashTrigger(event.currentTarget.value, end);
           updateSelection(event.currentTarget);
         }}
         onSelect={(event) => updateSelection(event.currentTarget)}
