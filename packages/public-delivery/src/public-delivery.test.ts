@@ -28,7 +28,6 @@ import {
   withPublicDeliveryTimeout,
 } from './capture';
 import {
-  PUBLIC_CAPTURE_RESOURCE_TIMEOUT_MS,
   PUBLIC_CAPTURE_FAILED_RESOURCE_PLACEHOLDER,
   assertPublicCaptureResourcesEmbedded,
   assertPublicCaptureResourcesReadable,
@@ -45,10 +44,6 @@ const ONE_PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=',
   'base64',
 );
-
-test('capture resource preflight allows a cold bundled-font fetch window', () => {
-  assert.equal(PUBLIC_CAPTURE_RESOURCE_TIMEOUT_MS, 30_000);
-});
 
 const makeDocument = () => ({
   styleSheets: [],

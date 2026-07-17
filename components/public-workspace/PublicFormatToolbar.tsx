@@ -1,175 +1,268 @@
-import React, { useId } from 'react';
-import type { PublicWorkspaceLocale } from './types';
+import React, { useMemo } from 'react';
+import { PreviewFormatToolbar } from '../preview/PreviewFormatToolbar';
+import type {
+  PreviewFormatToolbarControls,
+  PreviewFormatToolbarTranslations,
+  PreviewMarkdownBlockFormat,
+  PreviewMarkdownTextFormat,
+} from '../preview/PreviewFormatToolbarTypes';
+import type { PublicTextSelection, PublicWorkspaceLocale } from './types';
 
-export type PublicFormatCommand =
-  | { kind: 'block'; format: 'paragraph' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'quote' | 'bulletList' | 'numberList' }
-  | { kind: 'inline'; format: 'bold' | 'italic' | 'underline' | 'highlight' }
-  | { kind: 'style'; style: Partial<Record<'color' | 'fontFamily' | 'fontSize' | 'letterSpacing' | 'lineHeight', string>> };
+const SUPPORTED_PUBLIC_TEXT_FORMATS = new Set<PreviewMarkdownTextFormat>(['bold', 'italic']);
 
-type PublicBlockFormat = Extract<PublicFormatCommand, { kind: 'block' }>['format'];
+const EMPTY_PUBLIC_TEXT_FORMATS: Record<PreviewMarkdownTextFormat, boolean> = {
+  bold: false,
+  highlight: false,
+  inlineCode: false,
+  italic: false,
+  strikethrough: false,
+  subscript: false,
+  superscript: false,
+  underline: false,
+};
 
-const FONT_FAMILIES = [
-  { labelEn: 'Sans', labelZh: '黑体', value: '"MornDraft Sans SC", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif' },
-  { labelEn: 'Serif', labelZh: '宋体', value: '"MornDraft Serif SC", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif' },
-];
+const getFormatLabels = (locale: PublicWorkspaceLocale): PreviewFormatToolbarTranslations => locale === 'zh' ? {
+  previewBlockFormat: '段落格式',
+  previewBoldSelection: '加粗选区',
+  previewBulletList: '项目列表',
+  previewEditSelectionRequired: '请先在最终效果中选择文字',
+  previewEditUnavailable: '当前公开版暂不支持此格式',
+  previewEditUpgradeRequired: '当前不可用',
+  previewFontFamily: '字体',
+  previewFontSize: '字号',
+  previewFormatToolbar: '交付编辑工具',
+  previewHeading1: '标题 1',
+  previewHeading2: '标题 2',
+  previewHeading3: '标题 3',
+  previewHeading4: '标题 4',
+  previewHeading5: '标题 5',
+  previewHeading6: '标题 6',
+  previewHighlightSelection: '高亮选区',
+  previewItalicSelection: '斜体选区',
+  previewLetterSpacing: '字间距',
+  previewLetterSpacingDefault: '默认',
+  previewLetterSpacingLoose: '宽松',
+  previewLetterSpacingSoft: '轻微',
+  previewLetterSpacingTitle: '标题',
+  previewLineHeight: '行间距',
+  previewLineHeightBalanced: '均衡',
+  previewLineHeightCompact: '紧凑',
+  previewLineHeightDefault: '正文默认',
+  previewLineHeightLoose: '宽松',
+  previewMixedBlockFormat: '混合',
+  previewNumberList: '编号列表',
+  previewParagraph: '正文',
+  previewQuoteBlock: '引用',
+  previewTextColor: '文字颜色',
+  previewUnderlineSelection: '下划线选区',
+} : {
+  previewBlockFormat: 'Block format',
+  previewBoldSelection: 'Bold selection',
+  previewBulletList: 'Bullet list',
+  previewEditSelectionRequired: 'Select text in Final first',
+  previewEditUnavailable: 'This format is not available in the public edition',
+  previewEditUpgradeRequired: 'Unavailable',
+  previewFontFamily: 'Font',
+  previewFontSize: 'Size',
+  previewFormatToolbar: 'Final view editing tools',
+  previewHeading1: 'Heading 1',
+  previewHeading2: 'Heading 2',
+  previewHeading3: 'Heading 3',
+  previewHeading4: 'Heading 4',
+  previewHeading5: 'Heading 5',
+  previewHeading6: 'Heading 6',
+  previewHighlightSelection: 'Highlight selection',
+  previewItalicSelection: 'Italic selection',
+  previewLetterSpacing: 'Letter spacing',
+  previewLetterSpacingDefault: 'Default',
+  previewLetterSpacingLoose: 'Loose',
+  previewLetterSpacingSoft: 'Soft',
+  previewLetterSpacingTitle: 'Title',
+  previewLineHeight: 'Line height',
+  previewLineHeightBalanced: 'Balanced',
+  previewLineHeightCompact: 'Compact',
+  previewLineHeightDefault: 'Body default',
+  previewLineHeightLoose: 'Loose',
+  previewMixedBlockFormat: 'Mixed',
+  previewNumberList: 'Numbered list',
+  previewParagraph: 'Body',
+  previewQuoteBlock: 'Quote',
+  previewTextColor: 'Text color',
+  previewUnderlineSelection: 'Underline selection',
+};
 
-const FONT_SIZES = ['12px', '14px', '15px', '16px', '18px', '20px', '24px'];
-const COLORS = [
-  '#000000', '#434343', '#666666', '#999999', '#CCCCCC', '#FFFFFF',
-  '#FF0000', '#FF9900', '#FFFF00', '#00B050', '#00B0F0', '#0070C0',
-  '#7030A0', '#C0007A', '#C00000', '#7F6000', '#008000', '#008080',
-  '#000080', '#351C75', '#F4CCCC', '#FCE5CD', '#FFF2CC', '#D9EAD3',
-  '#D0E0E3', '#CFE2F3', '#D9D2E9', '#EAD1DC', '#1D1D18', '#244E3A',
-];
+const getSelectedLineRange = (source: string, selection: PublicTextSelection) => {
+  const start = Math.max(0, Math.min(selection.start, source.length));
+  const end = Math.max(start, Math.min(selection.end, source.length));
+  const lineStart = source.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
+  const nextLineBreak = source.indexOf('\n', end);
+  return {
+    start: lineStart,
+    end: nextLineBreak < 0 ? source.length : nextLineBreak,
+  };
+};
 
-const BLOCK_OPTIONS = [
-  ['paragraph', '段落', 'Paragraph'],
-  ['h1', '标题 1', 'Heading 1'],
-  ['h2', '标题 2', 'Heading 2'],
-  ['h3', '标题 3', 'Heading 3'],
-  ['h4', '标题 4', 'Heading 4'],
-  ['h5', '标题 5', 'Heading 5'],
-  ['h6', '标题 6', 'Heading 6'],
-  ['quote', '引用', 'Quote'],
-  ['bulletList', '项目列表', 'Bullet list'],
-  ['numberList', '编号列表', 'Numbered list'],
-] as const;
+const getSelectedBlockFormat = (
+  source: string,
+  selection: PublicTextSelection | null,
+): PreviewMarkdownBlockFormat => {
+  if (!selection) return 'paragraph';
+  const range = getSelectedLineRange(source, selection);
+  const line = source.slice(range.start, range.end);
+  const heading = /^ {0,3}(#{1,6})[ \t]+/u.exec(line);
+  if (heading) return `h${heading[1].length}` as PreviewMarkdownBlockFormat;
+  if (/^ {0,3}>[ \t]?/u.test(line)) return 'quote';
+  if (/^ {0,3}[-+*][ \t]+/u.test(line)) return 'bulletList';
+  if (/^ {0,3}\d+[.)][ \t]+/u.test(line)) return 'numberList';
+  return 'paragraph';
+};
 
-const keepSelectionOnPointerDown = (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault();
+const stripPublicBlockPrefix = (line: string) => line
+  .replace(/^ {0,3}#{1,6}[ \t]+/u, '')
+  .replace(/^ {0,3}>[ \t]?/u, '')
+  .replace(/^ {0,3}(?:[-+*]|\d+[.)])[ \t]+/u, '');
+
+const applyPublicBlockFormat = (
+  source: string,
+  selection: PublicTextSelection,
+  format: PreviewMarkdownBlockFormat,
+) => {
+  const range = getSelectedLineRange(source, selection);
+  const lines = source.slice(range.start, range.end).split('\n');
+  const nextLines = lines.map((line, index) => {
+    const content = stripPublicBlockPrefix(line);
+    if (format === 'paragraph' || format === 'mixed') return content;
+    if (/^h[1-6]$/u.test(format)) return `${'#'.repeat(Number(format.slice(1)))} ${content}`;
+    if (format === 'quote') return `> ${content}`;
+    if (format === 'bulletList') return `- ${content}`;
+    return `${index + 1}. ${content}`;
+  });
+  return `${source.slice(0, range.start)}${nextLines.join('\n')}${source.slice(range.end)}`;
+};
+
+const applyPublicTextFormat = (
+  source: string,
+  selection: PublicTextSelection,
+  format: PreviewMarkdownTextFormat,
+) => {
+  const delimiter = format === 'bold' ? '**' : format === 'italic' ? '_' : null;
+  if (!delimiter) return source;
+  const start = Math.max(0, Math.min(selection.start, source.length));
+  const end = Math.max(start, Math.min(selection.end, source.length));
+  if (start === end) return source;
+  const hasWrapper = source.slice(Math.max(0, start - delimiter.length), start) === delimiter
+    && source.slice(end, end + delimiter.length) === delimiter;
+  if (hasWrapper) {
+    return `${source.slice(0, start - delimiter.length)}${source.slice(start, end)}${source.slice(end + delimiter.length)}`;
+  }
+  return `${source.slice(0, start)}${delimiter}${source.slice(start, end)}${delimiter}${source.slice(end)}`;
+};
 
 export const PublicFormatToolbar: React.FC<{
-  canApplyBlockFormat: boolean;
   canFormat: boolean;
+  documentKind: 'html' | 'json' | 'markdown' | 'mermaid';
+  includeA4Pagination: boolean;
+  isEditing: boolean;
   locale: PublicWorkspaceLocale;
-  onCommand(command: PublicFormatCommand): void;
-}> = ({ canApplyBlockFormat, canFormat, locale, onCommand }) => {
-  const labelId = useId();
-  const labels = locale === 'zh' ? {
-    toolbar: '格式工具条',
-    selection: '请先在最终效果中选择可逆 Markdown 文本',
-    block: '段落格式',
-    bold: '粗体',
-    italic: '斜体',
-    underline: '下划线',
-    highlight: '高亮',
-    font: '字体',
-    size: '字号',
-    color: '文字颜色',
-    lineHeight: '行高',
-    letterSpacing: '字间距',
-    default: '默认',
-  } : {
-    toolbar: 'Format toolbar',
-    selection: 'Select reversible Markdown text in Final first',
-    block: 'Block format',
-    bold: 'Bold',
-    italic: 'Italic',
-    underline: 'Underline',
-    highlight: 'Highlight',
-    font: 'Font',
-    size: 'Size',
-    color: 'Text color',
-    lineHeight: 'Line height',
-    letterSpacing: 'Letter spacing',
-    default: 'Default',
-  };
-  const title = canFormat ? labels.toolbar : labels.selection;
+  selection: PublicTextSelection | null;
+  showCode: boolean;
+  source: string;
+  onEditingChange(next: boolean): void;
+  onIncludeA4PaginationChange(next: boolean): void;
+  onShowCodeChange(next: boolean): void;
+  onSourceChange(next: string): void;
+}> = ({
+  canFormat,
+  documentKind,
+  includeA4Pagination,
+  isEditing,
+  locale,
+  selection,
+  showCode,
+  source,
+  onEditingChange,
+  onIncludeA4PaginationChange,
+  onShowCodeChange,
+  onSourceChange,
+}) => {
+  const activeTextFormats = useMemo(() => {
+    if (!selection || selection.source !== source) return EMPTY_PUBLIC_TEXT_FORMATS;
+    const { start, end } = selection;
+    return {
+      ...EMPTY_PUBLIC_TEXT_FORMATS,
+      bold: source.slice(Math.max(0, start - 2), start) === '**' && source.slice(end, end + 2) === '**',
+      italic: source.slice(Math.max(0, start - 1), start) === '_' && source.slice(end, end + 1) === '_',
+    };
+  }, [selection, source]);
+  const controls = useMemo<PreviewFormatToolbarControls>(() => ({
+    activeTextFormats,
+    canApplyBlockFormat: canFormat,
+    canApplyColor: false,
+    canApplyFontFamily: false,
+    canApplyFontSize: false,
+    canApplyLetterSpacing: false,
+    canApplyLineHeight: false,
+    canFormat,
+    disabledReason: canFormat ? undefined : 'selection-required',
+    selectedBlockFormat: getSelectedBlockFormat(source, selection),
+    selectedColor: '#000000',
+    selectedFontFamily: '"MornDraft Sans SC", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
+    selectedFontSize: '16px',
+    selectedLetterSpacing: '',
+    selectedLineHeight: '',
+    supportedTextFormats: SUPPORTED_PUBLIC_TEXT_FORMATS,
+    onApplyBlockFormat: (format) => {
+      if (selection) onSourceChange(applyPublicBlockFormat(source, selection, format));
+    },
+    onApplyColor: () => undefined,
+    onApplyFontFamily: () => undefined,
+    onApplyFontSize: () => undefined,
+    onApplyLetterSpacing: () => undefined,
+    onApplyLineHeight: () => undefined,
+    onToggleFormat: (format) => {
+      if (selection) onSourceChange(applyPublicTextFormat(source, selection, format));
+    },
+  }), [activeTextFormats, canFormat, onSourceChange, selection, source]);
 
   return (
-    <div className="md-public-format-toolbar" role="toolbar" aria-labelledby={labelId} title={title} data-public-format-toolbar="true">
-      <span id={labelId} className="md-public-sr-only">{labels.toolbar}</span>
-      <label>
-        <span>{labels.block}</span>
-        <select
-          aria-label={labels.block}
-          disabled={!canApplyBlockFormat}
-          defaultValue="__choose__"
-          onChange={(event) => {
-            const value = event.currentTarget.value;
-            if (value !== '__choose__') onCommand({ kind: 'block', format: value as PublicBlockFormat });
-            event.currentTarget.value = '__choose__';
-          }}
-        >
-          <option value="__choose__">{labels.block}</option>
-          {BLOCK_OPTIONS.map(([value, zh, en]) => <option key={value} value={value}>{locale === 'zh' ? zh : en}</option>)}
-        </select>
-      </label>
-      {([
-        ['bold', 'B', labels.bold],
-        ['italic', 'I', labels.italic],
-        ['underline', 'U', labels.underline],
-        ['highlight', 'H', labels.highlight],
-      ] as const).map(([format, glyph, label]) => (
+    <>
+      <PreviewFormatToolbar controls={controls} t={getFormatLabels(locale)} />
+      <div className="md-public-display-controls" aria-label={locale === 'zh' ? '交付显示选项' : 'Final display options'}>
+        {documentKind !== 'markdown' && documentKind !== 'mermaid' && (
+          <button
+            type="button"
+            className="aad-action-button md-public-final-edit-toggle"
+            aria-pressed={isEditing}
+            onClick={() => onEditingChange(!isEditing)}
+          >
+            {isEditing
+              ? (locale === 'zh' ? '预览' : 'Preview')
+              : (locale === 'zh' ? '编辑' : 'Edit')}
+          </button>
+        )}
         <button
-          key={format}
           type="button"
-          disabled={!canFormat}
-          aria-label={label}
-          title={canFormat ? label : labels.selection}
-          onMouseDown={keepSelectionOnPointerDown}
-          onClick={() => onCommand({ kind: 'inline', format })}
-        >{glyph}</button>
-      ))}
-      <label>
-        <span>{labels.font}</span>
-        <select aria-label={labels.font} disabled={!canFormat} defaultValue="__choose__" onChange={(event) => {
-          const value = event.currentTarget.value;
-          if (value !== '__choose__') onCommand({ kind: 'style', style: { fontFamily: value } });
-          event.currentTarget.value = '__choose__';
-        }}>
-          <option value="__choose__">{labels.font}</option>
-          <option value="">{labels.default}</option>
-          {FONT_FAMILIES.map((option) => <option key={option.value} value={option.value}>{locale === 'zh' ? option.labelZh : option.labelEn}</option>)}
-        </select>
-      </label>
-      <label>
-        <span>{labels.size}</span>
-        <select aria-label={labels.size} disabled={!canFormat} defaultValue="__choose__" onChange={(event) => {
-          const value = event.currentTarget.value;
-          if (value !== '__choose__') onCommand({ kind: 'style', style: { fontSize: value } });
-          event.currentTarget.value = '__choose__';
-        }}>
-          <option value="__choose__">{labels.size}</option>
-          <option value="">{labels.default}</option>
-          {FONT_SIZES.map((value) => <option key={value} value={value}>{value.replace('px', '')}</option>)}
-        </select>
-      </label>
-      <label>
-        <span>{labels.color}</span>
-        <select aria-label={labels.color} disabled={!canFormat} defaultValue="__choose__" onChange={(event) => {
-          const value = event.currentTarget.value;
-          if (value !== '__choose__') onCommand({ kind: 'style', style: { color: value } });
-          event.currentTarget.value = '__choose__';
-        }}>
-          <option value="__choose__">{labels.color}</option>
-          <option value="">{labels.default}</option>
-          {COLORS.map((value) => <option key={value} value={value}>{value}</option>)}
-        </select>
-      </label>
-      <label>
-        <span>{labels.lineHeight}</span>
-        <select aria-label={labels.lineHeight} disabled={!canFormat} defaultValue="__choose__" onChange={(event) => {
-          const value = event.currentTarget.value;
-          if (value !== '__choose__') onCommand({ kind: 'style', style: { lineHeight: value } });
-          event.currentTarget.value = '__choose__';
-        }}>
-          <option value="__choose__">{labels.lineHeight}</option>
-          <option value="">{labels.default}</option>
-          {['1.35', '1.5', '2'].map((value) => <option key={value} value={value}>{value}</option>)}
-        </select>
-      </label>
-      <label>
-        <span>{labels.letterSpacing}</span>
-        <select aria-label={labels.letterSpacing} disabled={!canFormat} defaultValue="__choose__" onChange={(event) => {
-          const value = event.currentTarget.value;
-          if (value !== '__choose__') onCommand({ kind: 'style', style: { letterSpacing: value } });
-          event.currentTarget.value = '__choose__';
-        }}>
-          <option value="__choose__">{labels.letterSpacing}</option>
-          <option value="">{labels.default}</option>
-          {['0.02em', '0.05em', '0.08em'].map((value) => <option key={value} value={value}>{value}</option>)}
-        </select>
-      </label>
-    </div>
+          className="md-public-switch"
+          role="switch"
+          aria-checked={includeA4Pagination}
+          onClick={() => onIncludeA4PaginationChange(!includeA4Pagination)}
+        >
+          <span>{locale === 'zh' ? '分页' : 'Pages'}</span>
+          <i aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="md-public-switch"
+          role="switch"
+          aria-checked={showCode}
+          onClick={() => onShowCodeChange(!showCode)}
+        >
+          <span>{locale === 'zh' ? '代码' : 'Code'}</span>
+          <i aria-hidden="true" />
+        </button>
+      </div>
+    </>
   );
 };
+
+export default PublicFormatToolbar;

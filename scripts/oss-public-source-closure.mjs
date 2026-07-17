@@ -4,6 +4,7 @@ import { build as buildEsbuild } from 'esbuild';
 import { normalizeExternalPackageSpecifier } from './oss-public-distribution.mjs';
 
 export const OSS_PUBLIC_WORKSPACE_ALIASES = Object.freeze(new Map([
+  ['@morndraft/release-app', 'apps/web-oss/src/PublicAppImpl.tsx'],
   ['@morndraft/core/oss-public', 'packages/core/src/oss-public.ts'],
   ['@morndraft/features-personal/ai', 'packages/features-personal/src/ai/index.ts'],
   ['@morndraft/public-delivery', 'packages/public-delivery/src/index.ts'],
@@ -29,6 +30,10 @@ export async function resolveOssSourceClosure({ manifest, projectDir }) {
       ...copiedBrowserSourceEntrypoints(manifest),
     ])],
     format: 'esm',
+    define: {
+      __MORNDRAFT_PRIVATE_SURFACE__: 'false',
+      __MORNDRAFT_PUBLIC_RELEASE_SURFACE__: 'true',
+    },
     jsx: 'automatic',
     loader: {
       '.css': 'css',

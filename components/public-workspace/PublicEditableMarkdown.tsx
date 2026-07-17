@@ -1,27 +1,12 @@
 import React, { useContext, useMemo, useRef, useState } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
-import {
-  canonicalizePublicMarkdownImageDataUrl,
-  MORNDRAFT_MARKDOWN_SANITIZE_SCHEMA,
-  rehypeCanonicalizePublicMarkdownImageDataUrls,
-} from './publicMarkdownSanitizeSchema';
 import {
   patchPublicMarkdownVisibleText,
   resolvePublicMarkdownVisibleSourceOffset,
   resolvePublicMarkdownVisibleSourceRange,
 } from './publicMarkdownPatch';
-import { getFirstPublicClipboardImageFile } from './publicClipboardImage';
 import type { PublicTextSelection } from './types';
-
-export type PublicMarkdownImagePasteRequest = {
-  file: File;
-  isSelectionCurrent(): boolean;
-  range: { start: number; end: number };
-  source: string;
-};
 
 type EditableTag = 'blockquote' | 'code' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'li' | 'p' | 'td' | 'th';
 type MarkdownPosition = { start?: { offset?: number }; end?: { offset?: number } } | undefined;
@@ -34,7 +19,6 @@ type MarkdownRenderNode = {
 type PublicEditableMarkdownRenderContext = {
   editable: boolean;
   onSelectionChange?(selection: PublicTextSelection | null): void;
-  onImagePaste?(request: PublicMarkdownImagePasteRequest): void;
   onSourcePatch(next: string): void;
   segmentEnd: number;
   segmentStart: number;
@@ -45,7 +29,7 @@ const PublicEditableMarkdownContext = React.createContext<PublicEditableMarkdown
 
 const PUBLIC_REVERSIBLE_MARKDOWN_TAGS = new Set([
   'a', 'blockquote', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-  'li', 'mark', 'p', 'span', 'strong', 'td', 'th', 'u',
+  'li', 'p', 'strong', 'td', 'th',
 ]);
 
 const PUBLIC_NESTED_EDITABLE_BLOCK_TAGS = new Set([
@@ -88,6 +72,8 @@ const getChildContentPosition = (node: { children?: Array<{ position?: MarkdownP
   return { start: positioned[0].start, end: positioned[positioned.length - 1].end };
 };
 
+const PUBLIC_LOCAL_IMAGE_DATA_URL = /^data:image\/(?:avif|gif|jpeg|png|webp);base64,(?:[a-z0-9+/=\s]|%[0-9a-f]{2})+$/iu;
+
 const PUBLIC_EDITABLE_DOM_BLOCK_TAGS = new Set([
   'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DIV', 'FOOTER', 'HEADER',
   'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'MAIN', 'NAV', 'P', 'PRE', 'SECTION',
@@ -121,10 +107,9 @@ const readPublicEditableDomText = (root: HTMLElement, multilineCode = false) => 
   return readNode(root);
 };
 
-export const transformPublicMarkdownUrl = (url: string) => {
-  const canonicalImage = canonicalizePublicMarkdownImageDataUrl(url);
-  return canonicalImage ?? defaultUrlTransform(url);
-};
+export const transformPublicMarkdownUrl = (url: string) => (
+  PUBLIC_LOCAL_IMAGE_DATA_URL.test(url) ? url : defaultUrlTransform(url)
+);
 
 type PublicEditableBlockProps = {
   tag: EditableTag;
@@ -139,7 +124,6 @@ type PublicEditableBlockProps = {
   canOwnEdit: boolean;
   onSourcePatch(next: string): void;
   onSelectionChange?(selection: PublicTextSelection | null): void;
-  onImagePaste?(request: PublicMarkdownImagePasteRequest): void;
 };
 
 const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
@@ -155,7 +139,6 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
   canOwnEdit,
   onSourcePatch,
   onSelectionChange,
-  onImagePaste,
 }) => {
   const focusSnapshotRef = useRef<{ source: string; visibleText: string } | null>(null);
   const [recoveryEpoch, setRecoveryEpoch] = useState(0);
@@ -163,64 +146,6 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
   const relativeEnd = position?.end?.offset;
   const canPatch = Number.isInteger(relativeStart) && Number.isInteger(relativeEnd);
   const canEditBlock = editable && canPatch && sourceReversible && canOwnEdit;
-
-  const resolveSelectionSourceRange = (selection: Selection) => {
-    if (!canPatch || selection.rangeCount === 0) return null;
-    const browserRange = selection.getRangeAt(0);
-    if (
-      !browserRange
-      || (!browserRange.collapsed && !sourceReversible)
-      || !browserRange.startContainer
-      || !browserRange.endContainer
-    ) return null;
-    const block = browserRange.startContainer.nodeType === 1
-      ? browserRange.startContainer as HTMLElement
-      : browserRange.startContainer.parentElement;
-    const endBlock = browserRange.endContainer.nodeType === 1
-      ? browserRange.endContainer as HTMLElement
-      : browserRange.endContainer.parentElement;
-    const current = block?.closest<HTMLElement>('[data-public-final-block="true"]');
-    const endCurrent = endBlock?.closest<HTMLElement>('[data-public-final-block="true"]');
-    if (current !== endCurrent || current?.getAttribute('data-public-source-start') !== String(segmentStart + (relativeStart ?? 0))) {
-      return null;
-    }
-    const visibleText = current.textContent ?? '';
-    const getOffset = (container: Node, offset: number) => {
-      const prefix = current.ownerDocument.createRange();
-      try {
-        prefix.selectNodeContents(current);
-        prefix.setEnd(container, offset);
-        return prefix.toString().length;
-      } catch {
-        return null;
-      }
-    };
-    const visibleStart = getOffset(browserRange.startContainer, browserRange.startOffset);
-    const visibleEnd = getOffset(browserRange.endContainer, browserRange.endOffset);
-    if (visibleStart === null || visibleEnd === null) return null;
-    const sourceRange = {
-      start: segmentStart + (relativeStart ?? 0),
-      end: segmentStart + (relativeEnd ?? 0),
-    };
-    if (browserRange.collapsed) {
-      const offset = resolvePublicMarkdownVisibleSourceOffset({
-        source,
-        range: sourceRange,
-        visibleText,
-        visibleOffset: visibleStart,
-        edge: 'start',
-      });
-      return offset === null ? null : { start: offset, end: offset };
-    }
-    const resolved = resolvePublicMarkdownVisibleSourceRange({
-      source,
-      range: sourceRange,
-      visibleText,
-      visibleStart,
-      visibleEnd,
-    });
-    return resolved ? { start: resolved.start, end: resolved.end } : null;
-  };
 
   const restoreControlledChildren = () => {
     // A changed key remounts the host subtree from React's source-controlled
@@ -274,12 +199,6 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
       text: visibleSelection,
       visibleText: visibleSelection,
       source,
-      formatContext: {
-        blockEnd: segmentStart + (relativeEnd ?? 0),
-        blockStart: segmentStart + (relativeStart ?? 0),
-        visibleEnd: visibleStart + visibleSelection.length,
-        visibleStart,
-      },
     } : null);
   };
 
@@ -339,31 +258,6 @@ const PublicEditableBlock: React.FC<PublicEditableBlockProps> = ({
       event.preventDefault();
       event.currentTarget.blur();
     },
-    onPaste: (event: React.ClipboardEvent<HTMLElement>) => {
-      if (!canEditBlock || !onImagePaste) return;
-      const file = getFirstPublicClipboardImageFile(event.clipboardData);
-      if (!file) return;
-      const editableElement = event.currentTarget;
-      const selection = editableElement.ownerDocument.defaultView?.getSelection();
-      const range = selection ? resolveSelectionSourceRange(selection) : null;
-      if (!range) return;
-      event.preventDefault();
-      onImagePaste({
-        file,
-        range,
-        source,
-        isSelectionCurrent: () => {
-          if (editableElement.ownerDocument.activeElement !== editableElement) return false;
-          const currentSelection = editableElement.ownerDocument.defaultView?.getSelection();
-          const currentRange = currentSelection ? resolveSelectionSourceRange(currentSelection) : null;
-          return Boolean(
-            currentRange
-            && currentRange.start === range.start
-            && currentRange.end === range.end
-          );
-        },
-      });
-    },
     onMouseUp: updateRenderedSelection,
     onKeyUp: updateRenderedSelection,
   }, children);
@@ -391,7 +285,6 @@ const PublicContextEditableBlock: React.FC<{
       canOwnEdit={!hasPublicMarkdownNestedEditableBlock(node)}
       onSourcePatch={context.onSourcePatch}
       onSelectionChange={context.onSelectionChange}
-      onImagePaste={context.onImagePaste}
     >
       {children}
     </PublicEditableBlock>
@@ -455,11 +348,6 @@ const PUBLIC_MARKDOWN_COMPONENTS: Components = {
 };
 
 const PUBLIC_MARKDOWN_REMARK_PLUGINS = [remarkGfm];
-const PUBLIC_MARKDOWN_REHYPE_PLUGINS = [
-  rehypeRaw,
-  rehypeCanonicalizePublicMarkdownImageDataUrls,
-  [rehypeSanitize, MORNDRAFT_MARKDOWN_SANITIZE_SCHEMA],
-] as NonNullable<React.ComponentProps<typeof ReactMarkdown>['rehypePlugins']>;
 
 export const PublicEditableMarkdown: React.FC<{
   content: string;
@@ -468,24 +356,21 @@ export const PublicEditableMarkdown: React.FC<{
   editable: boolean;
   onSourcePatch(next: string): void;
   onSelectionChange?(selection: PublicTextSelection | null): void;
-  onImagePaste?(request: PublicMarkdownImagePasteRequest): void;
-}> = ({ content, segmentStart, source, editable, onSourcePatch, onSelectionChange, onImagePaste }) => {
+}> = ({ content, segmentStart, source, editable, onSourcePatch, onSelectionChange }) => {
   const segmentEnd = segmentStart + content.length;
   const context = useMemo<PublicEditableMarkdownRenderContext>(() => ({
     editable,
     onSelectionChange,
-    onImagePaste,
     onSourcePatch,
     segmentEnd,
     segmentStart,
     source,
-  }), [editable, onImagePaste, onSelectionChange, onSourcePatch, segmentEnd, segmentStart, source]);
+  }), [editable, onSelectionChange, onSourcePatch, segmentEnd, segmentStart, source]);
 
   return (
     <PublicEditableMarkdownContext.Provider value={context}>
       <ReactMarkdown
         components={PUBLIC_MARKDOWN_COMPONENTS}
-        rehypePlugins={PUBLIC_MARKDOWN_REHYPE_PLUGINS}
         remarkPlugins={PUBLIC_MARKDOWN_REMARK_PLUGINS}
         urlTransform={transformPublicMarkdownUrl}
       >
@@ -493,4 +378,118 @@ export const PublicEditableMarkdown: React.FC<{
       </ReactMarkdown>
     </PublicEditableMarkdownContext.Provider>
   );
+};
+
+const getPublicFinalBlock = (node: Node | null): HTMLElement | null => {
+  const element = node instanceof HTMLElement ? node : node?.parentElement;
+  return element?.closest<HTMLElement>('[data-public-final-block="true"]') ?? null;
+};
+
+const readIntegerAttribute = (element: HTMLElement, name: string) => {
+  const raw = element.getAttribute(name);
+  if (!raw || !/^-?\d+$/u.test(raw)) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) ? value : null;
+};
+
+const getVisibleOffset = (block: HTMLElement, container: Node, offset: number) => {
+  const range = block.ownerDocument.createRange();
+  try {
+    range.selectNodeContents(block);
+    range.setEnd(container, offset);
+    return range.toString().length;
+  } catch {
+    return null;
+  }
+};
+
+const isRangeCoveredByReversibleMarkdownBlocks = (
+  root: HTMLElement,
+  range: Range,
+) => {
+  let coveredBlockCount = 0;
+  for (const block of root.querySelectorAll<HTMLElement>('[data-public-final-block="true"]')) {
+    let intersects = false;
+    try {
+      intersects = range.intersectsNode(block);
+    } catch {
+      return false;
+    }
+    if (!intersects) continue;
+    coveredBlockCount += 1;
+    if (block.getAttribute('data-public-final-reversible') !== 'true') return false;
+  }
+  if (coveredBlockCount === 0) return false;
+  const fragment = range.cloneContents();
+  return !fragment.querySelector([
+    '[data-public-final-reversible="false"]',
+    'audio', 'br', 'button', 'canvas', 'embed', 'hr', 'iframe', 'img',
+    'input', 'object', 'select', 'svg', 'textarea', 'video',
+  ].join(','));
+};
+
+/**
+ * Resolve a browser selection spanning multiple Markdown blocks back to exact
+ * Source offsets. Selections crossing a non-Markdown segment fail closed so an
+ * AI modification can never remove an intervening HTML/Mermaid artifact.
+ */
+export const resolvePublicMarkdownDomSelection = (
+  root: HTMLElement,
+  selection: Selection,
+  source: string,
+): PublicTextSelection | null => {
+  if (selection.isCollapsed || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  const startBlock = getPublicFinalBlock(range.startContainer);
+  const endBlock = getPublicFinalBlock(range.endContainer);
+  if (!startBlock || !endBlock || !root.contains(startBlock) || !root.contains(endBlock)) return null;
+
+  const startSegment = readIntegerAttribute(startBlock, 'data-public-segment-start');
+  const endSegment = readIntegerAttribute(startBlock, 'data-public-segment-end');
+  if (
+    startSegment === null || endSegment === null
+    || startSegment !== readIntegerAttribute(endBlock, 'data-public-segment-start')
+    || endSegment !== readIntegerAttribute(endBlock, 'data-public-segment-end')
+  ) return null;
+
+  const startRange = {
+    start: readIntegerAttribute(startBlock, 'data-public-source-start'),
+    end: readIntegerAttribute(startBlock, 'data-public-source-end'),
+  };
+  const endRange = {
+    start: readIntegerAttribute(endBlock, 'data-public-source-start'),
+    end: readIntegerAttribute(endBlock, 'data-public-source-end'),
+  };
+  if (startRange.start === null || startRange.end === null || endRange.start === null || endRange.end === null) return null;
+
+  const visibleStart = getVisibleOffset(startBlock, range.startContainer, range.startOffset);
+  const visibleEnd = getVisibleOffset(endBlock, range.endContainer, range.endOffset);
+  if (visibleStart === null || visibleEnd === null) return null;
+  const start = resolvePublicMarkdownVisibleSourceOffset({
+    source,
+    range: { start: startRange.start, end: startRange.end },
+    visibleText: startBlock.textContent ?? '',
+    visibleOffset: visibleStart,
+    edge: 'start',
+  });
+  const end = resolvePublicMarkdownVisibleSourceOffset({
+    source,
+    range: { start: endRange.start, end: endRange.end },
+    visibleText: endBlock.textContent ?? '',
+    visibleOffset: visibleEnd,
+    edge: 'end',
+  });
+  const text = range.toString();
+  if (
+    start === null || end === null || end <= start || !text.trim()
+    || !isRangeCoveredByReversibleMarkdownBlocks(root, range)
+  ) return null;
+  return {
+    start,
+    end,
+    text,
+    visibleText: text,
+    sourceText: source.slice(start, end),
+    source,
+  };
 };

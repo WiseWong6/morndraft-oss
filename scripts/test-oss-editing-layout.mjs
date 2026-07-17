@@ -77,6 +77,24 @@ const stopChild = async (child) => {
   await waitForTreeExit(3_000);
 };
 
+const enterFinalEditing = async (page) => {
+  const final = page.locator('[data-public-final="true"]');
+  await final.waitFor({ state: 'visible' });
+  if (await final.getAttribute('data-document-kind') === 'markdown') return;
+  const toggle = page.locator('.md-public-final-edit-toggle');
+  await toggle.waitFor({ state: 'visible' });
+  if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click();
+};
+
+const leaveFinalEditing = async (page) => {
+  const final = page.locator('[data-public-final="true"]');
+  await final.waitFor({ state: 'visible' });
+  if (await final.getAttribute('data-document-kind') === 'markdown') return;
+  const toggle = page.locator('.md-public-final-edit-toggle');
+  await toggle.waitFor({ state: 'visible' });
+  if (await toggle.getAttribute('aria-pressed') === 'true') await toggle.click();
+};
+
 await rm(outputDir, { force: true, recursive: true });
 const port = await allocatePort();
 const appUrl = `http://127.0.0.1:${port}`;
@@ -217,158 +235,30 @@ try {
   assert.ok(layout.editor.height >= 650, `Source editor collapsed to ${layout.editor.height}px.`);
   assert.ok(layout.textarea.height >= 650, `Source textarea collapsed to ${layout.textarea.height}px.`);
 
-  await sourceEditor.fill('first\nsecond line\nthird');
-  const sourceLineSelection = await sourceEditor.evaluate((textarea) => {
-    textarea.focus();
-    textarea.setSelectionRange(8, 8);
-    textarea.dispatchEvent(new globalThis.PointerEvent('pointerdown', {
-      bubbles: true,
-      button: 0,
-      pointerType: 'mouse',
-    }));
-    textarea.dispatchEvent(new MouseEvent('dblclick', {
-      bubbles: true,
-      button: 0,
-      cancelable: true,
-      detail: 2,
-    }));
-    return {
-      end: textarea.selectionEnd,
-      start: textarea.selectionStart,
-      text: textarea.value.slice(textarea.selectionStart, textarea.selectionEnd),
-    };
-  });
-  assert.deepEqual(
-    sourceLineSelection,
-    { start: 6, end: 17, text: 'second line' },
-    'Source double-click must select one physical line without its newline.',
-  );
-
-  const repairBefore = '# Repair\n\n```markdown\nbody';
-  const repairAfter = `${repairBefore}\n\`\`\``;
-  await sourceEditor.fill(repairBefore);
-  await page.getByRole('button', { name: /^(Check repair|检查修复)$/u }).click();
-  const repairDialog = page.getByRole('dialog', { name: /^(Confirm deterministic repair|确认确定性修复)$/u });
-  await repairDialog.waitFor({ state: 'visible' });
-  await repairDialog.getByRole('button', { name: /^(Apply repair|应用修复)$/u }).click();
-  assert.equal(await sourceEditor.inputValue(), repairAfter);
-  await page.evaluate((content) => {
-    const input = document.querySelector('.md-public-file-input');
-    if (!(input instanceof HTMLInputElement)) throw new Error('Missing public import file input.');
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([content], 'same-repair.md', { type: 'text/markdown' }));
-    input.files = transfer.files;
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  }, repairAfter);
-  await page.locator('.md-public-status--done').waitFor({ state: 'visible' });
-  assert.equal(
-    await page.getByRole('button', { name: /^(Undo repair|撤销修复)$/u }).count(),
-    0,
-    'A same-source document replacement must invalidate the previous document repair undo.',
-  );
-  assert.equal(await page.locator('.md-public-title').textContent(), 'same-repair');
-  const [htmlDownload] = await Promise.all([
-    page.waitForEvent('download'),
-    page.getByTestId('oss-delivery-download-html').click(),
-  ]);
-  assert.equal(htmlDownload.suggestedFilename(), 'same-repair.html');
-  await htmlDownload.delete();
-
-  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
-  await sourceEditor.fill('Alpha beta');
+  await sourceEditor.fill('Toolbar formatting target');
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
-  const formatParagraph = page.locator('.md-public-markdown-preview > p').first();
-  await formatParagraph.evaluate((element) => {
-    const text = element.firstChild;
-    if (!text || text.nodeType !== Node.TEXT_NODE) throw new Error('Missing format fixture text.');
+  const formattingTarget = page.locator(
+    '[data-public-preview-root="true"] p[data-public-final-block="true"]',
+  ).filter({ hasText: 'Toolbar formatting target' });
+  await formattingTarget.waitFor({ state: 'visible' });
+  await formattingTarget.evaluate((element) => {
     const range = element.ownerDocument.createRange();
-    range.setStart(text, 0);
-    range.setEnd(text, 5);
+    range.selectNodeContents(element);
     const selection = element.ownerDocument.defaultView?.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
     element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   });
-  const boldButton = page.getByRole('button', { name: /^(Bold|粗体)$/u });
-  assert.equal(await boldButton.isDisabled(), false);
+  const boldButton = page.getByRole('button', { name: /^(Bold selection|加粗选区)$/u });
+  await boldButton.waitFor({ state: 'visible' });
+  assert.equal(await boldButton.isEnabled(), true, 'A valid Final text selection did not enable the shared format toolbar.');
   await boldButton.click();
   await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
-  assert.equal(await sourceEditor.inputValue(), '**Alpha** beta');
-
-  await sourceEditor.fill('[Alpha](https://example.com)');
-  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
-  const linkParagraph = page.locator('.md-public-markdown-preview > p').first();
-  await linkParagraph.evaluate((element) => {
-    const text = element.querySelector('a')?.firstChild;
-    if (!text || text.nodeType !== Node.TEXT_NODE) throw new Error('Missing link fixture text.');
-    const range = element.ownerDocument.createRange();
-    range.selectNodeContents(text);
-    const selection = element.ownerDocument.defaultView?.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-  });
   assert.equal(
-    await page.getByRole('button', { name: /^(Bold|粗体)$/u }).isDisabled(),
-    true,
-    'Unsupported inline markup must disable inline formatting instead of silently failing.',
+    await sourceEditor.inputValue(),
+    '**Toolbar formatting target**',
+    'The shared commercial format toolbar did not write the public Final selection back to Source.',
   );
-  assert.equal(
-    await page.getByRole('combobox', { name: /^(Paragraph format|段落格式)$/u }).isDisabled(),
-    false,
-    'A Markdown link at the start of the document must not be misclassified as raw JSON.',
-  );
-
-  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
-  await sourceEditor.fill('First line\n\nSecond line');
-  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
-  const finalParagraphs = page.locator('.md-public-markdown-preview > p');
-  await finalParagraphs.nth(0).dblclick();
-  assert.equal(
-    await page.evaluate(() => window.getSelection()?.toString() ?? ''),
-    'First line',
-    'Final double-click must select the complete reversible Markdown line.',
-  );
-  await page.locator('.md-public-final-document').evaluate((documentRoot) => {
-    const blocks = [...documentRoot.querySelectorAll('[data-public-final-block="true"]')];
-    const first = blocks.at(0)?.getBoundingClientRect();
-    const second = blocks.at(1)?.getBoundingClientRect();
-    if (!first || !second) throw new Error('Missing blank-line insertion blocks.');
-    documentRoot.dispatchEvent(new globalThis.PointerEvent('pointerdown', {
-      bubbles: true,
-      button: 0,
-      cancelable: true,
-      clientX: first.left + 8,
-      clientY: (first.bottom + second.top) / 2,
-      pointerType: 'mouse',
-    }));
-  });
-  const blankLineInput = page.getByPlaceholder(/^(Type a new paragraph|输入新段落)$/u);
-  await blankLineInput.fill('Inserted line');
-  await blankLineInput.press('Enter');
-  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
-  assert.equal(await sourceEditor.inputValue(), 'First line\n\nInserted line\n\nSecond line');
-
-  const clipboardPixelBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
-  await sourceEditor.fill('before\n\nafter');
-  await sourceEditor.evaluate((textarea, base64) => {
-    const bytes = Uint8Array.from(globalThis.atob(base64), character => character.charCodeAt(0));
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([bytes], 'pasted.png', { type: 'image/png' }));
-    textarea.focus();
-    textarea.setSelectionRange(8, 8);
-    const paste = new Event('paste', { bubbles: true, cancelable: true });
-    Object.defineProperty(paste, 'clipboardData', { value: transfer });
-    textarea.dispatchEvent(paste);
-  }, clipboardPixelBase64);
-  await page.waitForFunction(() => {
-    const textarea = document.querySelector('.md-public-source-editor textarea');
-    return textarea instanceof globalThis.HTMLTextAreaElement && textarea.value.includes('![pasted.png](data:image/');
-  });
-  assert.match(await sourceEditor.inputValue(), /^before\n\n!\[pasted\.png\]\(data:image\/(?:avif|webp|png);base64,/u);
 
   await sourceEditor.fill('/');
   const insertMenu = page.getByRole('menu', { name: /^(Insert content|插入内容)$/u });
@@ -419,23 +309,25 @@ try {
     exercisedFlatLabels.push(label);
     await item.click();
     await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-    await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
-    const flatField = page.getByTestId('oss-flat-final-field').first();
-    await flatField.waitFor({ state: 'visible' });
-    const marker = `browser flat edit ${String(flatIndex).padStart(2, '0')}`;
-    await flatField.fill(marker);
+    const flatFrame = page.locator('[data-public-flat="true"] iframe.md-public-html-frame').first();
+    await flatFrame.waitFor({ state: 'attached' });
+    assert.match(
+      await flatFrame.getAttribute('srcdoc') ?? '',
+      /data-morndraft-source="morndraft-flat"/u,
+      `Canonical flat item ${flatIndex} (${label}) must render through the public sandbox.`,
+    );
     await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
     assert.match(
       await sourceEditor.inputValue(),
-      new RegExp(marker, 'u'),
-      `Canonical flat item ${flatIndex} (${label}) must mount and write back its first text field.`,
+      /data-morndraft-source="morndraft-flat"/u,
+      `Canonical flat item ${flatIndex} (${label}) must keep its portable Source.`,
     );
   }
   assert.equal(new Set(exercisedFlatLabels).size, 30, 'The browser gate must exercise 30 distinct canonical flat entries.');
 
   await sourceEditor.fill("{title:'raw before', items:[1,],}");
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
+  await enterFinalEditing(page);
   const rawJsonEditor = page.getByRole('textbox', { name: /^(Final content editor|最终内容编辑器)$/u });
   await rawJsonEditor.fill("{title:'raw after', items:[2,],}");
   await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
@@ -447,7 +339,7 @@ try {
 
   await sourceEditor.fill("```json5\n{title:'fenced before', items:[1,],}\n```");
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
+  await enterFinalEditing(page);
   const fencedJsonEditor = page.getByRole('textbox', { name: /^(Final content editor|最终内容编辑器)$/u });
   await fencedJsonEditor.fill("{title:'fenced after', items:[2,],}");
   await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
@@ -459,7 +351,7 @@ try {
 
   await sourceEditor.fill('First **bold** block\n\nsecond');
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
+  await enterFinalEditing(page);
   const paragraphs = page.locator('.md-public-markdown-preview > p');
   await paragraphs.nth(0).fill('Changed');
   await paragraphs.nth(1).click();
@@ -493,7 +385,7 @@ try {
     false,
     'Enter must commit the current reversible block instead of creating unrepresentable nested DOM.',
   );
-  await page.getByRole('button', { name: /^(Preview final content|预览最终内容)$/u }).click();
+  await leaveFinalEditing(page);
   await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
   assert.equal(
     await sourceEditor.inputValue(),
@@ -503,9 +395,9 @@ try {
 
   await sourceEditor.fill('Before **bold** after');
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
+  await enterFinalEditing(page);
   await page.locator('.md-public-markdown-preview > p').fill('Before  after');
-  await page.getByRole('button', { name: /^(Preview final content|预览最终内容)$/u }).click();
+  await leaveFinalEditing(page);
   await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
   assert.equal(
     await sourceEditor.inputValue(),
@@ -515,7 +407,7 @@ try {
 
   await sourceEditor.fill('Before &copy; &NotEqualTilde; &#0; &#128; &#x0B; &#xFDD0; after');
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
+  await enterFinalEditing(page);
   const entityParagraph = page.locator('.md-public-markdown-preview > p');
   assert.equal(
     await entityParagraph.textContent(),
@@ -523,7 +415,7 @@ try {
     'Chromium must expose the same named, multi-code-point, and invalid numeric entity text as micromark.',
   );
   await entityParagraph.fill('Before decoded after');
-  await page.getByRole('button', { name: /^(Preview final content|预览最终内容)$/u }).click();
+  await leaveFinalEditing(page);
   await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
   assert.equal(
     await sourceEditor.inputValue(),
@@ -545,7 +437,7 @@ try {
   ]) {
     await sourceEditor.fill(fixture.source);
     await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-    await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
+    await enterFinalEditing(page);
     const fencedCode = page.locator('.md-public-markdown-preview pre > code').first();
     await fencedCode.waitFor({ state: 'visible' });
     await fencedCode.evaluate((element) => {
@@ -563,7 +455,7 @@ try {
     await fencedCode.type('second');
     await fencedCode.press('Shift+Enter');
     await fencedCode.type('third');
-    await page.getByRole('button', { name: /^(Preview final content|预览最终内容)$/u }).click();
+    await leaveFinalEditing(page);
     await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
     assert.equal(
       await sourceEditor.inputValue(),
@@ -620,7 +512,7 @@ try {
 
   await sourceEditor.fill('- one\n\n- two\n\n> quoted');
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  await page.getByRole('button', { name: /^(Edit final content|编辑最终内容)$/u }).click();
+  await enterFinalEditing(page);
   const looseListParagraph = page.locator('.md-public-markdown-preview li > p').first();
   const blockquoteParagraph = page.locator('.md-public-markdown-preview blockquote > p').first();
   await looseListParagraph.click();
@@ -637,7 +529,7 @@ try {
     'Blockquote editing must focus the paragraph instead of a nested contentEditable container.',
   );
   await blockquoteParagraph.fill('changed quote');
-  await page.getByRole('button', { name: /^(Preview final content|预览最终内容)$/u }).click();
+  await leaveFinalEditing(page);
   await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
   assert.equal(
     await sourceEditor.inputValue(),
@@ -767,14 +659,22 @@ try {
     if (!(first instanceof HTMLElement) || !(last instanceof HTMLElement) || !firstText || !lastText) {
       throw new Error('Cross-block selection fixture did not render boundary paragraphs.');
     }
+    const editability = paragraphs.map(paragraph => paragraph.getAttribute('contenteditable'));
+    for (const paragraph of paragraphs) paragraph.setAttribute('contenteditable', 'false');
     const range = document.createRange();
     range.setStart(firstText, 0);
     range.setEnd(lastText, lastText.textContent?.length ?? 0);
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
+    const text = (selection?.toString() ?? '').trim();
     last.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    return { blockCount: paragraphs.length, text: selection?.toString() ?? '' };
+    paragraphs.forEach((paragraph, index) => {
+      const value = editability[index];
+      if (value === null) paragraph.removeAttribute('contenteditable');
+      else paragraph.setAttribute('contenteditable', value);
+    });
+    return { blockCount: paragraphs.length, text };
   }, selector);
 
   const selectPreviewParagraph = async expectedText => page.evaluate((text) => {
@@ -942,7 +842,7 @@ try {
   await context.tracing.stop();
   tracing = false;
   await rm(outputDir, { force: true, recursive: true });
-  console.log(`[oss-editing-e2e] 720px layout, scrollable 32-item Slash menu, flat/Markdown/code Final editing, zero-request cross-resource selection, browser-loaded Markdown data resources, provider-body redaction, and ${largeImagePerformance.elapsed.toFixed(0)}ms large-image import (${largeImagePerformance.encodeCalls} encodes, ${largeImagePerformance.maxHeartbeatGap.toFixed(0)}ms max heartbeat gap) passed: ${JSON.stringify(layout)}`);
+  console.log(`[oss-editing-e2e] 720px layout, shared Final format writeback, scrollable 32-item Slash menu, 30 flat previews, Markdown/code Final editing, zero-request cross-resource selection, browser-loaded Markdown data resources, provider-body redaction, and ${largeImagePerformance.elapsed.toFixed(0)}ms large-image import (${largeImagePerformance.encodeCalls} encodes, ${largeImagePerformance.maxHeartbeatGap.toFixed(0)}ms max heartbeat gap) passed: ${JSON.stringify(layout)}`);
 } catch (error) {
   await mkdir(outputDir, { recursive: true });
   if (page) await page.screenshot({ fullPage: true, path: path.join(outputDir, 'failure.png') }).catch(() => undefined);

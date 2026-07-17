@@ -1,13 +1,13 @@
-import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { analyzePublicDeterministicRepair } from '@morndraft/core/oss-public';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Code2, FileCheck } from 'lucide-react';
 import { PublicAiPanel, type PublicAiGenerateIntent } from './PublicAiPanel';
 import { PublicDialog } from './PublicDialog';
 import { PublicDeliveryToolbar } from './PublicDeliveryToolbar';
-import { resolvePublicMarkdownDomSelection } from './publicMarkdownDomSelection';
+import { PublicFinalPreview } from './PublicFinalPreview';
+import { resolvePublicMarkdownDomSelection } from './PublicEditableMarkdown';
 import { PublicSourceEditor } from './PublicSourceEditor';
 import { PUBLIC_IMPORT_ACCEPT, PublicImportError } from './publicImport';
-import { inferPublicDocumentTitle } from './publicTitleInference';
-import { getPublicContentType } from './publicDocument';
+import { detectPublicDocument, getPublicContentType } from './publicDocument';
 import { getPublicAiSourceKindForContentType } from './publicAiContext';
 import { getPublicFlatInsertEntries, getPublicSyntaxEntries } from './publicShowcase';
 import { usePublicWorkspaceController } from './publicWorkspaceController';
@@ -21,15 +21,9 @@ import type {
 } from './types';
 import './public-workspace.css';
 
-const LazyPublicFinalPreview = React.lazy(async () => {
-  const module = await import('./PublicFinalPreview');
-  return { default: module.PublicFinalPreview };
-});
-
 const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
   source: '源码',
   final: '最终效果',
-  finalLoading: '正在加载本地预览…',
   sourceEditor: '源码编辑器',
   import: '本地导入',
   importing: '正在导入…',
@@ -46,19 +40,9 @@ const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
   close: '关闭',
   aboutText: '纯浏览器运行的 Agent 产物编辑、预览与本地交付工作区。',
   drop: '松开即可从本地导入',
-  repair: '检查修复',
-  repairUndo: '撤销修复',
-  repairTitle: '确认确定性修复',
-  repairBefore: '修复前',
-  repairAfter: '修复后',
-  repairApply: '应用修复',
-  repairCancel: '取消',
-  repairNone: '没有可安全自动修复的问题',
-  repairStale: '正文已变化，请重新检查。',
 } : {
   source: 'Source',
   final: 'Final',
-  finalLoading: 'Loading local preview…',
   sourceEditor: 'Source editor',
   import: 'Local import',
   importing: 'Importing…',
@@ -75,20 +59,16 @@ const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
   close: 'Close',
   aboutText: 'A browser-only workspace for editing, previewing, and locally delivering Agent output.',
   drop: 'Drop to import from this device',
-  repair: 'Check repair',
-  repairUndo: 'Undo repair',
-  repairTitle: 'Confirm deterministic repair',
-  repairBefore: 'Before',
-  repairAfter: 'After',
-  repairApply: 'Apply repair',
-  repairCancel: 'Cancel',
-  repairNone: 'No safely repairable issue found',
-  repairStale: 'The source changed. Check it again.',
 };
 
 const resolveSyntaxSource = async (entry: PublicSyntaxEntry) => (
   typeof entry.source === 'function' ? entry.source() : entry.source
 );
+
+const PublicFormatToolbar = React.lazy(async () => {
+  const module = await import('./PublicFormatToolbar');
+  return { default: module.PublicFormatToolbar };
+});
 
 export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
   source,
@@ -122,19 +102,11 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [textSelection, setTextSelection] = useState<PublicTextSelection | null>(null);
+  const [includeA4Pagination, setIncludeA4Pagination] = useState(true);
+  const [showCode, setShowCode] = useState(true);
+  const publicDocumentKind = useMemo(() => detectPublicDocument(source).kind, [source]);
+  const [isFinalEditing, setIsFinalEditing] = useState(() => publicDocumentKind === 'markdown');
   const [generateIntent, setGenerateIntent] = useState<PublicAiGenerateIntent | null>(null);
-  const [repairReview, setRepairReview] = useState<{
-    before: string;
-    after: string;
-    documentEpoch: number;
-    message: string;
-  } | null>(null);
-  const [repairUndo, setRepairUndo] = useState<{
-    before: string;
-    after: string;
-    documentEpoch: number;
-  } | null>(null);
-  const [repairNotice, setRepairNotice] = useState('');
   const [importState, setImportState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; message?: string }>({ kind: 'idle' });
   useEffect(() => {
     // A parent document/source transition invalidates the controller token.
@@ -167,7 +139,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
     setMode,
   } = workspaceController;
   const workspaceClassName = useMemo(() => (
-    `md-public-workspace md-public-workspace--${theme}${isDragging ? ' is-dragging' : ''}`
+    `md-public-workspace aad-commercial-workspace-shell is-public-workspace md-public-workspace--${theme}${isDragging ? ' is-dragging' : ''}`
   ), [isDragging, theme]);
   const publicAiSourceKind = useMemo(
     () => getPublicAiSourceKindForContentType(getPublicContentType(source)),
@@ -185,14 +157,8 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
 
   useEffect(() => setTextSelection(null), [documentEpoch, source]);
   useEffect(() => {
-    setRepairReview(current => (
-      current?.documentEpoch === documentEpoch && current.before === source ? current : null
-    ));
-    setRepairUndo(current => (
-      current?.documentEpoch === documentEpoch && current.after === source ? current : null
-    ));
-    setRepairNotice('');
-  }, [documentEpoch, source]);
+    setIsFinalEditing(publicDocumentKind === 'markdown');
+  }, [documentEpoch, publicDocumentKind]);
 
   const handleSourceChange = useCallback((next: string, meta: SourceChangeMeta) => {
     if (meta.origin === 'final') {
@@ -202,28 +168,18 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
     commitSource(next, meta);
   }, [commitFinal, commitSource]);
 
+  const canFormatSelection = publicDocumentKind === 'markdown'
+    && isFinalEditing
+    && Boolean(textSelection && textSelection.source === source && textSelection.end > textSelection.start);
+  const handleFormatSourceChange = useCallback((next: string) => {
+    if (next === source) return;
+    setTextSelection(null);
+    commitFinal(next, { origin: 'final' });
+  }, [commitFinal, source]);
+
   const requestAiGenerate = useCallback((range: { start: number; end: number }) => {
     setGenerateIntent({ id: Date.now(), range });
   }, []);
-
-  const checkDeterministicRepair = useCallback(() => {
-    closeMenus();
-    const analysis = analyzePublicDeterministicRepair(source);
-    const candidate = analysis.candidate;
-    if (!candidate) {
-      setRepairReview(null);
-      setRepairNotice(labels.repairNone);
-      return;
-    }
-    const diagnostic = analysis.diagnostics[0];
-    setRepairNotice('');
-    setRepairReview({
-      before: source,
-      after: candidate.source,
-      documentEpoch,
-      message: locale === 'zh' ? diagnostic?.messageZh ?? '' : diagnostic?.messageEn ?? '',
-    });
-  }, [closeMenus, documentEpoch, labels.repairNone, locale, source]);
 
   const getPreviewRoot = useCallback(() => (
     workspaceRef.current?.querySelector<HTMLElement>('[data-public-preview-root="true"]') ?? null
@@ -254,15 +210,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
       if (!commitAsyncSourceReplacement(
         operation,
         imported.source,
-        {
-          origin: 'import',
-          resetDocument: true,
-          suggestedTitle: inferPublicDocumentTitle({
-            fallbackTitle: title,
-            fileName: imported.suggestedTitle ? `${imported.suggestedTitle}.md` : undefined,
-            source: imported.source,
-          }).title,
-        },
+        { origin: 'import', resetDocument: true },
       )) return;
       setMode('final');
       setImportState({ kind: 'done', message: labels.importDone });
@@ -284,14 +232,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
       if (!commitAsyncSourceReplacement(
         operation,
         next,
-        {
-          origin: 'syntax',
-          resetDocument: true,
-          suggestedTitle: inferPublicDocumentTitle({
-            fallbackTitle: entry.label,
-            source: next,
-          }).title,
-        },
+        { origin: 'syntax', resetDocument: true },
       )) return;
       setMode('final');
     } catch {
@@ -316,6 +257,7 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
       className={workspaceClassName}
       data-public-workspace="true"
       data-workspace-mode={mode}
+      data-commercial-workspace-mode={mode}
       data-theme={theme}
       onDragEnter={(event) => {
         if (event.dataTransfer.types.includes('Files')) setIsDragging(true);
@@ -334,12 +276,48 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
         void importFiles(Array.from(event.dataTransfer.files));
       }}
     >
-      <header className="md-public-toolbar">
-        <strong className="md-public-title">{title}</strong>
-        <div className="md-public-mode-switch" role="group" aria-label={locale === 'zh' ? '工作区模式' : 'Workspace mode'}>
-          <button type="button" aria-pressed={mode === 'source'} onClick={() => { closeMenus(); setMode('source'); }}>{labels.source}</button>
-          <button type="button" aria-pressed={mode === 'final'} onClick={() => { closeMenus(); setMode('final'); }}>{labels.final}</button>
+      <header className="md-public-toolbar aad-toolbar">
+        <span className="aad-workspace-brand-mark" role="img" aria-label={title}>
+          <img
+            src={theme === 'dark' ? './morndraft-wordmark-dark.webp' : './morndraft-wordmark-light.webp'}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+          />
+        </span>
+        <div
+          className={`aad-workspace-mode-switch is-${mode}`}
+          role="group"
+          aria-label={locale === 'zh' ? '工作区模式' : 'Workspace mode'}
+        >
+          <button
+            type="button"
+            className={`aad-workspace-mode-segment${mode === 'source' ? ' is-active' : ''}`}
+            aria-label={labels.source}
+            aria-pressed={mode === 'source'}
+            title={labels.source}
+            onClick={() => {
+              closeMenus();
+              setMode('source');
+            }}
+          >
+            <Code2 size={14} />
+          </button>
+          <button
+            type="button"
+            className={`aad-workspace-mode-segment${mode === 'final' ? ' is-active' : ''}`}
+            aria-label={labels.final}
+            aria-pressed={mode === 'final'}
+            title={labels.final}
+            onClick={() => {
+              closeMenus();
+              setMode('final');
+            }}
+          >
+            <FileCheck size={14} />
+          </button>
         </div>
+        <strong className="md-public-title aad-toolbar-title">{mode === 'source' ? labels.source : labels.final}</strong>
         <nav className="md-public-actions" aria-label={locale === 'zh' ? '公共工作区操作' : 'Public workspace actions'}>
           {mode === 'final' && deliveryAdapter && (
             <PublicDeliveryToolbar
@@ -351,17 +329,6 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
               title={title}
               getPreviewRoot={getPreviewRoot}
             />
-          )}
-          {repairUndo?.documentEpoch === documentEpoch && repairUndo.after === source ? (
-            <button type="button" onClick={() => {
-              const undo = repairUndo;
-              setRepairUndo(null);
-              setRepairReview(null);
-              setRepairNotice('');
-              handleSourceChange(undo.before, { origin: 'repair' });
-            }}>{labels.repairUndo}</button>
-          ) : (
-            <button type="button" onClick={checkDeterministicRepair}>{labels.repair}</button>
           )}
           <button type="button" disabled={importState.kind === 'busy'} onClick={() => { closeMenus(); inputRef.current?.click(); }}>
             {importState.kind === 'busy' ? labels.importing : labels.import}
@@ -420,6 +387,27 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
         </nav>
       </header>
 
+      {mode === 'final' && (
+        <div className="md-public-format-row aad-preview-display-controls-bar">
+          <React.Suspense fallback={<div className="aad-preview-format-toolbar" aria-hidden="true" />}>
+            <PublicFormatToolbar
+              canFormat={canFormatSelection}
+              documentKind={publicDocumentKind}
+              includeA4Pagination={includeA4Pagination}
+              isEditing={isFinalEditing}
+              locale={locale}
+              selection={textSelection}
+              showCode={showCode}
+              source={source}
+              onEditingChange={setIsFinalEditing}
+              onIncludeA4PaginationChange={setIncludeA4Pagination}
+              onShowCodeChange={setShowCode}
+              onSourceChange={handleFormatSourceChange}
+            />
+          </React.Suspense>
+        </div>
+      )}
+
       <main className="md-public-main" onMouseUp={updateRenderedSelection} onKeyUp={updateRenderedSelection}>
         {mode === 'source' ? (
           <PublicSourceEditor
@@ -437,26 +425,28 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
           <CustomFinalRenderer
             source={finalWorkspaceSnapshot.source}
             documentEpoch={documentEpoch}
+            editing={isFinalEditing}
+            includeA4Pagination={includeA4Pagination}
             locale={locale}
+            showCode={showCode}
             theme={theme}
             onSourceChange={handleSourceChange}
-            selection={textSelection}
             onSelectionChange={setTextSelection}
             onAiGenerateRequest={aiAdapter ? requestAiGenerate : undefined}
           />
         ) : (
-          <Suspense fallback={<p className="md-public-final-loading" role="status">{labels.finalLoading}</p>}>
-            <LazyPublicFinalPreview
-              source={finalWorkspaceSnapshot.source}
-              documentEpoch={documentEpoch}
-              locale={locale}
-              theme={theme}
-              onSourceChange={handleSourceChange}
-              selection={textSelection}
-              onSelectionChange={setTextSelection}
-              onAiGenerateRequest={aiAdapter ? requestAiGenerate : undefined}
-            />
-          </Suspense>
+          <PublicFinalPreview
+            source={finalWorkspaceSnapshot.source}
+            documentEpoch={documentEpoch}
+            editing={isFinalEditing}
+            includeA4Pagination={includeA4Pagination}
+            locale={locale}
+            showCode={showCode}
+            theme={theme}
+            onSourceChange={handleSourceChange}
+            onSelectionChange={setTextSelection}
+            onAiGenerateRequest={aiAdapter ? requestAiGenerate : undefined}
+          />
         )}
       </main>
 
@@ -466,45 +456,6 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
           {importState.message}
         </p>
       )}
-      {repairNotice && <p className="md-public-status" role="status">{repairNotice}</p>}
-      <PublicDialog
-        className="md-public-repair-dialog"
-        isOpen={Boolean(repairReview)}
-        labelledBy="md-public-repair-title"
-        onClose={() => setRepairReview(null)}
-      >
-        <h2 id="md-public-repair-title">{labels.repairTitle}</h2>
-        {repairReview?.message && <p>{repairReview.message}</p>}
-        <div className="md-public-repair-diff">
-          <section>
-            <h3>{labels.repairBefore}</h3>
-            <pre><code>{repairReview?.before}</code></pre>
-          </section>
-          <section>
-            <h3>{labels.repairAfter}</h3>
-            <pre><code>{repairReview?.after}</code></pre>
-          </section>
-        </div>
-        <div className="md-public-dialog-actions">
-          <button type="button" onClick={() => setRepairReview(null)}>{labels.repairCancel}</button>
-          <button type="button" data-public-dialog-initial-focus onClick={() => {
-            const review = repairReview;
-            if (!review) return;
-            if (documentEpoch !== review.documentEpoch || source !== review.before) {
-              setRepairReview(null);
-              setRepairNotice(labels.repairStale);
-              return;
-            }
-            setRepairReview(null);
-            setRepairUndo({
-              before: review.before,
-              after: review.after,
-              documentEpoch: review.documentEpoch,
-            });
-            handleSourceChange(review.after, { origin: 'repair' });
-          }}>{labels.repairApply}</button>
-        </div>
-      </PublicDialog>
       <PublicDialog
         isOpen={isAboutOpen}
         labelledBy="md-public-about-title"
