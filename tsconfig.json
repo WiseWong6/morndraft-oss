@@ -19,6 +19,9 @@
     "allowJs": true,
     "jsx": "react-jsx",
     "paths": {
+      "@morndraft/release-app": [
+        "./apps/web-oss/src/PublicAppImpl.tsx"
+      ],
       "@morndraft/core/oss-public": [
         "./packages/core/src/oss-public.ts"
       ],

@@ -9,6 +9,15 @@ const implementationSources = readdirSync(directory)
   .filter((name) => ['.ts', '.tsx'].includes(extname(name)) && !name.endsWith('.test.ts'))
   .map((name) => readFileSync(join(directory, name), 'utf8'))
   .join('\n');
+const formatToolbarSource = readFileSync(join(directory, 'PublicFormatToolbar.tsx'), 'utf8');
+const standaloneImplementationSources = readdirSync(directory)
+  .filter((name) => (
+    ['.ts', '.tsx'].includes(extname(name))
+    && !name.endsWith('.test.ts')
+    && name !== 'PublicFormatToolbar.tsx'
+  ))
+  .map((name) => readFileSync(join(directory, name), 'utf8'))
+  .join('\n');
 const finalPreviewSource = readFileSync(join(directory, 'PublicFinalPreview.tsx'), 'utf8');
 const publicImportSource = readFileSync(join(directory, 'publicImport.ts'), 'utf8');
 const publicDistribution = JSON.parse(
@@ -31,8 +40,15 @@ test('public workspace stays independent from full application and restricted su
   for (const pattern of forbidden) assert.doesNotMatch(implementationSources, pattern);
 });
 
-test('public workspace imports no root application component', () => {
-  assert.doesNotMatch(implementationSources, /from ['"]\.\.\/[^.]/u);
+test('public workspace reaches only the approved shared format toolbar outside its directory', () => {
+  assert.doesNotMatch(standaloneImplementationSources, /from ['"]\.\.\/[^.]/u);
+  const parentImports = Array.from(formatToolbarSource.matchAll(/from ['"](\.\.\/[^'"]+)['"]/gu))
+    .map(match => match[1])
+    .sort();
+  assert.deepEqual(parentImports, [
+    '../preview/PreviewFormatToolbar',
+    '../preview/PreviewFormatToolbarTypes',
+  ]);
   assert.doesNotMatch(implementationSources, /from ['"]@morndraft\/core['"]/u);
   assert.doesNotMatch(publicAiSourceKindSource, /from ['"]@morndraft\/core['"]/u);
   assert.match(publicAiSourceKindSource, /from ['"]@morndraft\/core\/oss-public['"]/u);
@@ -77,7 +93,8 @@ test('Final uses rendered contenteditable blocks and keeps HTML frames stable', 
     /'data-public-final-reversible': canPatch \? String\(sourceReversible\) : undefined/u,
   );
   assert.doesNotMatch(implementationSources, /event\.currentTarget\.textContent\s*=/u);
-  assert.match(implementationSources, /isEditing && document\.kind !== 'markdown'/u);
+  assert.match(implementationSources, /documentKind !== 'markdown' && documentKind !== 'mermaid'/u);
+  assert.match(implementationSources, /document\.kind === 'markdown' \? source : document\.content/u);
   assert.match(implementationSources, /data-public-final-editable/u);
   assert.match(implementationSources, /browserEntityDecoder \?\?= document\.createElement\('textarea'\)/u);
   assert.match(implementationSources, /decoded !== null && decodedBrowserEntities\.size < PUBLIC_BROWSER_ENTITY_CACHE_MAX/u);
