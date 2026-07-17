@@ -577,6 +577,99 @@ try {
     'Repeated JSON5 bodies must patch only the selected fence in the complete Source.',
   );
 
+  const cancellableJsonRepairSource = [
+    '```json5',
+    '{items: [1, 2] // keep',
+    '```',
+  ].join('\n');
+  await sourceEditor.fill(cancellableJsonRepairSource);
+  const jsonRepairPanel = page.getByTestId('oss-json-repair-panel');
+  await jsonRepairPanel.waitFor({ state: 'visible' });
+  await jsonRepairPanel.getByRole('button', { name: /^(Preview repair|预览修复)$/u }).first().click();
+  await page.getByTestId('oss-json-repair-candidate').waitFor({ state: 'visible' });
+  await page.waitForTimeout(1_000);
+  assert.equal(
+    await sourceEditor.inputValue(),
+    cancellableJsonRepairSource,
+    'Opening a JSON5 repair candidate must never mutate Source silently.',
+  );
+  await page.getByTestId('oss-json-repair-cancel').click();
+  await page.getByTestId('oss-json-repair-candidate').waitFor({ state: 'hidden' });
+  assert.equal(
+    await sourceEditor.inputValue(),
+    cancellableJsonRepairSource,
+    'Cancelling a JSON5 repair candidate must preserve Source exactly.',
+  );
+
+  const redundantJsonFirst = [
+    '````json',
+    '```json',
+    '{"slot":"first"}',
+    '```',
+    '````',
+  ].join('\n');
+  const redundantJsonSecond = [
+    '````json5',
+    '~~~json5',
+    '{slot:"second",}',
+    '~~~',
+    '````',
+  ].join('\n');
+  const redundantJsonRepairSource = [
+    redundantJsonFirst,
+    '',
+    'Keep this note.',
+    '',
+    redundantJsonSecond,
+  ].join('\n');
+  const expectedAdoptedJsonSource = [
+    '````json',
+    '{"slot":"first"}',
+    '````',
+    '',
+    'Keep this note.',
+    '',
+    redundantJsonSecond,
+  ].join('\n');
+  await sourceEditor.fill(redundantJsonRepairSource);
+  await jsonRepairPanel.waitFor({ state: 'visible' });
+  await jsonRepairPanel.getByRole('button', { name: /^(Preview repair|预览修复)$/u }).first().click();
+  await page.getByTestId('oss-json-repair-candidate').waitFor({ state: 'visible' });
+  assert.equal(
+    await sourceEditor.inputValue(),
+    redundantJsonRepairSource,
+    'A targeted duplicate-fence candidate must stay review-only until Adopt.',
+  );
+  await page.getByTestId('oss-json-repair-adopt').click();
+  await page.getByTestId('oss-json-repair-applied').waitFor({ state: 'visible' });
+  assert.equal(
+    await sourceEditor.inputValue(),
+    expectedAdoptedJsonSource,
+    'Adopt must remove only the selected redundant JSON fence and preserve later fences.',
+  );
+  await page.getByTestId('oss-json-repair-undo').click();
+  assert.equal(
+    await sourceEditor.inputValue(),
+    redundantJsonRepairSource,
+    'Undo must restore the exact pre-repair Source once.',
+  );
+
+  const unsafeJsonRepairSource = [
+    '```json',
+    '{"a":1 "b":2',
+    '```',
+  ].join('\n');
+  await sourceEditor.fill(unsafeJsonRepairSource);
+  await jsonRepairPanel.waitFor({ state: 'visible' });
+  assert.equal(
+    await jsonRepairPanel.getByRole('button', { name: /^(Preview repair|预览修复)$/u }).count(),
+    0,
+    'Ambiguous JSON errors must not expose a guessed repair action.',
+  );
+  await jsonRepairPanel.getByText(
+    /^(This issue cannot be changed safely and needs a manual Source edit\.|这个问题不能安全地自动修改，请在 Source 中手动修复。)$/u,
+  ).waitFor({ state: 'visible' });
+
   const blankInsertionSource = [
     'Before paragraph',
     '',
@@ -1230,7 +1323,7 @@ try {
   await context.tracing.stop();
   tracing = false;
   await rm(outputDir, { force: true, recursive: true });
-  console.log(`[oss-editing-e2e] 720px layout, shared Final format writeback, scrollable 32-item Slash menu, 30 flat previews, Markdown/code Final editing, raw/fenced/multi-fence HTML atomic editing, long-document local iframe rerender, zero-request cross-resource selection, browser-loaded Markdown data resources, provider-body redaction, and ${largeImagePerformance.elapsed.toFixed(0)}ms large-image import (${largeImagePerformance.encodeCalls} encodes, ${largeImagePerformance.maxHeartbeatGap.toFixed(0)}ms max heartbeat gap) passed: ${JSON.stringify(layout)}`);
+  console.log(`[oss-editing-e2e] 720px layout, shared Final format writeback, scrollable 32-item Slash menu, 30 flat previews, Markdown/code Final editing, raw/fenced/multi-fence HTML atomic editing, long-document local iframe rerender, JSON/JSON5 review-only repair cancel/adopt/undo, zero-request cross-resource selection, browser-loaded Markdown data resources, provider-body redaction, and ${largeImagePerformance.elapsed.toFixed(0)}ms large-image import (${largeImagePerformance.encodeCalls} encodes, ${largeImagePerformance.maxHeartbeatGap.toFixed(0)}ms max heartbeat gap) passed: ${JSON.stringify(layout)}`);
 } catch (error) {
   await mkdir(outputDir, { recursive: true });
   if (page) await page.screenshot({ fullPage: true, path: path.join(outputDir, 'failure.png') }).catch(() => undefined);
