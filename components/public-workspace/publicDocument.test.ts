@@ -8,6 +8,7 @@ import {
   formatPublicJson5,
   getPublicDocumentContentOffset,
   getPublicContentType,
+  normalizePublicFenceLanguage,
   replacePublicFenceSegmentContent,
   serializePublicDocumentEdit,
   splitPublicDocumentSegments,
@@ -182,6 +183,49 @@ test('mixed Final replaces only the selected fenced content', () => {
   assert.equal(
     replacePublicFenceSegmentContent(source, segment, '<div>New</div>'),
     '# Before\n\n```html\n<div>New</div>\n```\n\n# After',
+  );
+});
+
+test('mixed Final uses segment identity when repeated HTML fences have identical bodies', () => {
+  const source = [
+    '# Before',
+    '',
+    '```html',
+    '<div>Repeated</div>',
+    '```',
+    '',
+    '# Between',
+    '',
+    '```html',
+    '<div>Repeated</div>',
+    '```',
+    '',
+    '# After',
+  ].join('\n');
+  const fences = splitPublicDocumentSegments(source)
+    .filter(segment => segment.kind === 'fence' && normalizePublicFenceLanguage(segment.language) === 'html');
+  const secondFence = fences[1];
+  assert.equal(fences.length, 2);
+  assert.ok(secondFence?.kind === 'fence');
+  assert.equal(
+    replacePublicFenceSegmentContent(source, secondFence, '<div>Updated</div>\n```\n<p>Still second</p>'),
+    [
+      '# Before',
+      '',
+      '```html',
+      '<div>Repeated</div>',
+      '```',
+      '',
+      '# Between',
+      '',
+      '````html',
+      '<div>Updated</div>',
+      '```',
+      '<p>Still second</p>',
+      '````',
+      '',
+      '# After',
+    ].join('\n'),
   );
 });
 
