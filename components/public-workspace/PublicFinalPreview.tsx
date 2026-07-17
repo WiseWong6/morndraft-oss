@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   detectPublicDocument,
   formatPublicJson5,
@@ -28,6 +28,11 @@ import type {
 } from './types';
 
 type PublicFinalPreviewProps = PublicFinalRendererProps;
+
+const PublicFinalBlankLineController = React.lazy(async () => {
+  const module = await import('./PublicFinalBlankLineController');
+  return { default: module.PublicFinalBlankLineController };
+});
 
 const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
   editLabel: '最终内容编辑器',
@@ -88,12 +93,19 @@ const PublicHtmlFenceBlock: React.FC<{
   content: string;
   editable: boolean;
   locale: PublicWorkspaceLocale;
+  sourceEnd: number;
+  sourceStart: number;
   title: string;
   onChange(next: string): void;
-}> = ({ content, editable, locale, title, onChange }) => {
+}> = ({ content, editable, locale, sourceEnd, sourceStart, title, onChange }) => {
   const isFlat = useMemo(() => isPublicMornDraftFlatHtml(content), [content]);
   return (
-    <div className="md-public-html-fence-block" data-public-flat={isFlat ? 'true' : undefined}>
+    <div
+      className="md-public-html-fence-block"
+      data-public-flat={isFlat ? 'true' : undefined}
+      data-public-source-end={sourceEnd}
+      data-public-source-start={sourceStart}
+    >
       <PublicHtmlFrame html={content} title={title} />
       {editable && !isFlat && (
         <PublicHtmlFenceFinalEditor html={content} locale={locale} onHtmlChange={onChange} />
@@ -107,8 +119,10 @@ let mermaidRenderSequence = 0;
 const PublicMermaidPreview: React.FC<{
   source: string;
   errorLabel: string;
+  sourceEnd?: number;
+  sourceStart?: number;
   theme: PublicWorkspaceTheme;
-}> = ({ source, errorLabel, theme }) => {
+}> = ({ source, errorLabel, sourceEnd, sourceStart, theme }) => {
   const [srcDoc, setSrcDoc] = useState('');
   const [error, setError] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -143,8 +157,32 @@ const PublicMermaidPreview: React.FC<{
     return renderer.dispose;
   }, [source, theme]);
 
-  if (error) return <p className="md-public-inline-error" data-public-render-state="error" role="status">{errorLabel}</p>;
-  if (!srcDoc) return <div className="md-public-preview-loading" data-public-render-state="pending" aria-hidden="true" />;
+  const sourceRangeProps = {
+    'data-public-source-end': sourceEnd,
+    'data-public-source-start': sourceStart,
+  };
+  if (error) {
+    return (
+      <p
+        className="md-public-inline-error"
+        data-public-render-state="error"
+        role="status"
+        {...sourceRangeProps}
+      >
+        {errorLabel}
+      </p>
+    );
+  }
+  if (!srcDoc) {
+    return (
+      <div
+        className="md-public-preview-loading"
+        data-public-render-state="pending"
+        aria-hidden="true"
+        {...sourceRangeProps}
+      />
+    );
+  }
   return (
     <iframe
       className="md-public-mermaid md-public-mermaid-frame"
@@ -152,6 +190,7 @@ const PublicMermaidPreview: React.FC<{
       data-public-render-state={isLoaded ? 'ready' : 'pending'}
       referrerPolicy="no-referrer"
       sandbox=""
+      {...sourceRangeProps}
       srcDoc={srcDoc}
       title="Mermaid diagram"
       onLoad={() => setIsLoaded(true)}
@@ -197,6 +236,8 @@ const PublicMixedPreview: React.FC<{
               content={segment.content}
               editable={editable}
               locale={locale}
+              sourceEnd={segment.end}
+              sourceStart={segment.start}
               title={labels.htmlTitle}
               onChange={updateFence}
             />
@@ -204,7 +245,12 @@ const PublicMixedPreview: React.FC<{
         }
         if (language === 'json' || language === 'json5') {
           return (
-            <div key={`json-${index}`} className="md-public-json-fence-block">
+            <div
+              key={`json-${index}`}
+              className="md-public-json-fence-block"
+              data-public-source-end={segment.end}
+              data-public-source-start={segment.start}
+            >
               <PublicJsonPreview source={segment.content} invalidLabel={labels.invalidJson} />
               {editable && (
                 <PublicFenceSourceEditor
@@ -217,7 +263,16 @@ const PublicMixedPreview: React.FC<{
           );
         }
         if (language === 'mermaid') {
-          return <PublicMermaidPreview key={`mermaid-${index}`} source={segment.content} errorLabel={labels.mermaidError} theme={theme} />;
+          return (
+            <PublicMermaidPreview
+              key={`mermaid-${index}`}
+              source={segment.content}
+              errorLabel={labels.mermaidError}
+              sourceEnd={segment.end}
+              sourceStart={segment.start}
+              theme={theme}
+            />
+          );
         }
         return (
           <PublicEditableMarkdown
@@ -293,6 +348,7 @@ export const PublicFinalPreview: React.FC<PublicFinalPreviewProps> = ({
   onSelectionChange,
   onAiGenerateRequest,
 }) => {
+  const finalSurfaceRef = useRef<HTMLDivElement | null>(null);
   const labels = getLabels(locale);
   const document = useMemo(() => detectPublicDocument(source), [source]);
   const editableContent = document.kind === 'markdown' ? source : document.content;
@@ -342,8 +398,24 @@ export const PublicFinalPreview: React.FC<PublicFinalPreviewProps> = ({
           onAiGenerateRequest={onAiGenerateRequest ? handleInnerGenerateRequest : undefined}
         />
       ) : (
-        <div className="md-public-final-surface aad-document-surface" data-public-preview-root="true">
+        <div
+          ref={finalSurfaceRef}
+          className="md-public-final-surface aad-document-surface"
+          data-public-preview-root="true"
+        >
           {renderDetectedDocument(source, locale, theme, editing, handleDirectSourcePatch, onSelectionChange)}
+          {document.kind === 'markdown' && (
+            <React.Suspense fallback={null}>
+              <PublicFinalBlankLineController
+                emptyDocumentOffset={editableContentOffset}
+                enabled={editing}
+                locale={locale}
+                source={source}
+                surfaceRef={finalSurfaceRef}
+                onSourcePatch={handleDirectSourcePatch}
+              />
+            </React.Suspense>
+          )}
         </div>
       )}
       <PublicComplianceFooter />
