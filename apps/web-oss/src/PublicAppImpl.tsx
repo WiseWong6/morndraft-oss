@@ -6,6 +6,7 @@ import {
   type PublicWorkspaceTheme,
   type SourceChangeMeta,
 } from '../../../components/public-workspace';
+import { derivePublicImportedDocumentTitle } from '../../../components/public-workspace/publicDocumentTitle';
 import {
   PUBLIC_AI_CONFIG_REQUEST_EVENT,
   PublicAiSettingsForm,
@@ -33,6 +34,7 @@ export const PublicAppImpl: React.FC = () => {
   const [locale, setLocale] = useState<PublicWorkspaceLocale>(() => readPreference(LOCALE_KEY, ['zh', 'en'], 'zh'));
   const [theme, setTheme] = useState<PublicWorkspaceTheme>(() => readPreference(THEME_KEY, ['light', 'dark'], 'light'));
   const [source, setSource] = useState(() => adapters.persistence.readInitialSource());
+  const [documentTitle, setDocumentTitle] = useState('MornDraft');
   const [documentEpoch, setDocumentEpoch] = useState(0);
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [aiConfig, setAiConfig] = useState<PublicAiConfig>(() => readPublicAiConfig());
@@ -60,8 +62,13 @@ export const PublicAppImpl: React.FC = () => {
 
   const handleSourceChange = useCallback((next: string, meta: SourceChangeMeta) => {
     setSource(next);
+    if (meta.resetDocument) {
+      setDocumentTitle(meta.origin === 'import'
+        ? derivePublicImportedDocumentTitle(next, locale, meta.suggestedTitle)
+        : 'MornDraft');
+    }
     if (meta.resetDocument) setDocumentEpoch((value) => value + 1);
-  }, []);
+  }, [locale]);
 
   return (
     <div
@@ -81,7 +88,7 @@ export const PublicAppImpl: React.FC = () => {
         locale={locale}
         source={source}
         theme={theme}
-        title="MornDraft"
+        title={documentTitle}
         onLocaleChange={setLocale}
         onAiSettingsOpen={openAiSettings}
         onSourceChange={handleSourceChange}

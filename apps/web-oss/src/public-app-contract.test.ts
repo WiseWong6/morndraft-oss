@@ -26,6 +26,11 @@ test('OSS entry mounts the shared App facade with a fail-closed public compositi
   assert.doesNotMatch(`${entry}\n${publicApp}\n${adapters}\n${workspace}\n${preview}`, /ArtifactPreview|AccountMenu|billing|\/api\//);
   assert.match(publicApp, /data-public-release-app="true"/);
   assert.match(publicApp, /<PublicWorkspace/);
+  assert.match(publicApp, /derivePublicImportedDocumentTitle/);
+  assert.match(publicApp, /if \(meta\.resetDocument\) \{/);
+  assert.match(publicApp, /meta\.origin === 'import'[\s\S]*?: 'MornDraft'/);
+  assert.match(publicApp, /title=\{documentTitle\}/);
+  assert.match(workspace, /suggestedTitle: imported\.suggestedTitle/);
   assert.match(adapters, /createPublicAiAdapter/);
   assert.match(adapters, /auth: Object\.freeze\(\{ mode: 'none' \}\)/);
   assert.match(adapters, /persistence: Object\.freeze\(\{[\s\S]*?mode: 'memory'/);

@@ -217,7 +217,11 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
       if (!commitAsyncSourceReplacement(
         operation,
         imported.source,
-        { origin: 'import', resetDocument: true },
+        {
+          origin: 'import',
+          resetDocument: true,
+          suggestedTitle: imported.suggestedTitle,
+        },
       )) return;
       setMode('final');
       setImportState({ kind: 'done', message: labels.importDone });
