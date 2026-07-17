@@ -29,6 +29,11 @@ const publicFinalBlankLineControllerSource = readFileSync(
   join(directory, 'PublicFinalBlankLineController.tsx'),
   'utf8',
 );
+const publicJsonRepairControllerSource = readFileSync(
+  join(directory, 'PublicJsonRepairController.tsx'),
+  'utf8',
+);
+const publicJsonRepairSource = readFileSync(join(directory, 'publicJsonRepair.ts'), 'utf8');
 const publicDistribution = JSON.parse(
   readFileSync(join(directory, '../../profiles/oss-public-distribution.json'), 'utf8'),
 ) as { copyFiles: string[]; testFiles: string[] };
@@ -152,6 +157,32 @@ test('Final blank-space insertion stays mouse-only, source-controlled, and in th
   assert.ok(
     publicDistribution.testFiles.includes(
       'components/public-workspace/publicFinalBlankLine.test.ts',
+    ),
+  );
+});
+
+test('JSON repair stays explicit, bounded, delivery-excluded, and in the public closure', () => {
+  assert.match(implementationSources, /<PublicJsonRepairController\s+key=\{documentEpoch\}/u);
+  assert.match(publicJsonRepairSource, /@morndraft\/core\/oss-json-repair/u);
+  assert.match(publicJsonRepairSource, /PUBLIC_JSON_REPAIR_MAX_SOURCE_LENGTH = 4 \* 1024 \* 1024/u);
+  assert.match(publicJsonRepairSource, /review\.source !== currentSource/u);
+  assert.match(publicJsonRepairSource, /applied\.nextSource === currentSource/u);
+  assert.doesNotMatch(publicJsonRepairSource, /@morndraft\/core['"]/u);
+  assert.match(publicJsonRepairControllerSource, /data-morndraft-delivery-exclude="true"/u);
+  assert.match(publicJsonRepairControllerSource, /oss-json-repair-cancel/u);
+  assert.match(publicJsonRepairControllerSource, /oss-json-repair-adopt/u);
+  assert.match(publicJsonRepairControllerSource, /oss-json-repair-undo/u);
+  for (const sourcePath of [
+    'components/public-workspace/PublicJsonRepairController.tsx',
+    'components/public-workspace/publicJsonRepair.ts',
+    'packages/core/src/artifact-correction.js',
+    'packages/core/src/artifact-document-analysis.js',
+  ]) {
+    assert.ok(publicDistribution.copyFiles.includes(sourcePath), sourcePath);
+  }
+  assert.ok(
+    publicDistribution.testFiles.includes(
+      'components/public-workspace/publicJsonRepair.test.ts',
     ),
   );
 });

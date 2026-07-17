@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Code2, FileCheck } from 'lucide-react';
-import { PublicAiPanel, type PublicAiGenerateIntent } from './PublicAiPanel';
+import type { PublicAiGenerateIntent } from './PublicAiPanel';
 import { PublicDialog } from './PublicDialog';
 import { PublicDeliveryToolbar } from './PublicDeliveryToolbar';
 import { PublicFinalPreview } from './PublicFinalPreview';
@@ -69,6 +69,13 @@ const PublicFormatToolbar = React.lazy(async () => {
   const module = await import('./PublicFormatToolbar');
   return { default: module.PublicFormatToolbar };
 });
+
+const PublicAiPanel = React.lazy(async () => {
+  const module = await import('./PublicAiPanel');
+  return { default: module.PublicAiPanel };
+});
+
+const PublicJsonRepairController = React.lazy(() => import('./PublicJsonRepairController'));
 
 export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
   source,
@@ -408,6 +415,16 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
         </div>
       )}
 
+      <React.Suspense fallback={null}>
+        <PublicJsonRepairController
+          key={documentEpoch}
+          locale={locale}
+          mode={mode}
+          source={source}
+          onSourceChange={handleSourceChange}
+        />
+      </React.Suspense>
+
       <main className="md-public-main" onMouseUp={updateRenderedSelection} onKeyUp={updateRenderedSelection}>
         {mode === 'source' ? (
           <PublicSourceEditor
@@ -466,17 +483,19 @@ export const PublicWorkspace: React.FC<PublicWorkspaceProps> = ({
         <button type="button" data-public-dialog-initial-focus onClick={closeAbout}>{labels.close}</button>
       </PublicDialog>
       {aiAdapter && (
-        <PublicAiPanel
-          adapter={aiAdapter}
-          source={source}
-          sourceKind={publicAiSourceKind}
-          documentEpoch={documentEpoch}
-          locale={locale}
-          selection={textSelection}
-          generateIntent={generateIntent}
-          onGenerateIntentConsumed={() => setGenerateIntent(null)}
-          onSourceChange={handleSourceChange}
-        />
+        <React.Suspense fallback={null}>
+          <PublicAiPanel
+            adapter={aiAdapter}
+            source={source}
+            sourceKind={publicAiSourceKind}
+            documentEpoch={documentEpoch}
+            locale={locale}
+            selection={textSelection}
+            generateIntent={generateIntent}
+            onGenerateIntentConsumed={() => setGenerateIntent(null)}
+            onSourceChange={handleSourceChange}
+          />
+        </React.Suspense>
       )}
     </div>
   );

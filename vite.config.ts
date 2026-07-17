@@ -49,6 +49,7 @@ export default defineConfig({
   },
   resolve: { alias: {
     '@morndraft/release-app': path.resolve(__dirname, 'apps/web-oss/src/PublicAppImpl.tsx'),
+    '@morndraft/core/oss-json-repair': path.resolve(__dirname, 'packages/core/src/artifact-document-analysis.js'),
     '@morndraft/core/oss-public': path.resolve(__dirname, 'packages/core/src/oss-public.ts'),
     '@morndraft/features-personal/ai': path.resolve(__dirname, 'packages/features-personal/src/ai/index.ts'),
     '@morndraft/public-delivery': path.resolve(__dirname, 'packages/public-delivery/src/index.ts'),
