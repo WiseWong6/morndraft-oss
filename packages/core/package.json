@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/oss-public.ts",
+    ".": "./src/oss-shared-desktop.ts",
     "./oss-public": "./src/oss-public.ts",
     "./oss-json-repair": "./src/artifact-document-analysis.js"
   }

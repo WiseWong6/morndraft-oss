@@ -29,6 +29,35 @@ const isPotentialBacktickFenceAt = (source: string, start: number, runLength: nu
   return cursor === 0 || source.charCodeAt(cursor - 1) === 0x0a || source.charCodeAt(cursor - 1) === 0x0d;
 };
 
+const findMatchingBacktickRunEnd = (source: string, start: number, runLength: number) => {
+  let cursor = start;
+  while (cursor < source.length) {
+    const next = source.indexOf('`', cursor);
+    if (next < 0) return -1;
+    let runEnd = next + 1;
+    while (source.charCodeAt(runEnd) === 0x60) runEnd += 1;
+    if (runEnd - next === runLength) return runEnd;
+    cursor = runEnd;
+  }
+  return -1;
+};
+
+const hasOddPrecedingBackslashRun = (source: string, start: number) => {
+  let count = 0;
+  for (let cursor = start - 1; cursor >= 0 && source.charCodeAt(cursor) === 0x5c; cursor -= 1) {
+    count += 1;
+  }
+  return count % 2 === 1;
+};
+
+const containsLineBreak = (source: string, start: number, end: number) => {
+  for (let cursor = start; cursor < end; cursor += 1) {
+    const code = source.charCodeAt(cursor);
+    if (code === 0x0a || code === 0x0d) return true;
+  }
+  return false;
+};
+
 /**
  * micromark is linear for ordinary text, but adversarial delimiter, entity,
  * escape, autolink and logical-line floods can allocate hundreds of megabytes
@@ -188,10 +217,42 @@ const isHtmlFenceLanguage = (source: string, start: number, end: number) => {
 const markdownCouldContainUnsafeHtmlSource = (source: string) => {
   let hasFenceMarker = false;
   let hasFenceInfoCandidate = false;
+  let hasUnresolvedMultiBacktickRun = false;
   for (let cursor = 0; cursor < source.length; cursor += 1) {
     const code = source.charCodeAt(cursor);
+    if (code === 0x60) {
+      let runEnd = cursor + 1;
+      while (source.charCodeAt(runEnd) === 0x60) runEnd += 1;
+      const runLength = runEnd - cursor;
+      const escapedRunStart = hasOddPrecedingBackslashRun(source, cursor);
+      if (!escapedRunStart && isPotentialBacktickFenceAt(source, cursor, runLength)) {
+        hasFenceMarker = true;
+        cursor = runEnd - 1;
+        continue;
+      }
+      const activeRunLength = escapedRunStart ? runLength - 1 : runLength;
+      if (activeRunLength > 1) {
+        hasUnresolvedMultiBacktickRun = true;
+      }
+      const closingRunEnd = (
+        activeRunLength === 1
+        && !(escapedRunStart && hasUnresolvedMultiBacktickRun)
+      )
+        ? findMatchingBacktickRunEnd(source, runEnd, activeRunLength)
+        : -1;
+      const closingStart = closingRunEnd - activeRunLength;
+      if (
+        closingRunEnd > 0
+        && !containsLineBreak(source, runEnd, closingStart)
+      ) {
+        cursor = closingRunEnd - 1;
+        continue;
+      }
+      cursor = runEnd - 1;
+      continue;
+    }
     if (code === 0x3c && looksLikeRawHtmlAt(source, cursor)) return true;
-    if (code === 0x60 || code === 0x7e) hasFenceMarker = true;
+    if (code === 0x7e) hasFenceMarker = true;
     if (
       code === 0x26
       || code === 0x5c

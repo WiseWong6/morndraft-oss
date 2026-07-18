@@ -189,10 +189,10 @@ export const PublicDeliveryToolbar: React.FC<PublicDeliveryToolbarProps> = ({
       setStatus({ kind: 'error', text: labels.unavailable });
       return;
     }
-    const requestedDocumentEpoch = documentEpoch;
-    const requestedSource = source;
-    const requestedTheme = theme;
-    const requestedTitle = title;
+    const requestedDocumentEpoch = documentEpochRef.current;
+    const requestedSource = sourceRef.current;
+    const requestedTheme = themeRef.current;
+    const requestedTitle = titleRef.current;
     const generation = actionGenerationRef.current + 1;
     actionGenerationRef.current = generation;
     actionAbortRef.current?.abort();
@@ -212,8 +212,8 @@ export const PublicDeliveryToolbar: React.FC<PublicDeliveryToolbarProps> = ({
     };
     const input: PublicDeliveryInput = {
       previewRoot,
-      source,
-      contentType: getPublicContentType(source),
+      source: requestedSource,
+      contentType: getPublicContentType(requestedSource),
       theme: requestedTheme,
       title: requestedTitle,
       assertCurrent,

@@ -1,19 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  PublicDialog,
-  PublicWorkspace,
-  type PublicWorkspaceLocale,
-  type PublicWorkspaceTheme,
-  type SourceChangeMeta,
-} from '../../../components/public-workspace';
+import { PublicDesktopMornDraftShell as DesktopMornDraftShell } from '../../../components/public-desktop/PublicDesktopMornDraftShell';
+import type { Locale } from '../../../i18n';
 import { derivePublicImportedDocumentTitle } from '../../../components/public-workspace/publicDocumentTitle';
-import {
-  PUBLIC_AI_CONFIG_REQUEST_EVENT,
-  PublicAiSettingsForm,
-  readPublicAiConfig,
-  type PublicAiConfig,
-} from '@morndraft/features-personal/ai';
 import { createOssReleaseAdapters } from './releaseAdapters';
+import { OSS_RELEASE_CONFIG } from './ossReleaseConfig';
+import './shared-desktop.css';
 import './release.css';
 
 const LOCALE_KEY = 'morndraft.oss.locale';
@@ -31,18 +22,16 @@ const readPreference = <T extends string>(key: string, allowed: readonly T[], fa
 
 export const PublicAppImpl: React.FC = () => {
   const adapters = useMemo(() => createOssReleaseAdapters(), []);
-  const [locale, setLocale] = useState<PublicWorkspaceLocale>(() => readPreference(LOCALE_KEY, ['zh', 'en'], 'zh'));
-  const [theme, setTheme] = useState<PublicWorkspaceTheme>(() => readPreference(THEME_KEY, ['light', 'dark'], 'light'));
+  const releaseConfig = OSS_RELEASE_CONFIG;
+  const [locale, setLocale] = useState<Locale>(() => readPreference(LOCALE_KEY, ['zh', 'en'], 'zh'));
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => readPreference(THEME_KEY, ['light', 'dark'], 'light'));
   const [source, setSource] = useState(() => adapters.persistence.readInitialSource());
-  const [documentTitle, setDocumentTitle] = useState('MornDraft');
+  const [importedFileTitle, setImportedFileTitle] = useState<string | undefined>(undefined);
   const [documentEpoch, setDocumentEpoch] = useState(0);
-  const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
-  const [aiConfig, setAiConfig] = useState<PublicAiConfig>(() => readPublicAiConfig());
-
-  const openAiSettings = useCallback(() => {
-    setAiConfig(readPublicAiConfig());
-    setIsAiSettingsOpen(true);
-  }, []);
+  const documentTitle = useMemo(
+    () => derivePublicImportedDocumentTitle(source, locale, importedFileTitle),
+    [importedFileTitle, locale, source],
+  );
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -55,20 +44,11 @@ export const PublicAppImpl: React.FC = () => {
     try { window.localStorage.setItem(LOCALE_KEY, locale); } catch { /* Browser storage may be unavailable. */ }
   }, [locale]);
 
-  useEffect(() => {
-    window.addEventListener(PUBLIC_AI_CONFIG_REQUEST_EVENT, openAiSettings);
-    return () => window.removeEventListener(PUBLIC_AI_CONFIG_REQUEST_EVENT, openAiSettings);
-  }, [openAiSettings]);
-
-  const handleSourceChange = useCallback((next: string, meta: SourceChangeMeta) => {
+  const handleDocumentImport = useCallback((next: string, suggestedTitle?: string) => {
     setSource(next);
-    if (meta.resetDocument) {
-      setDocumentTitle(meta.origin === 'import'
-        ? derivePublicImportedDocumentTitle(next, locale, meta.suggestedTitle)
-        : 'MornDraft');
-    }
-    if (meta.resetDocument) setDocumentEpoch((value) => value + 1);
-  }, [locale]);
+    setImportedFileTitle(suggestedTitle);
+    setDocumentEpoch((value) => value + 1);
+  }, []);
 
   return (
     <div
@@ -80,37 +60,21 @@ export const PublicAppImpl: React.FC = () => {
       data-public-release-app="true"
       data-telemetry-mode={adapters.telemetry.mode}
     >
-      <PublicWorkspace
-        aiAdapter={adapters.ai}
-        deliveryAdapter={adapters.delivery}
-        documentEpoch={documentEpoch}
-        importAdapter={adapters.import}
-        locale={locale}
-        source={source}
-        theme={theme}
-        title={documentTitle}
-        onLocaleChange={setLocale}
-        onAiSettingsOpen={openAiSettings}
-        onSourceChange={handleSourceChange}
-        onThemeChange={setTheme}
+      <DesktopMornDraftShell
+        view={{
+          adapters,
+          documentEpoch,
+          documentTitle,
+          locale,
+          onDocumentImport: handleDocumentImport,
+          onLocaleChange: setLocale,
+          onSourceChange: setSource,
+          onThemeChange: setTheme,
+          releaseConfig,
+          source,
+          theme,
+        }}
       />
-      <PublicDialog
-        className="md-public-ai-settings-dialog"
-        isOpen={isAiSettingsOpen}
-        labelledBy="oss-ai-settings-title"
-        onClose={() => setIsAiSettingsOpen(false)}
-      >
-        <h2 id="oss-ai-settings-title">{locale === 'zh' ? 'AI 配置' : 'AI settings'}</h2>
-        <PublicAiSettingsForm
-          initialConfig={aiConfig}
-          locale={locale}
-          onCancel={() => setIsAiSettingsOpen(false)}
-          onSave={(saved) => {
-            setAiConfig(saved);
-            setIsAiSettingsOpen(false);
-          }}
-        />
-      </PublicDialog>
     </div>
   );
 };

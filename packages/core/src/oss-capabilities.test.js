@@ -10,8 +10,20 @@ import {
 } from './oss-capabilities.js';
 
 test('OSS capability registry exposes the mounted preview and Final editing capabilities', () => {
-  assert.deepEqual(Object.keys(CAPABILITY_DEFINITIONS), ['htmlPreview', 'previewTextEdit']);
-  assert.deepEqual(PROFILE_CAPABILITIES.oss, ['htmlPreview', 'previewTextEdit']);
+  assert.deepEqual(Object.keys(CAPABILITY_DEFINITIONS), [
+    'htmlPreview',
+    'errorLineNavigation',
+    'artifactMap',
+    'textSearch',
+    'previewTextEdit',
+  ]);
+  assert.deepEqual(PROFILE_CAPABILITIES.oss, [
+    'htmlPreview',
+    'errorLineNavigation',
+    'artifactMap',
+    'textSearch',
+    'previewTextEdit',
+  ]);
   assert.deepEqual(CAPABILITY_DEFINITIONS.htmlPreview, {
     id: MORNDRAFT_CAPABILITIES.HTML_PREVIEW,
     label: 'HTML Preview',
@@ -41,5 +53,5 @@ test('OSS build profile drops undeclared capabilities and preserves the public p
   });
 
   assert.deepEqual(profile.allowedPackages, ['@morndraft/core', '@morndraft/web-shell']);
-  assert.deepEqual(profile.capabilities, ['htmlPreview']);
+  assert.deepEqual(profile.capabilities, ['htmlPreview', 'artifactMap']);
 });

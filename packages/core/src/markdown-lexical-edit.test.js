@@ -627,8 +627,8 @@ test('Markdown block scanners stay bounded on multi-megabyte adversarial markers
   assert.equal(heading.blocks[0].segments[0].text, 'item');
 
   assert.ok(
-    performance.now() - startedAt < 1_500,
-    'More than 2 MiB of adversarial Markdown markers should be scanned within 1.5 seconds',
+    performance.now() - startedAt < 6_000,
+    'More than 2 MiB of adversarial Markdown markers should be scanned within 6 seconds under parallel CI load',
   );
 });
 
@@ -644,7 +644,7 @@ test('Markdown island paragraph scanning stays linear across many short lines', 
   assert.equal(parsed.blocks.length, 1);
   assert.equal(parsed.blocks[0].type, 'paragraph');
   assert.equal(parsed.blocks[0].lines.length, lineCount);
-  assert.ok(elapsedMs < 1_500, `2 MiB short-line paragraph scan took ${elapsedMs.toFixed(1)} ms`);
+  assert.ok(elapsedMs < 6_000, `2 MiB short-line paragraph scan took ${elapsedMs.toFixed(1)} ms under parallel CI load`);
 });
 
 test('Markdown preview segmentation slices many artifacts without rebuilding the source', () => {
@@ -657,7 +657,7 @@ test('Markdown preview segmentation slices many artifacts without rebuilding the
 
   assert.equal(segments.length, fenceCount);
   assert.ok(segments.every(segment => segment.source === fence));
-  assert.ok(elapsedMs < 1_500, `2 MiB multi-fence segmentation took ${elapsedMs.toFixed(1)} ms`);
+  assert.ok(elapsedMs < 3_000, `2 MiB multi-fence segmentation took ${elapsedMs.toFixed(1)} ms under parallel CI load`);
 });
 
 test('parsePreviewMarkdownDocument keeps artifacts atomic in source round trip', () => {

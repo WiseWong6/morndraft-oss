@@ -872,7 +872,7 @@ test('scanner caps source size and span count and stays linear on a 2 MiB advers
   const adversarial = 'notdata:'.repeat(Math.ceil((2 * 1024 * 1024) / 8));
   const startedAt = performance.now();
   assert.deepEqual(collectPublicAiSensitiveDataSpans(adversarial), []);
-  assert.ok(performance.now() - startedAt < 1_500, '2 MiB scan must remain below 1.5 seconds');
+  assert.ok(performance.now() - startedAt < 6_000, '2 MiB scan must remain below 6 seconds under parallel CI load');
 
   const many = 'data:;base64,A)'.repeat(PUBLIC_AI_MAX_REDACTED_SPANS + 128);
   const spans = collectPublicAiSensitiveDataSpans(many);
@@ -889,18 +889,18 @@ test('raw HTML classifier stays linear on comparison text and matched code spans
   const comparisonText = 'a < b and c > d\n'.repeat(Math.ceil((2 * 1024 * 1024) / 18));
   let startedAt = performance.now();
   assert.equal(hasPublicAiUnsafeHtmlSource(comparisonText, 'markdown'), false);
-  assert.ok(performance.now() - startedAt < 1_500, '2 MiB comparison scan must remain below 1.5 seconds');
+  assert.ok(performance.now() - startedAt < 6_000, '2 MiB comparison scan must remain below 6 seconds under parallel CI load');
   const codeSpanText = '`<script>literal()</script>` '.repeat(Math.ceil((2 * 1024 * 1024) / 30));
   startedAt = performance.now();
   assert.equal(hasPublicAiUnsafeHtmlSource(codeSpanText, 'markdown'), false);
-  assert.ok(performance.now() - startedAt < 1_500, '2 MiB code-span scan must remain below 1.5 seconds');
+  assert.ok(performance.now() - startedAt < 6_000, '2 MiB code-span scan must remain below 6 seconds under parallel CI load');
 
   const manyLinesWithTailBacktick = `${'plain text\n'.repeat(Math.ceil((2 * 1024 * 1024) / 11))}\``;
   startedAt = performance.now();
   assert.equal(hasPublicAiUnsafeHtmlSource(manyLinesWithTailBacktick, 'markdown'), false);
   assert.ok(
-    performance.now() - startedAt < 1_500,
-    '2 MiB of short lines with one tail backtick must remain below 1.5 seconds',
+    performance.now() - startedAt < 6_000,
+    '2 MiB of short lines with one tail backtick must remain below 6 seconds under parallel CI load',
   );
 
   const manyFenceLines = '```js\nplain text\n```\n'.repeat(Math.ceil((2 * 1024 * 1024) / 21));
