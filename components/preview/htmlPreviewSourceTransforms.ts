@@ -331,8 +331,12 @@ const decodeHtmlProtocolEntities = (value: string) => {
   return decoded;
 };
 
-const isJavascriptUrlValue = (value: string) =>
-  normalizeAttributeProtocolValue(decodeHtmlProtocolEntities(value)).startsWith('javascript:');
+const UNSAFE_NAVIGATION_PROTOCOLS = ['javascript:', 'data:', 'vbscript:'] as const;
+
+const isUnsafeNavigationUrlValue = (value: string) => {
+  const protocolValue = normalizeAttributeProtocolValue(decodeHtmlProtocolEntities(value));
+  return UNSAFE_NAVIGATION_PROTOCOLS.some((protocol) => protocolValue.startsWith(protocol));
+};
 
 const makeAttributeReplacement = (name: string, value: string) => {
   const escaped = value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -354,7 +358,7 @@ const collectPreviewNavigationAttributePatches = (
       continue;
     }
 
-    if ((name === 'href' || name === 'src') && isJavascriptUrlValue(attr.value)) {
+    if ((name === 'href' || name === 'src') && isUnsafeNavigationUrlValue(attr.value)) {
       patches.push({
         end: attr.end,
         replacement: makeAttributeReplacement(attr.name, '#'),

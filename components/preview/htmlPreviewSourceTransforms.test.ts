@@ -74,7 +74,10 @@ test('stabilizeMobileHtmlPreviewSource removes meta refresh and obvious navigati
     '<script>window.location.reload()</script>',
     '</head><body>',
     '<a href="javascript:location.reload()">Reload</a>',
+    '<a href="vbscript:msgbox(1)">VB</a>',
+    '<a href="data:text/html,<script>alert(1)</script>">Data</a>',
     '<img src="javascript:location.href=\'/loop\'" onerror="location.replace(\'/loop\')">',
+    '<iframe src="data:text/html,<script>parent.location.reload()</script>"></iframe>',
     '<script>const safe = true; document.body.dataset.safe = String(safe);</script>',
     '<main>Preview</main>',
     '</body></html>',
@@ -85,9 +88,11 @@ test('stabilizeMobileHtmlPreviewSource removes meta refresh and obvious navigati
   assert.doesNotMatch(transformed, /http-equiv="refresh"/);
   assert.doesNotMatch(transformed, /window\.location\.reload/);
   assert.doesNotMatch(transformed, /javascript:location/);
+  assert.doesNotMatch(transformed, /vbscript:msgbox/);
+  assert.doesNotMatch(transformed, /data:text\/html/);
   assert.doesNotMatch(transformed, /onerror=/);
-  assert.match(transformed, /href="#"/);
-  assert.match(transformed, /src="#"/);
+  assert.equal([...transformed.matchAll(/href="#"/g)].length, 3);
+  assert.equal([...transformed.matchAll(/src="#"/g)].length, 2);
   assert.match(transformed, /<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/);
   assert.match(transformed, /document\.body\.dataset\.safe/);
 });
