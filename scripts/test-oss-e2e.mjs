@@ -1177,6 +1177,8 @@ const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
     `<img id="oss-percent-encoded-ai-image" src="${percentEncodedImageData}" alt="encoded">`,
     '```',
   ].join('\n');
+  const arbitraryDataPayloadTail = 'QVJCSVRSQVJZX0xPQ0FMX0FTU0VU';
+  const arbitraryDataUrl = `data:application/octet-stream;base64,${arbitraryDataPayloadTail}`;
   const rawHtmlSource = `${percentEncodedImageFence}\n\nRaw HTML repeat target`;
   await sourceEditor.fill(rawHtmlSource);
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
@@ -1212,9 +1214,27 @@ const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
   await page.getByRole('dialog').getByRole('button', { name: /^(Close|关闭)$/u }).click();
 
   await sourceMode.click();
+  await sourceEditor.fill(`Sensitive local resource ${arbitraryDataUrl} must stay in this browser.`);
+  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'Sensitive local resource' });
+  await renderedBlock.waitFor({ state: 'visible' });
+  await selectRenderedOccurrence(renderedBlock, 'octet-stream', 0);
+  const requestsBeforeArbitraryDataModify = aiRequests.length;
+  await clickByTestId(page, 'oss-ai-modify');
+  await page.getByTestId('oss-ai-instruction').fill('This arbitrary local data URL request must be refused');
+  await page.getByRole('dialog').getByRole('button', { name: /^(Send|发送)$/u }).click();
+  await page.getByRole('dialog').getByRole('alert').filter({ hasText: /stopped|停止/u }).waitFor({ state: 'visible' });
+  assert.equal(
+    aiRequests.length,
+    requestsBeforeArbitraryDataModify,
+    'A selection touching an arbitrary local data URL reached the AI provider.',
+  );
+  await page.getByRole('dialog').getByRole('button', { name: /^(Close|关闭)$/u }).click();
+
+  await sourceMode.click();
   const percentEncodedImageMarkdown = `![encoded](${percentEncodedImageData})`;
-  const sourceBeforeModify = `![local](${localImageData})\n\n${percentEncodedImageMarkdown}\n\nFirst target\n\nSecond repeat repeat repeat`;
-  const sourceAfterModify = `![local](${localImageData})\n\n${percentEncodedImageMarkdown}\n\nFirst target\n\nSecond Modified selection from OSS AI repeat repeat`;
+  const sourceBeforeModify = `Local resource: ${arbitraryDataUrl}\n\n![local](${localImageData})\n\n${percentEncodedImageMarkdown}\n\nFirst target\n\nSecond repeat repeat repeat`;
+  const sourceAfterModify = `Local resource: ${arbitraryDataUrl}\n\n![local](${localImageData})\n\n${percentEncodedImageMarkdown}\n\nFirst target\n\nSecond Modified selection from OSS AI repeat repeat`;
   await sourceEditor.fill(sourceBeforeModify);
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
   const percentEncodedMarkdownImage = page.locator('img[alt="encoded"]');
@@ -1256,6 +1276,34 @@ const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
     await sourceEditor.inputValue(),
     sourceAfterModify,
     'Summarize must remain read-only and leave Source unchanged.',
+  );
+
+  await sourceEditor.fill('/AI');
+  await clickByTestId(page, 'oss-ai-generate');
+  await page.getByTestId('oss-ai-instruction').fill('Generate stale adoption evidence');
+  await page.getByRole('dialog').getByRole('button', { name: /^(Send|发送)$/u }).click();
+  await expectAiResult(page, 'Generated from OSS AI');
+  const sourceChangedAfterResult = '# Source changed after the AI result';
+  await page.evaluate((nextSource) => {
+    const textarea = document.querySelector('.md-public-source-editor textarea');
+    const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+    if (!(textarea instanceof window.HTMLTextAreaElement) || !valueSetter) {
+      throw new Error('The Source editor is unavailable for the stale-adoption fixture.');
+    }
+    valueSetter.call(textarea, nextSource);
+    textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+  }, sourceChangedAfterResult);
+  await page.waitForFunction(
+    (nextSource) => document.querySelector('.md-public-source-editor textarea')?.value === nextSource,
+    sourceChangedAfterResult,
+  );
+  await clickByTestId(page, 'oss-ai-adopt');
+  await page.getByRole('dialog').getByRole('alert').filter({ hasText: /Source.*changed|Source 已变化/u }).waitFor({ state: 'visible' });
+  await page.getByRole('dialog').getByRole('button', { name: /^(Close|关闭)$/u }).click();
+  assert.equal(
+    await sourceEditor.inputValue(),
+    sourceChangedAfterResult,
+    'A stale AI result overwrote Source after the document changed.',
   );
 
   await sourceEditor.fill('/AI');
@@ -3304,6 +3352,7 @@ const main = async () => {
       'oss-summarize-model',
       'oss-generate-model',
       'oss-generate-model',
+      'oss-generate-model',
     ]);
     for (const request of aiMock.requests) {
       assert.equal(request.authorization, 'Bearer oss-e2e-key');
@@ -3316,6 +3365,7 @@ const main = async () => {
     assert.doesNotMatch(modifyBody, /QkFTRTY0TEVBS1RBSUw=/u, 'Modify leaked the folded data URL payload tail to the AI provider.');
     assert.doesNotMatch(modifyBody, /CAQAAAC1HAwCAAAAC0lEQVR42mNk\+A8AAQUBAScY42YAAAAASUVORK5CYII=/u, 'Modify leaked the percent-encoded data URL payload tail to the AI provider.');
     assert.doesNotMatch(modifyBody, /CAQAAAC1HAwC|EQVR42mNk\+A8A|AScY42YAAAAA/u, 'Modify leaked a partial percent-encoded PNG payload tail.');
+    assert.doesNotMatch(modifyBody, /data:application|octet-stream|QVJCSVRSQVJZX0xPQ0FMX0FTU0VU/u, 'Modify leaked an arbitrary local data URL to the AI provider.');
     assert.ok(modifyBody.length < 70_000, `Modify request exceeded the bounded browser context: ${modifyBody.length} bytes.`);
     const summarizeBody = JSON.stringify(aiMock.requests[2].body);
     assert.doesNotMatch(summarizeBody, /Modified selection from OSS AI/u, 'Summarize must not send the complete Source.');
