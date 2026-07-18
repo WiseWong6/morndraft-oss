@@ -50,6 +50,10 @@ export const downloadPublicBlob = (blob: Blob, fileName: string) => {
       }
     }
   };
+  const cleanupDownloadResource = () => {
+    revokeUrl();
+    removeAnchor();
+  };
   try {
     url = URL.createObjectURL(blob);
     anchor = document.createElement('a');
@@ -58,13 +62,11 @@ export const downloadPublicBlob = (blob: Blob, fileName: string) => {
     anchor.hidden = true;
     document.body.appendChild(anchor);
     anchor.click();
-    setTimeout(revokeUrl, DOWNLOAD_OBJECT_URL_CLEANUP_MS);
+    setTimeout(cleanupDownloadResource, DOWNLOAD_OBJECT_URL_CLEANUP_MS);
     revokeScheduled = true;
   } catch (error) {
-    if (!revokeScheduled) revokeUrl();
+    if (!revokeScheduled) cleanupDownloadResource();
     throw new PublicDeliveryError('download-unavailable', '文件下载启动失败，请重试。', { cause: error });
-  } finally {
-    removeAnchor();
   }
 };
 

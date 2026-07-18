@@ -10,6 +10,9 @@
   ],
   "capabilities": [
     "htmlPreview",
+    "errorLineNavigation",
+    "artifactMap",
+    "textSearch",
     "previewTextEdit"
   ],
   "securityBoundary": "public-client",

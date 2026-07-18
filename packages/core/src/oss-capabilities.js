@@ -6,6 +6,9 @@ export const MORNDRAFT_PROFILES = Object.freeze({
 
 export const MORNDRAFT_CAPABILITIES = Object.freeze({
   "HTML_PREVIEW": "htmlPreview",
+  "ERROR_LINE_NAVIGATION": "errorLineNavigation",
+  "ARTIFACT_MAP": "artifactMap",
+  "TEXT_SEARCH": "textSearch",
   "PREVIEW_TEXT_EDIT": "previewTextEdit"
 });
 
@@ -21,6 +24,48 @@ export const CAPABILITY_DEFINITIONS = Object.freeze(Object.fromEntries([
         "oss"
       ],
       "buildMode": "static",
+      "securityBoundary": "public-client"
+    }
+  ],
+  [
+    "errorLineNavigation",
+    {
+      "id": "errorLineNavigation",
+      "label": "Error Line Navigation",
+      "moduleKey": "errorLineNavigation",
+      "packageName": "@morndraft/features-personal",
+      "profileScope": [
+        "oss"
+      ],
+      "buildMode": "static",
+      "securityBoundary": "public-client"
+    }
+  ],
+  [
+    "artifactMap",
+    {
+      "id": "artifactMap",
+      "label": "Artifact Map",
+      "moduleKey": "artifactMap",
+      "packageName": "@morndraft/features-personal",
+      "profileScope": [
+        "oss"
+      ],
+      "buildMode": "lazy",
+      "securityBoundary": "public-client"
+    }
+  ],
+  [
+    "textSearch",
+    {
+      "id": "textSearch",
+      "label": "Text Search",
+      "moduleKey": "textSearch",
+      "packageName": "@morndraft/features-personal",
+      "profileScope": [
+        "oss"
+      ],
+      "buildMode": "lazy",
       "securityBoundary": "public-client"
     }
   ],
@@ -45,6 +90,9 @@ export const CAPABILITY_DEFINITIONS = Object.freeze(Object.fromEntries([
 export const PROFILE_CAPABILITIES = Object.freeze({
   [MORNDRAFT_PROFILES.OSS]: Object.freeze([
   "htmlPreview",
+  "errorLineNavigation",
+  "artifactMap",
+  "textSearch",
   "previewTextEdit"
 ]),
 });

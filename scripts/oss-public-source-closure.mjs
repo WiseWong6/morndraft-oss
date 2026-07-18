@@ -7,7 +7,11 @@ export const OSS_PUBLIC_WORKSPACE_ALIASES = Object.freeze(new Map([
   ['@morndraft/release-app', 'apps/web-oss/src/PublicAppImpl.tsx'],
   ['@morndraft/core/oss-json-repair', 'packages/core/src/artifact-document-analysis.js'],
   ['@morndraft/core/oss-public', 'packages/core/src/oss-public.ts'],
+  ['@morndraft/core', 'packages/core/src/oss-shared-desktop.ts'],
   ['@morndraft/features-personal/ai', 'packages/features-personal/src/ai/index.ts'],
+  ['@morndraft/features-personal/editor/TextSearchControl', 'packages/features-personal/src/editor/TextSearchControl.tsx'],
+  ['@morndraft/features-personal/preview/ArtifactMap', 'packages/features-personal/src/preview/ArtifactMap.tsx'],
+  ['@morndraft/features-personal', 'packages/features-personal/src/index.ts'],
   ['@morndraft/public-delivery', 'packages/public-delivery/src/index.ts'],
   ['@morndraft/web-shell', 'packages/web-shell/src/index.ts'],
 ]));

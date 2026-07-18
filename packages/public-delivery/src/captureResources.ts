@@ -82,12 +82,14 @@ export const extractPublicCssResourceUrls = (cssText: string) => {
 };
 
 export const extractPublicCssImportUrls = (cssText: string) => {
+  if (isObviouslyFragmentOnlyCssResourceText(cssText)) return [];
   const scan = scanPublicCssResources(cssText);
   if (scan.malformed) failResourceCapture();
   return scan.imports.map(occurrence => occurrence.value);
 };
 
 const extractPublicCssAssetUrls = (cssText: string) => {
+  if (isObviouslyFragmentOnlyCssResourceText(cssText)) return [];
   const scan = scanPublicCssResources(cssText);
   if (scan.malformed) failResourceCapture();
   // scanPublicCssResources consumes complete @import rules and never exposes
@@ -102,6 +104,78 @@ export const extractPublicSrcsetUrls = (srcset: string) => (
 const isEmbeddedCaptureResource = (value: string) => {
   const normalized = value.trim().replace(/^['"]|['"]$/gu, '');
   return !normalized || normalized.startsWith('#') || /^about:/iu.test(normalized);
+};
+
+const isCaptureCssWhitespace = (value: string | undefined) => (
+  value === ' '
+  || value === '\n'
+  || value === '\r'
+  || value === '\t'
+  || value === '\f'
+);
+
+const isObviouslyFragmentOnlyCssResourceText = (cssText: string) => {
+  const lower = cssText.toLowerCase();
+  if (
+    lower.includes('\\')
+    || lower.includes('/*')
+    || lower.includes('@')
+    || lower.includes('image-set')
+    || lower.includes('data:')
+    || lower.includes('http:')
+    || lower.includes('https:')
+    || lower.includes('blob:')
+  ) return false;
+  let cursor = 0;
+  while (cursor < lower.length) {
+    const urlIndex = lower.indexOf('url(', cursor);
+    if (urlIndex < 0) return true;
+    let valueCursor = urlIndex + 4;
+    while (isCaptureCssWhitespace(cssText[valueCursor])) valueCursor += 1;
+    const quote = cssText[valueCursor] === '"' || cssText[valueCursor] === "'"
+      ? cssText[valueCursor]
+      : '';
+    if (quote) valueCursor += 1;
+    if (cssText[valueCursor] !== '#') return false;
+    valueCursor += 1;
+    while (valueCursor < cssText.length) {
+      const character = cssText[valueCursor];
+      if (quote ? character === quote : character === ')') break;
+      if (
+        character === '('
+        || character === '"'
+        || character === "'"
+        || isCaptureCssWhitespace(character)
+      ) return false;
+      valueCursor += 1;
+    }
+    if (quote) {
+      if (cssText[valueCursor] !== quote) return false;
+      valueCursor += 1;
+      while (isCaptureCssWhitespace(cssText[valueCursor])) valueCursor += 1;
+      if (cssText[valueCursor] !== ')') return false;
+    }
+    if (cssText[valueCursor] !== ')') return false;
+    cursor = valueCursor + 1;
+  }
+  return true;
+};
+
+const isObviouslyFragmentOnlyRawHtmlCaptureResourceSource = (html: string) => {
+  const lower = html.toLowerCase();
+  if (
+    lower.includes('src')
+    || lower.includes('href')
+    || lower.includes('srcset')
+    || lower.includes('imagesrcset')
+    || lower.includes('background=')
+    || lower.includes('data:')
+    || lower.includes('http:')
+    || lower.includes('https:')
+    || lower.includes('blob:')
+    || lower.includes('@import')
+  ) return false;
+  return isObviouslyFragmentOnlyCssResourceText(html);
 };
 
 const normalizeFetchableResource = (value: string, baseUrl: string) => {
@@ -219,6 +293,54 @@ const decodeBase64DataUrlBody = (value: string, maximumBytes: number) => {
   return bytes;
 };
 
+const PNG_DATA_URL_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const;
+
+const decodeBase64DataUrlPrefix = (value: string, maximumBytes: number) => {
+  const bytes: number[] = [];
+  let accumulator = 0;
+  let bits = 0;
+  let sawPadding = false;
+  for (let index = 0; index < value.length && bytes.length < maximumBytes;) {
+    let byte: number;
+    if (value[index] === '%') {
+      byte = getPercentDecodedByte(value, index);
+      index += 3;
+    } else {
+      byte = value.charCodeAt(index);
+      if (byte > 0x7f) failResourceCapture();
+      index += 1;
+    }
+    if (isBase64WhitespaceByte(byte)) continue;
+    if (byte === 0x3d) {
+      sawPadding = true;
+      break;
+    }
+    if (sawPadding) failResourceCapture();
+    const sextet = getBase64Sextet(byte);
+    if (sextet < 0) failResourceCapture();
+    accumulator = (accumulator << 6) | sextet;
+    bits += 6;
+    while (bits >= 8 && bytes.length < maximumBytes) {
+      bits -= 8;
+      bytes.push((accumulator >> bits) & 0xff);
+    }
+  }
+  return bytes;
+};
+
+const assertCaptureDataUrlHeaderMatchesMetadata = (
+  contentType: string,
+  base64: boolean,
+  encodedBody: string,
+) => {
+  if (!base64 || contentType.toLowerCase() !== 'image/png') return;
+  const prefix = decodeBase64DataUrlPrefix(encodedBody, PNG_DATA_URL_SIGNATURE.length);
+  if (
+    prefix.length < PNG_DATA_URL_SIGNATURE.length
+    || PNG_DATA_URL_SIGNATURE.some((byte, index) => prefix[index] !== byte)
+  ) failResourceCapture();
+};
+
 const getUtf8Descriptor = (value: string, index: number) => {
   const first = value.charCodeAt(index);
   // Low three bits are encoded byte length; the remaining bits are consumed
@@ -303,12 +425,14 @@ const decodeCaptureDataUrl = (href: string, maximumBytes: number) => {
   const metadata = href.slice(5, comma);
   const encodedBody = href.slice(comma + 1);
   const base64 = /(?:^|;)\s*base64\s*$/iu.test(metadata);
+  const contentType = metadata.split(';', 1)[0]?.trim() ?? '';
+  assertCaptureDataUrlHeaderMatchesMetadata(contentType, base64, encodedBody);
   const bytes = base64
     ? decodeBase64DataUrlBody(encodedBody, maximumBytes)
     : decodePercentDataUrlBody(encodedBody, maximumBytes);
   return {
     bytes,
-    contentType: metadata.split(';', 1)[0]?.trim() ?? '',
+    contentType,
     contentTypeMetadata: metadata,
   };
 };
@@ -418,6 +542,32 @@ type PublicStylesheetElement = Element & {
   sheet?: CSSStyleSheet | null;
 };
 
+type PublicStylesheetLike = CSSStyleSheet & {
+  disabled?: boolean;
+  media?: string | { mediaText?: string };
+};
+
+const getStylesheetMediaText = (stylesheet: { media?: string | { mediaText?: string } }) => {
+  if (typeof stylesheet.media === 'string') return stylesheet.media;
+  if (typeof stylesheet.media?.mediaText === 'string') return stylesheet.media.mediaText;
+  return '';
+};
+
+const isStylesheetHrefFreezeRequired = (
+  doc: Document,
+  stylesheet: { disabled?: boolean; media?: string | { mediaText?: string }; sheet?: CSSStyleSheet | null },
+) => {
+  if (stylesheet.disabled) return true;
+  if ('sheet' in stylesheet && !stylesheet.sheet) return true;
+  const mediaText = getStylesheetMediaText(stylesheet).trim();
+  if (!mediaText) return false;
+  try {
+    return doc.defaultView?.matchMedia?.(mediaText).matches === false;
+  } catch {
+    return true;
+  }
+};
+
 const getRuleDeclarationText = (rule: CSSRule) => {
   const style = (rule as CSSRule & { style?: { cssText?: unknown } }).style;
   return typeof style?.cssText === 'string' ? style.cssText : '';
@@ -499,8 +649,11 @@ const collectDocumentStylesheetReferences = (doc: Document) => {
   const stylesheetReferences: PublicStylesheetReference[] = [];
   const assetReferences: PublicStylesheetReference[] = [];
   for (const link of Array.from(doc.querySelectorAll?.('link[rel~="stylesheet"][href]') ?? [])) {
-    const value = link.getAttribute('href') ?? '';
-    if (value) stylesheetReferences.push({ baseUrl: doc.baseURI, value });
+    const stylesheetElement = link as PublicStylesheetElement;
+    const value = link.getAttribute('href');
+    if (value && isStylesheetHrefFreezeRequired(doc, stylesheetElement)) {
+      stylesheetReferences.push({ baseUrl: doc.baseURI, value });
+    }
   }
   for (const style of Array.from(doc.querySelectorAll?.('style') ?? [])) {
     const stylesheetElement = style as PublicStylesheetElement;
@@ -529,17 +682,23 @@ const collectDocumentStylesheetReferences = (doc: Document) => {
   }
   for (const sheet of Array.from(doc.styleSheets ?? [])) {
     const baseUrl = sheet.href || doc.baseURI;
-    if (sheet.href) stylesheetReferences.push({ baseUrl: doc.baseURI, value: sheet.href });
+    if (sheet.href && isStylesheetHrefFreezeRequired(doc, sheet as PublicStylesheetLike)) {
+      stylesheetReferences.push({ baseUrl: doc.baseURI, value: sheet.href });
+    }
     try {
       collectRuleImportUrls(doc, sheet.cssRules, baseUrl, stylesheetReferences, assetReferences);
     } catch {
       // Cross-origin cssRules are deliberately unreadable. Fetching sheet.href
       // below with mode:cors is the fail-closed readability check.
+      if (sheet.href) stylesheetReferences.push({ baseUrl: doc.baseURI, value: sheet.href });
+      else failResourceCapture();
     }
   }
   for (const sheet of Array.from(doc.adoptedStyleSheets ?? [])) {
     const baseUrl = sheet.href || doc.baseURI;
-    if (sheet.href) stylesheetReferences.push({ baseUrl: doc.baseURI, value: sheet.href });
+    if (sheet.href && isStylesheetHrefFreezeRequired(doc, sheet as PublicStylesheetLike)) {
+      stylesheetReferences.push({ baseUrl: doc.baseURI, value: sheet.href });
+    }
     try {
       collectRuleImportUrls(doc, sheet.cssRules, baseUrl, stylesheetReferences, assetReferences);
     } catch {
@@ -569,8 +728,11 @@ const collectShadowStylesheetReferences = (root: HTMLElement) => {
   for (const shadow of shadows) {
     const doc = shadow.host?.ownerDocument ?? root.ownerDocument;
     for (const link of Array.from(shadow.querySelectorAll('link[rel~="stylesheet"][href]'))) {
+      const stylesheetElement = link as PublicStylesheetElement;
       const value = link.getAttribute('href') ?? '';
-      if (value) stylesheetReferences.push({ baseUrl: doc.baseURI, value });
+      if (value && isStylesheetHrefFreezeRequired(doc, stylesheetElement)) {
+        stylesheetReferences.push({ baseUrl: doc.baseURI, value });
+      }
     }
     for (const style of Array.from(shadow.querySelectorAll('style'))) {
       const stylesheetElement = style as PublicStylesheetElement;
@@ -599,7 +761,9 @@ const collectShadowStylesheetReferences = (root: HTMLElement) => {
     }
     for (const sheet of Array.from(shadow.adoptedStyleSheets ?? [])) {
       const baseUrl = sheet.href || doc.baseURI;
-      if (sheet.href) stylesheetReferences.push({ baseUrl: doc.baseURI, value: sheet.href });
+      if (sheet.href && isStylesheetHrefFreezeRequired(doc, sheet as PublicStylesheetLike)) {
+        stylesheetReferences.push({ baseUrl: doc.baseURI, value: sheet.href });
+      }
       try {
         collectRuleImportUrls(doc, sheet.cssRules, baseUrl, stylesheetReferences, assetReferences);
       } catch {
@@ -1026,6 +1190,7 @@ const createFrozenCaptureSnapshot = (
     }
   };
   const rewriteCss = (cssText: string, baseUrl: string) => {
+    if (isObviouslyFragmentOnlyCssResourceText(cssText)) return cssText;
     const scan = scanPublicCssResources(cssText);
     if (scan.malformed) failResourceCapture();
     const importOccurrences = scan.imports;
@@ -1588,6 +1753,14 @@ export const preparePublicRawHtmlCaptureResources = async (
 ) => {
   let snapshot: PublicCaptureResourceSnapshot | undefined;
   try {
+    if (isObviouslyFragmentOnlyRawHtmlCaptureResourceSource(html)) {
+      snapshot = await createPublicCaptureResourceSnapshotFromReferences(
+        ownerDocument,
+        { assetReferences: [], stylesheetReferences: [] },
+        externalSignal,
+      );
+      return { html, snapshot };
+    }
     const { parse, serialize } = await import('parse5');
     const parsed = parse(html, { scriptingEnabled: true }) as PublicParsedCaptureNode;
     const nodes = getPublicParsedNodes(parsed);

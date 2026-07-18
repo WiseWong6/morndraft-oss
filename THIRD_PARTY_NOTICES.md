@@ -7,6 +7,12 @@ This file lists the exact direct dependency versions kept in the generated publi
 | Package | Version | License |
 |---|---:|---|
 | `@eslint/js` | 9.39.4 | MIT |
+| `@lexical/list` | 0.45.0 | MIT |
+| `@lexical/markdown` | 0.45.0 | MIT |
+| `@lexical/react` | 0.45.0 | MIT |
+| `@lexical/rich-text` | 0.45.0 | MIT |
+| `@lexical/selection` | 0.45.0 | MIT |
+| `@lexical/table` | 0.45.0 | MIT |
 | `@types/node` | 22.19.15 | MIT |
 | `@vitejs/plugin-react` | 5.2.0 | MIT |
 | `entities` | 6.0.1 | BSD-2-Clause |
@@ -16,6 +22,7 @@ This file lists the exact direct dependency versions kept in the generated publi
 | `eslint-plugin-react-hooks` | 5.2.0 | MIT |
 | `html2canvas` | 1.4.1 | MIT |
 | `json5` | 2.2.3 | MIT |
+| `lexical` | 0.45.0 | MIT |
 | `lucide-react` | 0.561.0 | ISC |
 | `mermaid` | 11.15.0 | MIT |
 | `micromark` | 4.0.2 | MIT |
@@ -27,6 +34,9 @@ This file lists the exact direct dependency versions kept in the generated publi
 | `react` | 19.2.4 | MIT |
 | `react-dom` | 19.2.4 | MIT |
 | `react-markdown` | 10.1.0 | MIT |
+| `react-syntax-highlighter` | 16.1.1 | MIT |
+| `rehype-raw` | 7.0.0 | MIT |
+| `rehype-sanitize` | 6.0.0 | MIT |
 | `remark-gfm` | 4.0.1 | MIT |
 | `tsx` | 4.22.3 | MIT |
 | `typescript` | 5.8.3 | Apache-2.0 |

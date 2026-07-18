@@ -6,11 +6,155 @@
       "softWarnPercent": 90,
       "rationale": "Root app orchestration should not keep absorbing feature state and case-by-case UI wiring.",
       "suggestedExtractionTarget": "Move focused state or capability workflows into hooks or feature modules before adding new root behavior."
+    },
+    {
+      "path": "components/Editor.tsx",
+      "maxLines": 240,
+      "softWarnPercent": 90,
+      "rationale": "Editor should keep user input wiring separate from correction, import, and diagnostics internals.",
+      "suggestedExtractionTarget": "Move editor workflows into adjacent hooks or packages/core helpers."
+    },
+    {
+      "path": "components/preview/clipboardWriters.ts",
+      "maxLines": 330,
+      "softWarnPercent": 90,
+      "rationale": "Clipboard adapters should stay limited to writing payloads and fallback selection behavior.",
+      "suggestedExtractionTarget": "Move payload construction and capture preparation into separate preview modules."
+    },
+    {
+      "path": "components/preview/clipboardWritersImpl.ts",
+      "maxLines": 330,
+      "softWarnPercent": 90,
+      "rationale": "Compatibility wrapper is small; clipboard implementation remains the real adapter budget surface.",
+      "suggestedExtractionTarget": "Move payload construction and capture preparation into separate preview modules."
+    },
+    {
+      "path": "components/preview/CodePreviewBlock.tsx",
+      "maxLines": 80,
+      "softWarnPercent": 90,
+      "rationale": "Generic fenced-code rendering should stay small and delegate syntax styling.",
+      "suggestedExtractionTarget": "Move language-specific formatting or highlighting to syntax helpers."
+    },
+    {
+      "path": "components/preview/HtmlPreviewFrame.tsx",
+      "maxLines": 360,
+      "softWarnPercent": 90,
+      "rationale": "HTML preview frame should own iframe lifecycle and sizing, not export or capture policy.",
+      "suggestedExtractionTarget": "Move document construction, reporting, and capture utilities into pure helpers."
+    },
+    {
+      "path": "components/preview/htmlScreenshotCapture.ts",
+      "maxLines": 470,
+      "softWarnPercent": 90,
+      "rationale": "HTML screenshot capture is a browser adapter and should not absorb preview action state.",
+      "suggestedExtractionTarget": "Keep capture primitives here and move action orchestration into hooks."
+    },
+    {
+      "path": "components/preview/htmlScreenshotCaptureImpl.ts",
+      "maxLines": 476,
+      "softWarnPercent": 90,
+      "rationale": "HTML screenshot implementation remains a browser adapter; this hard budget reflects the current dev baseline and blocks further growth.",
+      "suggestedExtractionTarget": "Keep capture primitives here and move action orchestration into hooks before lowering this budget."
+    },
+    {
+      "path": "components/preview/JsonPreviewBlock.tsx",
+      "maxLines": 160,
+      "softWarnPercent": 90,
+      "rationale": "JSON preview should remain a focused parser/render/error block.",
+      "suggestedExtractionTarget": "Move parsing and error-location rules to packages/core or utils helpers."
+    },
+    {
+      "path": "components/preview/MarkdownDocumentRenderer.tsx",
+      "maxLines": 230,
+      "softWarnPercent": 90,
+      "rationale": "Markdown renderer should dispatch blocks, not own each artifact implementation.",
+      "suggestedExtractionTarget": "Move block-specific rendering into separate preview block components."
+    },
+    {
+      "path": "components/preview/MarkdownDocumentRendererImpl.tsx",
+      "maxLines": 230,
+      "softWarnPercent": 90,
+      "rationale": "Compatibility wrapper is small; Markdown renderer implementation is the real dispatch budget surface.",
+      "suggestedExtractionTarget": "Move block-specific rendering into separate preview block components."
+    },
+    {
+      "path": "components/preview/MarkdownLexicalIsland.tsx",
+      "maxLines": 10432,
+      "softWarnPercent": 90,
+      "rationale": "Lexical island mixes AI instruction, caret, keyboard, code fence, table, image, and scroll domains and is the top regression hotspot; this hard budget reflects the current dev baseline and blocks further growth.",
+      "suggestedExtractionTarget": "Extract self-contained Lexical plugins, AI instruction helpers, and PreviewArtifactDecorator into components/preview/lexical modules, then ratchet this budget down."
+    },
+    {
+      "path": "components/preview/MarkdownPreviewBlock.tsx",
+      "maxLines": 140,
+      "softWarnPercent": 90,
+      "rationale": "Nested Markdown rendering and sanitization should stay focused.",
+      "suggestedExtractionTarget": "Move reusable sanitize schema or Markdown transforms into helpers."
+    },
+    {
+      "path": "components/preview/MermaidPreviewBlock.tsx",
+      "maxLines": 430,
+      "softWarnPercent": 90,
+      "rationale": "Mermaid block should own diagram rendering UI, not global preview readiness orchestration.",
+      "suggestedExtractionTarget": "Move readiness polling and copy/export orchestration into preview hooks."
+    },
+    {
+      "path": "components/preview/MermaidPreviewBlockImpl.tsx",
+      "maxLines": 430,
+      "softWarnPercent": 90,
+      "rationale": "Compatibility wrapper is small; Mermaid preview implementation is the real rendering UI budget surface.",
+      "suggestedExtractionTarget": "Move readiness polling and copy/export orchestration into preview hooks."
+    },
+    {
+      "path": "components/preview/mermaidCapture.ts",
+      "maxLines": 740,
+      "softWarnPercent": 90,
+      "rationale": "Mermaid capture should remain SVG/PNG normalization and readiness utilities.",
+      "suggestedExtractionTarget": "Move rich-copy action state and toolbar behavior outside capture helpers."
+    },
+    {
+      "path": "components/preview/mermaidCaptureImpl.ts",
+      "maxLines": 740,
+      "softWarnPercent": 90,
+      "reportOnly": true,
+      "rationale": "Compatibility wrapper is small; the implementation should stay below the capture budget.",
+      "suggestedExtractionTarget": "Keep future Mermaid capture behavior in narrow helpers instead of growing this implementation."
+    },
+    {
+      "path": "components/preview/PreviewAiSelectionToolbar.tsx",
+      "maxLines": 1710,
+      "softWarnPercent": 90,
+      "rationale": "AI selection toolbar owns selection overlay, session state, and streaming display together; this hard budget reflects the current dev baseline and blocks further growth.",
+      "suggestedExtractionTarget": "Move selection session state and streaming display into focused preview hooks before adding new toolbar behavior."
+    },
+    {
+      "path": "components/preview/syntaxHighlighting.ts",
+      "maxLines": 100,
+      "softWarnPercent": 90,
+      "rationale": "Syntax styling should stay as token mapping rather than rendering policy.",
+      "suggestedExtractionTarget": "Move renderer-specific behavior into block components."
+    },
+    {
+      "path": "components/preview/usePreviewMarkdownEditing.ts",
+      "maxLines": 1600,
+      "softWarnPercent": 90,
+      "rationale": "Preview markdown editing hook aggregates patching, selection, and editing state; this hard budget reflects the current dev baseline and blocks further growth.",
+      "suggestedExtractionTarget": "Split patch scheduling, selection tracking, and editing commands into focused hooks before adding new editing behavior."
+    },
+    {
+      "path": "styles/global-shell.css",
+      "maxLines": 240,
+      "softWarnPercent": 90,
+      "reportOnly": true,
+      "rationale": "Global shell CSS is the real stylesheet hotspot behind the tiny index.css entrypoint.",
+      "suggestedExtractionTarget": "Split shell, preview, account, and responsive CSS into bounded files under a visual-contract plan."
     }
   ],
   "productionRoots": [
     "App.tsx",
     "components",
+    "hooks",
+    "utils",
     "packages"
   ],
   "productionExtensions": [

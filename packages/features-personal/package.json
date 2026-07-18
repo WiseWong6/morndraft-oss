@@ -3,9 +3,14 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@morndraft/core": "file:../core",
+    "lucide-react": "^0.561.0",
     "react": "^19.2.3"
   },
   "exports": {
-    "./ai": "./src/ai/index.ts"
+    ".": "./src/index.ts",
+    "./ai": "./src/ai/index.ts",
+    "./editor/TextSearchControl": "./src/editor/TextSearchControl.tsx",
+    "./preview/ArtifactMap": "./src/preview/ArtifactMap.tsx"
   }
 }
