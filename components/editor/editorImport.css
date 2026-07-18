@@ -1,0 +1,104 @@
+.aad-editor-import-overlay {
+  position: absolute;
+  inset: 0.75rem;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed color-mix(in srgb, var(--aad-accent) 58%, var(--aad-border));
+  border-radius: var(--aad-radius);
+  background: color-mix(in srgb, var(--aad-surface) 86%, var(--aad-accent-soft));
+  color: var(--aad-text-strong);
+  font-size: 0.82rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.aad-final-import-drop-zone {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.aad-final-import-drop-zone > :last-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.aad-final-import-overlay {
+  position: absolute;
+  inset: 0.75rem;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed color-mix(in srgb, var(--aad-accent) 58%, var(--aad-border));
+  border-radius: var(--aad-radius);
+  background: color-mix(in srgb, var(--aad-surface) 90%, var(--aad-accent-soft));
+  color: var(--aad-text-strong);
+  font-size: 0.82rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.aad-editor-loading-overlay {
+  position: absolute;
+  inset: 0.75rem;
+  z-index: 13;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--aad-accent) 32%, var(--aad-border));
+  border-radius: var(--aad-radius);
+  background: color-mix(in srgb, var(--aad-surface) 90%, var(--aad-accent-soft));
+  color: var(--aad-text-strong);
+  font-size: 0.82rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.aad-editor-loading-overlay svg {
+  color: var(--aad-accent);
+}
+
+.aad-editor-import-toast {
+  max-width: min(22rem, calc(100vw - 1.7rem));
+  border: 1px solid var(--aad-border);
+  background: var(--aad-surface);
+  color: var(--aad-text-strong);
+  font-weight: 650;
+  line-height: 1.35;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+}
+
+.aad-editor-import-toast-success {
+  border-color: color-mix(in srgb, var(--aad-success) 42%, var(--aad-border));
+  color: var(--aad-success);
+}
+
+.aad-editor-import-toast-error {
+  border-color: color-mix(in srgb, var(--aad-error) 42%, var(--aad-border));
+  color: var(--aad-error);
+}
+
+.aad-editor-shell > .aad-editor-import-toast {
+  position: absolute;
+  top: calc(3.2rem + 0.8rem);
+  right: auto;
+  left: 50%;
+  max-width: min(22rem, calc(100% - 1.5rem));
+}
+
+.aad-final-import-drop-zone > .aad-editor-import-toast {
+  position: absolute;
+  top: 0.8rem;
+  left: 50%;
+  z-index: 60;
+  max-width: min(22rem, calc(100% - 1.5rem));
+}

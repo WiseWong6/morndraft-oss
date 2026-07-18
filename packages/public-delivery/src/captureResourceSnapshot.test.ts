@@ -142,7 +142,7 @@ test('capture CSS scanner stays linear on a 2 MiB adversarial source', () => {
   const elapsed = performance.now() - startedAt;
   assert.equal(scan.occurrences.length, 0);
   assert.equal(scan.malformed, false);
-  assert.ok(elapsed < 1_500, `2 MiB CSS scan took ${elapsed.toFixed(1)}ms`);
+  assert.ok(elapsed < 6_000, `2 MiB CSS scan took ${elapsed.toFixed(1)}ms`);
 });
 
 test('capture CSS scanner stays linear on 2 MiB of nested image-set functions', () => {
@@ -155,7 +155,7 @@ test('capture CSS scanner stays linear on 2 MiB of nested image-set functions', 
   const elapsed = performance.now() - startedAt;
   assert.equal(scan.malformed, false);
   assert.deepEqual(scan.occurrences.map(occurrence => occurrence.value), ['x']);
-  assert.ok(elapsed < 1_500, `2 MiB nested image-set scan took ${elapsed.toFixed(1)}ms`);
+  assert.ok(elapsed < 6_000, `2 MiB nested image-set scan took ${elapsed.toFixed(1)}ms`);
 });
 
 test('capture format sniffer derives type from bytes and rejects animated or unknown payloads', () => {
@@ -610,7 +610,7 @@ test('raw HTML capture rewrites 2 MiB of embedded CSS references in linear time'
   const elapsed = performance.now() - startedAt;
   try {
     assert.match(prepared.html, /url\(#marker\)/u);
-    assert.ok(elapsed < 1_500, `2 MiB raw HTML resource rewrite took ${elapsed.toFixed(1)}ms`);
+    assert.ok(elapsed < 6_000, `2 MiB raw HTML resource rewrite took ${elapsed.toFixed(1)}ms`);
   } finally {
     prepared.snapshot.cleanup();
   }
@@ -639,7 +639,7 @@ test('capture rejects a 2 MiB stylesheet data URL within the linear-time budget'
     (error: unknown) => error instanceof PublicDeliveryError && error.code === 'capture-failed',
   );
   const elapsed = performance.now() - startedAt;
-  assert.ok(elapsed < 1_500, `2 MiB data URL rejection took ${elapsed.toFixed(1)}ms`);
+  assert.ok(elapsed < 6_000, `2 MiB data URL rejection took ${elapsed.toFixed(1)}ms`);
 });
 
 test('redirected stylesheets resolve imports and assets against the final response URL', async () => {

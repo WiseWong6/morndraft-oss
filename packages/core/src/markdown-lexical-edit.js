@@ -308,6 +308,19 @@ const parseSpanOpeningTag = (source) => {
 
 export const parseMarkdownRichInline = (markdown) => {
   const source = String(markdown ?? '');
+  if (source && !/[\\`*~=<&\r\n]/.test(source)) {
+    return {
+      ok: true,
+      segments: [{
+        italic: false,
+        strong: false,
+        style: {},
+        text: source,
+      }],
+      source,
+      text: source,
+    };
+  }
   const segments = [];
   const styleStack = [];
   const formatDepths = {

@@ -1,0 +1,1 @@
+declare const __MORNDRAFT_STATIC_ASSET_BASE_URL__: string;

@@ -1,0 +1,353 @@
+.aad-preview-shell {
+  --aad-artifact-map-anchor-x: 1rem;
+  --aad-artifact-map-rail-button-width: 32px;
+  --aad-artifact-map-icon-size: 15px;
+  --aad-artifact-map-title-anchor-x: calc(var(--aad-artifact-map-anchor-x) + var(--aad-artifact-map-rail-button-width) / 2 - var(--aad-artifact-map-icon-size) / 2);
+  --aad-preview-controls-anchor-x: var(--aad-artifact-map-anchor-x);
+}
+
+.aad-preview-content-frame {
+  --aad-preview-paper-gutter: clamp(18px, 3vw, 40px);
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.aad-preview-content-frame > .aad-preview-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.aad-artifact-map-panel {
+  display: none;
+}
+
+.aad-artifact-map-sidecar {
+  display: none;
+}
+
+.aad-artifact-map-rail {
+  position: relative;
+  display: flex;
+  flex: 0 0 4rem;
+  min-height: 0;
+  background: var(--aad-preview-workspace-bg, var(--aad-surface));
+}
+
+.aad-artifact-map-rail-button {
+  display: inline-flex;
+  margin-left: var(--aad-artifact-map-anchor-x);
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--aad-muted-strong);
+  cursor: pointer;
+  padding: 0;
+}
+
+.aad-commercial-workspace-shell .aad-artifact-map-rail-button {
+  width: var(--aad-artifact-map-rail-button-width);
+  min-width: var(--aad-artifact-map-rail-button-width);
+  height: 32px;
+  margin-left: 0;
+  margin-top: 0.25rem;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+
+.aad-artifact-map-rail-button:hover,
+.aad-artifact-map-rail-button:focus-visible {
+  background: color-mix(in srgb, var(--aad-accent) 9%, transparent);
+  color: var(--aad-text-strong);
+  outline: none;
+}
+
+.aad-artifact-map-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem 0.8rem 0.75rem var(--aad-artifact-map-title-anchor-x);
+}
+
+.aad-artifact-map-header-control {
+  flex: 0 0 auto;
+}
+
+.aad-artifact-map-title,
+.aad-artifact-map-item {
+  color: var(--aad-muted-strong);
+}
+
+.aad-artifact-map-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.aad-artifact-map-nav ol {
+  margin: 0;
+  padding: 0.45rem 0;
+}
+
+.aad-artifact-map-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.aad-artifact-map-nav li {
+  list-style: none;
+}
+
+.aad-artifact-map-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.44rem 0.7rem 0.44rem calc(var(--aad-artifact-map-title-anchor-x) + (var(--aad-map-depth, 1) - 1) * 0.72rem);
+}
+
+.aad-artifact-map-item-title-button {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  pointer-events: auto;
+  text-align: left;
+}
+
+.aad-artifact-map-item:hover,
+.aad-artifact-map-item:focus-within {
+  background: color-mix(in srgb, var(--aad-accent) 9%, transparent);
+  outline: none;
+}
+
+.aad-artifact-map-item-title-button:focus-visible,
+.aad-artifact-map-item-collapse:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--aad-accent) 36%, transparent);
+  outline-offset: 2px;
+}
+
+.aad-artifact-map-item-collapse,
+.aad-artifact-map-item-collapse-spacer {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+}
+
+.aad-artifact-map-item-collapse.aad-icon-button {
+  justify-content: flex-start;
+  pointer-events: auto;
+}
+
+.aad-artifact-map-item-collapse-spacer {
+  display: inline-block;
+}
+
+.aad-artifact-map-item-collapse svg {
+  flex: 0 0 13px;
+  transition: transform 0.18s ease;
+}
+
+.aad-artifact-map-item-collapse[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+.aad-artifact-map-item-title,
+.aad-artifact-map-item-meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aad-artifact-map-item-title {
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.aad-artifact-map-item-meta,
+.aad-artifact-map-empty {
+  color: var(--aad-muted);
+  font-size: 0.68rem;
+}
+
+.aad-artifact-map-empty {
+  padding: 0.8rem;
+}
+
+.aad-artifact-map-drawer {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hide-artifact-map .aad-artifact-map-sidecar:not(.is-placeholder),
+.hide-artifact-map .aad-artifact-map-drawer {
+  display: none !important;
+}
+
+.aad-artifact-map-drawer-scrim {
+  flex: 1;
+  background: color-mix(in srgb, var(--aad-canvas) 72%, transparent);
+}
+
+.aad-artifact-map-drawer-panel {
+  width: min(82vw, 19rem);
+  max-width: 100%;
+  background: var(--aad-surface);
+  box-shadow: -18px 0 36px rgba(15, 23, 42, 0.14);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (min-width: 1024px) {
+  .aad-commercial-workspace-shell .aad-preview-shell {
+    --aad-artifact-map-anchor-x: 0px;
+    --aad-artifact-map-rail-button-width: var(--aad-workspace-left-icon-width);
+    --aad-artifact-map-header-control-x: 154px;
+    --aad-collapsed-sidecar-width: var(--aad-workspace-left-icon-width);
+    /* Align format toolbar first icon with the Code2 icon in the mode switch:
+       Code2-x = draft-toggle-width + gap(0.5rem) + icon-offset(4px)
+       Pilcrow-x = sidecar-width + anchor + button-padding(0.52rem)
+       anchor = gap + icon-offset - button-padding = 0.5rem + 4px - 0.52rem */
+    --aad-preview-controls-anchor-x: calc(0.5rem + 4px - 0.52rem);
+  }
+
+  html[lang="zh-CN"] .aad-commercial-workspace-shell .aad-preview-shell {
+    --aad-artifact-map-header-control-x: 148px;
+  }
+
+  .aad-commercial-workspace-shell.is-public-workspace .aad-preview-shell {
+    --aad-preview-controls-anchor-x: 1rem;
+  }
+
+  .aad-commercial-workspace-shell .aad-artifact-map-header-control {
+    position: absolute;
+    top: 50%;
+    left: var(--aad-artifact-map-header-control-x);
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    transform: translateY(-50%);
+  }
+
+  .aad-commercial-workspace-shell .aad-artifact-map-header-control:hover:not(:disabled),
+  .aad-commercial-workspace-shell .aad-artifact-map-header-control:focus-visible {
+    transform: translateY(-50%);
+  }
+
+  .aad-artifact-map-drawer {
+    display: none;
+  }
+
+  .aad-artifact-map-sidecar {
+    position: relative;
+    display: block;
+    flex: 0 0 13.5rem;
+    width: 13.5rem;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--aad-preview-workspace-bg, var(--aad-surface));
+    transition:
+      flex-basis 0.22s ease,
+      width 0.22s ease;
+  }
+
+  .aad-artifact-map-sidecar.is-collapsed {
+    flex-basis: 4rem;
+    width: 4rem;
+  }
+
+  .aad-artifact-map-sidecar.is-placeholder {
+    pointer-events: none;
+  }
+
+  .aad-artifact-map-panel {
+    position: absolute;
+    inset: 0 auto 0 0;
+    display: flex;
+    flex-direction: column;
+    width: 13.5rem;
+    height: 100%;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--aad-preview-workspace-bg, var(--aad-surface));
+    overflow: hidden;
+    opacity: 1;
+    transform: translateX(0);
+    transition:
+      opacity 0.16s ease,
+      transform 0.22s ease;
+  }
+
+  .aad-artifact-map-rail {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4rem;
+    height: 100%;
+    align-items: flex-start;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-0.5rem);
+    transition:
+      opacity 0.16s ease,
+      transform 0.22s ease;
+  }
+
+  /* Center the rail button within the display-controls-bar height (40px) */
+  .aad-artifact-map-rail-button {
+    margin-top: calc((40px - 32px) / 2);
+  }
+
+  .aad-artifact-map-sidecar.is-collapsed .aad-artifact-map-panel {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-0.5rem);
+  }
+
+  .aad-artifact-map-sidecar.is-collapsed .aad-artifact-map-rail {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0);
+  }
+
+  /* The display-controls-bar inside the scroll area already provides
+     border-bottom as the unified horizontal separator; no duplicate line
+     needed in the sidecar rail. */
+
+  .aad-commercial-workspace-shell .aad-artifact-map-sidecar.is-collapsed .aad-artifact-map-rail {
+    z-index: 1;
+  }
+
+  /* Commercial workspace: collapsed sidecar matches draft toggle width for alignment */
+  .aad-commercial-workspace-shell .aad-artifact-map-sidecar.is-collapsed,
+  .aad-commercial-workspace-shell .aad-artifact-map-sidecar.is-placeholder {
+    flex-basis: var(--aad-collapsed-sidecar-width);
+    width: var(--aad-collapsed-sidecar-width);
+  }
+
+  .aad-commercial-workspace-shell .aad-artifact-map-rail {
+    width: var(--aad-collapsed-sidecar-width);
+  }
+}
