@@ -1042,7 +1042,16 @@ const clonePublicCaptureNode = (
         ? snapshot.resolve(value, baseUrl)
         : snapshot.rewriteCss(value, baseUrl);
     }
-    cloneElement.setAttributeNS(attribute.namespaceURI, attribute.name, value);
+    const attributeNamespaceUri = String(attribute.namespaceURI ?? '').trim();
+    if (attributeNamespaceUri) {
+      cloneElement.setAttributeNS(attributeNamespaceUri, attribute.name, value);
+    } else {
+      // Author/rendered SVG can contain literal colon-named attributes created
+      // with setAttribute(). Replaying those through setAttributeNS(null, ...)
+      // or setAttributeNS('', ...) is invalid in Chromium even though the
+      // source DOM accepted them.
+      cloneElement.setAttribute(attribute.name, value);
+    }
   }
   if (tagName === 'style') {
     cloneElement.textContent = snapshot.rewriteCss(sourceElement.textContent ?? '', baseUrl);
@@ -1152,7 +1161,7 @@ const createRenderedDocumentCaptureTarget = async (input: PublicDeliveryInput) =
   const reset = doc.createElement('style');
   const themeVariables = serializePublicThemeVariables(input.previewRoot, input.theme);
   const paperColor = getPublicThemePaperColor(input.theme);
-  reset.textContent = `:host{all:initial;display:block;width:${captureWidth}px;background:${paperColor};${themeVariables};}*{box-sizing:border-box;}img,svg,canvas,video,table{max-width:100%;}`;
+  reset.textContent = `:host{all:initial;display:block;width:${captureWidth}px;background:${paperColor};${themeVariables};}*,*::before,*::after{box-sizing:border-box;animation:none!important;transition:none!important;caret-color:transparent!important;}img,svg,canvas,video,table{max-width:100%;}`;
   shadow.appendChild(reset);
   const replacements: HTMLImageElement[] = [];
   let resourceSnapshot: PublicCaptureResourceSnapshot | undefined;

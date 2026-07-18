@@ -1230,6 +1230,11 @@ test('capture engine owns library cleanup, strict frame readiness, and one opera
   );
   assert.match(
     source,
+    /const attributeNamespaceUri = String\(attribute\.namespaceURI \?\? ''\)\.trim\(\)[\s\S]*?cloneElement\.setAttributeNS\(attributeNamespaceUri,/u,
+    'capture clones must treat empty attribute namespace strings as plain attributes',
+  );
+  assert.match(
+    source,
     /context\.drawImage\(sourceCanvas[\s\S]*?context\.getImageData\(0, 0, 1, 1\)[\s\S]*?context\.drawImage\(canvasState\.bitmap/u,
     'canvas pixels must cross an origin-clean operation-owned bitmap instead of disappearing during manual clone',
   );

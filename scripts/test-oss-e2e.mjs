@@ -748,7 +748,7 @@ const runPublicShowcaseSurfaceFlow = async (page) => {
   const sourceButton = page.getByRole('button', { name: /^(Source|源码)$/u });
   const finalButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
   await sourceButton.click();
-  const sourceEditor = page.locator('.md-public-source-editor textarea').first();
+  const sourceEditor = page.locator('.aad-editor-input').first();
   const syntaxSource = await sourceEditor.inputValue();
   assert.equal(
     syntaxSource.match(/^## \d{2}\. /gmu)?.length ?? 0,
@@ -3183,6 +3183,157 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
   await assertNoActiveDeliveryResources(page, deliveryResourceBaseline, 'ten repeated deliveries');
 };
 
+const runSharedDesktopOssAcceptance = async ({
+  appUrl,
+  consoleErrors,
+  networkUrls,
+  page,
+}) => {
+  const workspace = page.locator('[data-shared-desktop-shell="true"]');
+  await workspace.waitFor({ state: 'visible' });
+  await page.locator('.md-oss-shared-toolbar').waitFor({ state: 'visible' });
+  await page.locator('.aad-markdown-lexical-island-content').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('.md-public-workspace').count(), 0);
+  assert.equal(await page.getByText(/登录|订阅|Draft Box|云草稿/u).count(), 0);
+
+  const publicWorkspace = page.locator('[data-public-workspace="true"]');
+  const sourceButton = page.getByRole('button', { name: /^(Source|源码)$/u });
+  const finalButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
+  const ensureSourceMode = async () => {
+    if (await publicWorkspace.getAttribute('data-commercial-workspace-mode') !== 'source') {
+      await sourceButton.click();
+    }
+    await page.locator('.md-oss-workspace:not(.md-oss-final-workspace) .aad-editor-input').waitFor({
+      state: 'visible',
+      timeout: 15_000,
+    });
+  };
+  const ensureFinalMode = async () => {
+    if (await publicWorkspace.getAttribute('data-commercial-workspace-mode') !== 'final') {
+      await finalButton.click();
+    }
+    await page.locator('[data-public-final="true"]').waitFor({ state: 'visible', timeout: 15_000 });
+  };
+  await ensureSourceMode();
+  const source = page.locator('.md-oss-workspace:not(.md-oss-final-workspace) .aad-editor-input').first();
+  const maliciousHtmlSource = [
+    '# Security fixture',
+    '',
+    '```html',
+    '<main><a href="javascript:window.__ossUnsafe=1">Unsafe</a><p>Sandboxed HTML</p></main>',
+    '<script>window.__ossUnsafe=2</script>',
+    '```',
+    '',
+    '```mermaid',
+    'graph TD',
+    'A[Safe] --> B[Strict]',
+    '```',
+  ].join('\n');
+  await source.fill(maliciousHtmlSource);
+  await ensureFinalMode();
+  const htmlFrame = page.locator('iframe[data-html-preview-live="true"]').first();
+  await htmlFrame.waitFor({ state: 'attached' });
+  const sandbox = await htmlFrame.getAttribute('sandbox') ?? '';
+  assert.doesNotMatch(sandbox, /allow-same-origin/u);
+  assert.match(await htmlFrame.getAttribute('srcdoc') ?? '', /Content-Security-Policy/u);
+  const htmlRuntime = await page.frameLocator('iframe[data-html-preview-live="true"]')
+    .locator('body')
+    .evaluate(() => ({
+      unsafe: window.__ossUnsafe,
+      unsafeHref: document.querySelector('a')?.getAttribute('href') ?? '',
+  }));
+  assert.equal(htmlRuntime.unsafe, undefined);
+  assert.equal(htmlRuntime.unsafeHref, '');
+
+  const mermaidSvg = page.locator('.aad-mermaid-block svg').first();
+  await mermaidSvg.waitFor({ state: 'visible', timeout: 15_000 });
+  const mermaidRisk = await mermaidSvg.evaluate((svg) => ({
+    eventAttributes: [...svg.querySelectorAll('*')].flatMap((element) => (
+      [...element.attributes].filter(attribute => /^on/iu.test(attribute.name)).map(attribute => attribute.name)
+    )),
+    foreignObjects: svg.querySelectorAll('foreignObject').length,
+    javascriptUrls: [...svg.querySelectorAll('[href], [xlink\\:href]')].filter((element) => (
+      /^javascript:/iu.test(element.getAttribute('href') ?? element.getAttribute('xlink:href') ?? '')
+    )).length,
+    scripts: svg.querySelectorAll('script').length,
+  }));
+  assert.deepEqual(mermaidRisk, {
+    eventAttributes: [],
+    foreignObjects: 0,
+    javascriptUrls: 0,
+    scripts: 0,
+  });
+
+  await ensureSourceMode();
+  await source.fill('# Delivery fixture\n\nPortable local export.');
+  await ensureFinalMode();
+  await page.locator('[data-public-preview-root="true"]').getByText('Portable local export.').waitFor({
+    state: 'visible',
+    timeout: 15_000,
+  });
+  assert.equal(await page.locator('[data-public-preview-root="true"] iframe').count(), 0);
+  assert.equal(await page.locator('[data-public-preview-root="true"] .aad-mermaid-block').count(), 0);
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-public-preview-root="true"]');
+    return Boolean(root)
+      && root.textContent?.includes('Portable local export.')
+      && !root.querySelector('iframe[data-html-preview-live="true"], .aad-mermaid-block');
+  }, undefined, { timeout: 15_000 });
+  assert.equal(
+    await page.locator('[data-public-final="true"]').getAttribute('data-document-kind'),
+    'markdown',
+    'Shared delivery fixture did not settle back to a markdown document before export.',
+  );
+  const downloadArtifact = async (testId, fileName) => {
+    const downloadPromise = page.waitForEvent('download', { timeout: 90_000 });
+    await page.getByTestId(testId).click();
+    const outcome = await Promise.race([
+      downloadPromise.then(download => ({ download })),
+      page.getByRole('alert').waitFor({ state: 'visible', timeout: 90_000 }).then(async () => ({
+        error: await page.getByRole('alert').innerText(),
+      })),
+    ]);
+    if ('error' in outcome) {
+      throw new Error(`${testId} failed: ${outcome.error}`);
+    }
+    const { download } = outcome;
+    const artifactPath = path.join(outputDir, fileName);
+    await download.saveAs(artifactPath);
+    return { artifactPath, suggestedFilename: download.suggestedFilename() };
+  };
+  const html = await downloadArtifact('oss-delivery-download-html', 'shared-desktop.html');
+  const htmlBytes = await readFile(html.artifactPath);
+  assert.match(html.suggestedFilename, /\.html$/u);
+  assert.match(htmlBytes.toString('utf8'), /Portable local export/u);
+  assert.doesNotMatch(htmlBytes.toString('utf8'), /\/api\/|javascript:/u);
+
+  const png = await downloadArtifact('oss-delivery-download-png', 'shared-desktop.png');
+  const pngBytes = await readFile(png.artifactPath);
+  assert.equal(pngBytes.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+
+  const pdf = await downloadArtifact('oss-delivery-download-pdf', 'shared-desktop.pdf');
+  const pdfBytes = await readFile(pdf.artifactPath);
+  assert.equal(pdfBytes.subarray(0, 4).toString('ascii'), '%PDF');
+  assert.ok((await PDFDocument.load(pdfBytes)).getPageCount() >= 1);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await workspace.waitFor({ state: 'visible' });
+  await page.screenshot({
+    fullPage: true,
+    path: path.join(outputDir, 'oss-shared-mobile-390x844.png'),
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${appUrl}/deep/link`, { waitUntil: 'networkidle' });
+  await page.locator('[data-shared-desktop-shell="true"]').waitFor({ state: 'visible' });
+
+  assert.deepEqual(
+    findUnexpectedMornDraftApiRequests(networkUrls, appUrl),
+    [],
+    'The shared OSS desktop made a first-party /api request.',
+  );
+  assert.deepEqual(consoleErrors, [], `Shared OSS browser console errors: ${consoleErrors.join('\n')}`);
+};
+
 const main = async () => {
   const candidatePackage = JSON.parse(await readFile(path.join(candidateDir, 'package.json'), 'utf8'));
   assert.equal(candidatePackage.morndraftDistribution, 'oss', 'test:e2e:oss must target an exported OSS candidate.');
@@ -3278,6 +3429,21 @@ const main = async () => {
     });
     await page.goto(appUrl, { waitUntil: 'networkidle' });
     await page.locator('[data-public-workspace="true"]').waitFor({ state: 'visible' });
+    if (await page.locator('[data-shared-desktop-shell="true"]').count()) {
+      await page.screenshot({
+        fullPage: true,
+        path: path.join(outputDir, 'oss-shared-desktop-1440x900.png'),
+      });
+      await runSharedDesktopOssAcceptance({
+        appUrl,
+        consoleErrors,
+        networkUrls,
+        page,
+      });
+      await closeTracedContext(context);
+      console.log('[oss-e2e] Shared OSS desktop passed sandbox, Mermaid, local HTML/PNG/PDF delivery, network-boundary, deep-link, and mobile checks.');
+      return;
+    }
     await assertOss710VisualBaseline(page);
     await page.screenshot({
       fullPage: true,
