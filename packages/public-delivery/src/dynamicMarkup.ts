@@ -408,6 +408,38 @@ const hasDynamicTree = (document: ParsedNode) => {
   return false;
 };
 
+const hasPotentialDynamicCaptureMarkup = (html: string) => {
+  const lower = html.toLowerCase();
+  for (let index = 2; index < lower.length; index += 1) {
+    if (lower.charCodeAt(index) !== 0x6f || lower.charCodeAt(index + 1) !== 0x6e) continue;
+    const previous = lower.charCodeAt(index - 1);
+    const next = lower.charCodeAt(index + 2);
+    if (
+      (previous === 0x20 || previous === 0x09 || previous === 0x0a || previous === 0x0c || previous === 0x0d || previous === 0x3c)
+      && next >= 0x61
+      && next <= 0x7a
+    ) return true;
+  }
+  const dynamicElementNames = [
+    ...PUBLIC_DYNAMIC_ELEMENTS,
+    ...PUBLIC_SVG_DYNAMIC_ELEMENTS,
+  ];
+  for (const name of dynamicElementNames) {
+    if (lower.includes(`<${name}`)) return true;
+  }
+  if (lower.includes('<meta')) return true;
+  const dynamicAttributeNames = [
+    ...PUBLIC_DYNAMIC_STATE_ATTRIBUTES,
+    ...PUBLIC_DYNAMIC_URL_ATTRIBUTES,
+    'contenteditable',
+    'style',
+  ];
+  for (const name of dynamicAttributeNames) {
+    if (lower.includes(name)) return true;
+  }
+  return lower.includes('<style') || lower.includes('@keyframes') || lower.includes('animation');
+};
+
 /**
  * Parse the same complete document shape used by iframe srcdoc, then reject
  * markup whose live sandbox can change after the static capture snapshot.
@@ -417,6 +449,7 @@ export const hasPublicDynamicCaptureMarkup = async (html: string) => {
   if (getUtf8ByteLengthAtMost(html, PUBLIC_DYNAMIC_CAPTURE_HTML_MAX_BYTES) > PUBLIC_DYNAMIC_CAPTURE_HTML_MAX_BYTES) {
     return true;
   }
+  if (!hasPotentialDynamicCaptureMarkup(html)) return false;
   try {
     const { parse } = await loadParse5();
     const document = parse(html, { scriptingEnabled: true }) as ParsedNode;

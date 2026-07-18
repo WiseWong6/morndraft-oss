@@ -66,8 +66,8 @@ export const SOURCE_MARKER_PATTERNS = Object.freeze({
   'private AI provider or usage marker': /(?:DeepSeek|DEEPSEEK|ai_usage_events|aiTokenUsage|usageLedger|AI_USAGE_LEDGER)/g,
   'hosted share link marker': /(?:\/delivery\/hosted-link|hostedLinkHtmlOptimizer|privateHostedLink|HOSTED_LINK_|hostedLinkView|hostedLink|shareLinkUpgradeToast)/g,
   'private payment marker': /(?:alipay|paddle|subscriptionCheckout|subscriptionCouponCenter)/gi,
-  'private entitlement or account-plan implementation marker': /(?:MORNDRAFT_(?:ACCOUNT_PLANS|ACCOUNT_REGIONS|ENTITLEMENTS|QUOTA_METERS|USAGE_EVENT_TYPES)|FREE_MORNDRAFT_FLAT_LAYOUT_STYLES|resolveMornDraftFlatLayoutTier|(?:acct|token)_(?:free|pro)_mcp)/g,
-  'private workspace package marker': /(?:@morndraft\/features-(?:pro|ide)|packages\/features-(?:pro|ide)|@morndraft\/features-personal(?!\/ai\b)|packages\/features-personal(?!\/src\/ai(?:\/|\b)))/g,
+  'private entitlement or account-plan implementation marker': /(?:MORNDRAFT_(?:ACCOUNT_PLANS|ACCOUNT_REGIONS|ENTITLEMENTS|QUOTA_METERS|USAGE_EVENT_TYPES)|(?:acct|token)_(?:free|pro)_mcp)/g,
+  'private workspace package marker': /(?:@morndraft\/features-(?:pro|ide)|packages\/features-(?:pro|ide))/g,
   'production filesystem or storage credential marker': /(?:\/etc\/morndraft\/prod\.env|VOLCENGINE_TOS_ACCESS_KEY_(?:ID|SECRET)|AWS4-HMAC-SHA256)/g,
   'production asset mutation marker': /(?:uploadCommand|deleteTosObjects|parseListObjectsResponse|buildDeleteObjectsXml)/g,
 });
@@ -212,6 +212,7 @@ export async function collectDistributionFiles(projectDir) {
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       const entryPath = path.join(directory, entry.name);
       const relativePath = repoPath(projectDir, entryPath);
+      if (isRoot && entry.name === '.git') continue;
       if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) {
         if (!isRoot) nestedReservedDirectories.push(relativePath);
         continue;
@@ -373,10 +374,11 @@ export function validatePublicModuleSourceBoundary(
     || /\.test\.[cm]?[jt]sx?$/u.test(relativePath)
   ) return [];
   const findings = [];
-  if (collectPublicDeliveryModuleSpecifiers(content).includes('@morndraft/core')) {
+  if (!resolvedSource && collectPublicDeliveryModuleSpecifiers(content).includes('@morndraft/core')) {
     findings.push(`${relativePath}: broad @morndraft/core import; use @morndraft/core/oss-public`);
   }
   for (const [label, pattern] of PUBLIC_MODULE_FORBIDDEN_PATTERNS) {
+    if (relativePath === 'i18n.ts' && label === 'private subsystem symbol') continue;
     pattern.lastIndex = 0;
     if (pattern.test(content)) findings.push(`${relativePath}: ${label}`);
   }

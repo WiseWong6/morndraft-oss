@@ -1,10 +1,10 @@
-import {
-  createLocalPublicImportAdapter,
-  type PublicAiAdapter,
-  type PublicDeliveryAdapter,
-  type PublicDeliveryInput,
-  type PublicImportAdapter,
-} from '../../../components/public-workspace';
+import { createLocalPublicImportAdapter } from '../../../components/public-workspace/publicImport';
+import type {
+  PublicAiAdapter,
+  PublicDeliveryAdapter,
+  PublicDeliveryInput,
+  PublicImportAdapter,
+} from '../../../components/public-workspace/types';
 import { createPublicAiAdapter } from '@morndraft/features-personal/ai';
 
 export type OssAuthAdapter = Readonly<{

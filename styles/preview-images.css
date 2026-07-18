@@ -1,0 +1,21 @@
+.aad-document-surface .aad-markdown-image-frame {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 1rem auto;
+  overflow: hidden;
+  text-align: center;
+}
+
+.aad-document-surface .aad-auto-image-link {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: min(70vh, 960px);
+  margin: 0 auto;
+  border: 1px solid color-mix(in srgb, var(--aad-border) 70%, transparent);
+  border-radius: var(--aad-radius);
+  background: var(--aad-muted-surface);
+  object-fit: contain;
+}

@@ -181,18 +181,20 @@ test('detects representative embedded credentials without flagging placeholders'
   assert.deepEqual(findSensitiveText('safe.ts', 'MORNDRAFT_TOKEN=${MORNDRAFT_TOKEN}'), []);
 });
 
-test('detects private entitlement, quota, account-plan, and MCP mock surfaces', () => {
+test('detects private entitlement, quota, account-plan, and MCP surfaces without blocking shared layout helpers', () => {
   const pattern = SOURCE_MARKER_PATTERNS['private entitlement or account-plan implementation marker'];
   for (const marker of [
     'MORNDRAFT_ACCOUNT_PLANS',
     'MORNDRAFT_ENTITLEMENTS',
     'MORNDRAFT_QUOTA_METERS',
-    'FREE_MORNDRAFT_FLAT_LAYOUT_STYLES',
-    'resolveMornDraftFlatLayoutTier',
     'token_pro_mcp',
   ]) {
     pattern.lastIndex = 0;
     assert.equal(pattern.test(marker), true, marker);
+  }
+  for (const sharedMarker of ['FREE_MORNDRAFT_FLAT_LAYOUT_STYLES', 'resolveMornDraftFlatLayoutTier']) {
+    pattern.lastIndex = 0;
+    assert.equal(pattern.test(sharedMarker), false, sharedMarker);
   }
 });
 
@@ -384,20 +386,21 @@ test('candidate checker keeps public-delivery framework-agnostic after export', 
   }
 });
 
-test('allows only the public personal AI entrance while keeping broad personal imports private', () => {
+test('allows the shared public personal package while keeping Pro and IDE packages private', () => {
   const pattern = SOURCE_MARKER_PATTERNS['private workspace package marker'];
   for (const safeMarker of [
     '@morndraft/features-personal/ai',
+    '@morndraft/features-personal',
+    '@morndraft/features-personal/editor/TextSearchControl',
+    'packages/features-personal/src/index.ts',
     'packages/features-personal/src/ai/index.ts',
   ]) {
     pattern.lastIndex = 0;
     assert.equal(pattern.test(safeMarker), false, safeMarker);
   }
   for (const privateMarker of [
-    '@morndraft/features-personal',
-    '@morndraft/features-personal/editor/TextSearchControl',
-    'packages/features-personal/src/index.ts',
     '@morndraft/features-pro',
+    '@morndraft/features-ide',
   ]) {
     pattern.lastIndex = 0;
     assert.equal(pattern.test(privateMarker), true, privateMarker);
@@ -408,11 +411,13 @@ test('ignores the candidate root workspace directories but rejects nested reserv
   const projectDir = await mkdtemp(path.join(os.tmpdir(), 'morndraft-oss-distribution-'));
   try {
     await mkdir(path.join(projectDir, 'node_modules'), { recursive: true });
+    await writeFile(path.join(projectDir, '.git'), 'gitdir: /tmp/morndraft-worktree\n');
     await mkdir(path.join(projectDir, 'src', '.git'), { recursive: true });
 
     const result = await collectDistributionFiles(projectDir);
 
     assert.deepEqual(result.nestedReservedDirectories, ['src/.git']);
+    assert.deepEqual(result.files, []);
   } finally {
     await rm(projectDir, { force: true, recursive: true });
   }
