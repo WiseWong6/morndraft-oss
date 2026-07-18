@@ -1,7 +1,7 @@
 import { defaultSchema } from 'rehype-sanitize';
 
 const SAFE_MARKDOWN_INLINE_STYLE_PATTERN =
-  /^(?:\s*(?:color:\s*#[0-9a-fA-F]{6}|font-size:\s*(?:12|14|15|16|18|20|24)px|font-family:\s*[-"'.,A-Za-z0-9\u4e00-\u9fff\s]+|line-height:\s*(?:1\.35|1\.5|2)|letter-spacing:\s*(?:0\.02|0\.05|0\.08)em)\s*;?\s*)+$/;
+  /^(?=.{1,240}$)[ \t\r\n]*(?:(?:color:[ \t]*#[0-9a-fA-F]{6}|font-size:[ \t]*(?:12|14|15|16|18|20|24)px|font-family:[ \t]*[-"'., A-Za-z0-9\u4e00-\u9fff]{1,80}|line-height:[ \t]*(?:1\.35|1\.5|2)|letter-spacing:[ \t]*(?:0\.02|0\.05|0\.08)em)[ \t]*;?[ \t\r\n]*){1,8}$/;
 const SAFE_MARKDOWN_IMAGE_SRC_PATTERN =
   /^(?:data:image\/(?:png|jpe?g|webp|avif|gif);base64,[a-zA-Z0-9+/=\s]+|(?!data:).+)$/i;
 const SAFE_MARKDOWN_URL_PROTOCOL_PATTERN = /^(https?|ircs?|mailto|xmpp)$/i;
