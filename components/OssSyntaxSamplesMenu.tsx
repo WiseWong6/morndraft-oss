@@ -7,6 +7,7 @@ type OssSyntaxSamplesMenuProps = {
   locale: Locale;
   onLoadSample: (key: SampleKey) => void;
   sampleEntries: readonly SampleEntry[];
+  buttonLabel?: string;
 };
 
 type SamplesMenuPosition = {
@@ -31,6 +32,7 @@ export const OssSyntaxSamplesMenu: React.FC<OssSyntaxSamplesMenuProps> = ({
   locale,
   onLoadSample,
   sampleEntries,
+  buttonLabel,
 }) => {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -155,7 +157,7 @@ export const OssSyntaxSamplesMenu: React.FC<OssSyntaxSamplesMenuProps> = ({
         onClick={toggleMenu}
       >
         <BookOpen size={14} aria-hidden="true" />
-        <span>{labels.syntaxSamples}</span>
+        <span>{buttonLabel ?? labels.syntaxSamples}</span>
         <ChevronDown size={12} className="aad-action-chevron" />
       </button>
       {renderSamplesMenu()}

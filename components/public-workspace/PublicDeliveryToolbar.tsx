@@ -1,4 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Check, ChevronDown, Copy, Loader2, Share2 } from 'lucide-react';
 import { getPublicContentType } from './publicDocument';
 import type {
   PublicDeliveryAdapter,
@@ -19,10 +21,21 @@ type PublicDeliveryToolbarProps = {
 
 type DeliveryAction = 'copyImage' | 'downloadImage' | 'downloadPdf' | 'downloadHtml';
 
+type DeliveryMenuKind = 'copy' | 'export';
+
+const MENU_ACTIONS: Record<DeliveryMenuKind, readonly DeliveryAction[]> = {
+  copy: ['copyImage'],
+  export: ['downloadImage', 'downloadPdf', 'downloadHtml'],
+};
+
+const MENU_SIDE_MARGIN_PX = 8;
+
 const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
+  copyMenu: '复制', exportMenu: '导出',
   copyImage: '复制图片', downloadImage: '下载 PNG', downloadPdf: '下载 PDF', downloadHtml: '下载 HTML',
   working: '正在生成…', success: '本地交付已完成', failed: '无法生成交付产物，请检查预览内容后重试。', unavailable: '最终预览尚未准备好。',
 } : {
+  copyMenu: 'Copy', exportMenu: 'Export',
   copyImage: 'Copy image', downloadImage: 'Download PNG', downloadPdf: 'Download PDF', downloadHtml: 'Download HTML',
   working: 'Generating…', success: 'Local delivery complete', failed: 'Unable to create the deliverable. Check the preview and try again.', unavailable: 'Final preview is not ready.',
 };
@@ -150,6 +163,12 @@ export const PublicDeliveryToolbar: React.FC<PublicDeliveryToolbarProps> = ({
   const labels = getLabels(locale);
   const [busyAction, setBusyAction] = useState<DeliveryAction | null>(null);
   const [status, setStatus] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [activeMenu, setActiveMenu] = useState<DeliveryMenuKind | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number; maxWidth: number } | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const copyButtonRef = useRef<HTMLButtonElement | null>(null);
+  const exportButtonRef = useRef<HTMLButtonElement | null>(null);
+  const menuLayerRef = useRef<HTMLDivElement | null>(null);
   const documentEpochRef = useRef(documentEpoch);
   const sourceRef = useRef(source);
   const themeRef = useRef(theme);
@@ -180,6 +199,61 @@ export const PublicDeliveryToolbar: React.FC<PublicDeliveryToolbarProps> = ({
     const timer = window.setTimeout(() => setStatus(null), 2400);
     return () => window.clearTimeout(timer);
   }, [status]);
+
+  const closeMenu = useCallback(() => {
+    setActiveMenu(null);
+    setMenuPosition(null);
+  }, []);
+
+  const getMenuPosition = useCallback((menu: DeliveryMenuKind) => {
+    if (typeof window === 'undefined') return null;
+    const button = menu === 'copy' ? copyButtonRef.current : exportButtonRef.current;
+    if (!button) return null;
+    const rect = button.getBoundingClientRect();
+    const right = Math.max(MENU_SIDE_MARGIN_PX, Math.round(window.innerWidth - rect.right));
+    return {
+      top: Math.round(rect.bottom),
+      right,
+      maxWidth: Math.max(1, Math.round(window.innerWidth - right - MENU_SIDE_MARGIN_PX)),
+    };
+  }, []);
+
+  const toggleMenu = useCallback((menu: DeliveryMenuKind) => {
+    if (activeMenu === menu) {
+      closeMenu();
+      return;
+    }
+    setMenuPosition(getMenuPosition(menu));
+    setActiveMenu(menu);
+  }, [activeMenu, closeMenu, getMenuPosition]);
+
+  useEffect(() => {
+    if (!activeMenu) return undefined;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (rootRef.current?.contains(target)) return;
+      if (menuLayerRef.current?.contains(target)) return;
+      closeMenu();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu();
+    };
+    const updateMenuPosition = () => {
+      const position = getMenuPosition(activeMenu);
+      if (position) setMenuPosition(position);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [activeMenu, closeMenu, getMenuPosition]);
 
   const run = async (action: DeliveryAction) => {
     const handler = adapter[action];
@@ -247,23 +321,101 @@ export const PublicDeliveryToolbar: React.FC<PublicDeliveryToolbarProps> = ({
     }
   };
 
-  const actions = (Object.keys(ACTION_TEST_IDS) as DeliveryAction[]).filter((action) => Boolean(adapter[action]));
-  if (actions.length === 0) return null;
+  const availableActions = (Object.keys(ACTION_TEST_IDS) as DeliveryAction[]).filter((action) => Boolean(adapter[action]));
+  if (availableActions.length === 0) return null;
+  const menus = (Object.keys(MENU_ACTIONS) as DeliveryMenuKind[])
+    .map((menu) => ({ menu, actions: MENU_ACTIONS[menu].filter((action) => availableActions.includes(action)) }))
+    .filter(({ actions }) => actions.length > 0);
+
+  const runFromMenu = (action: DeliveryAction) => {
+    closeMenu();
+    void run(action);
+  };
+
+  const renderMenuButton = (menu: DeliveryMenuKind) => {
+    const isCopy = menu === 'copy';
+    const isBusy = busyAction !== null && MENU_ACTIONS[menu].includes(busyAction);
+    const label = isCopy ? labels.copyMenu : labels.exportMenu;
+    return (
+      <button
+        ref={isCopy ? copyButtonRef : exportButtonRef}
+        type="button"
+        className={`aad-action-button ${isCopy ? 'aad-preview-copy-button' : 'aad-preview-share-button'} ${isBusy ? 'is-loading' : ''}`.trim()}
+        aria-haspopup="menu"
+        aria-expanded={activeMenu === menu}
+        aria-label={label}
+        title={label}
+        onClick={() => toggleMenu(menu)}
+      >
+        {isBusy
+          ? <Loader2 size={14} className="animate-spin" />
+          : isCopy ? <Copy size={14} /> : <Share2 size={14} />}
+        <span>{label}</span>
+        <ChevronDown size={12} className="aad-action-chevron" />
+      </button>
+    );
+  };
+
+  const renderMenuLayer = () => {
+    if (!activeMenu || !menuPosition || typeof document === 'undefined') return null;
+    const menu = menus.find(({ menu: kind }) => kind === activeMenu);
+    if (!menu) return null;
+    const style: React.CSSProperties = {
+      position: 'fixed',
+      top: menuPosition.top,
+      right: menuPosition.right,
+      maxWidth: menuPosition.maxWidth,
+      zIndex: 70,
+    };
+    return createPortal(
+      <div
+        ref={menuLayerRef}
+        className={`aad-toolbar-menu aad-preview-toolbar-menu-portal ${activeMenu === 'copy' ? 'aad-toolbar-menu--copy' : 'aad-toolbar-menu--share'}`}
+        role="menu"
+        style={style}
+        data-preview-toolbar-menu-layer="top"
+      >
+        {menu.actions.map((action) => (
+          <button
+            key={action}
+            type="button"
+            role="menuitem"
+            className="aad-toolbar-menu-item"
+            data-testid={ACTION_TEST_IDS[action]}
+            disabled={busyAction !== null}
+            onClick={() => runFromMenu(action)}
+          >
+            {busyAction === action && <Loader2 size={14} className="animate-spin" />}
+            <span>{busyAction === action ? labels.working : labels[action]}</span>
+          </button>
+        ))}
+      </div>,
+      document.body,
+    );
+  };
 
   return (
-    <div className="md-public-delivery" aria-label={locale === 'zh' ? '本地交付' : 'Local delivery'}>
-      {actions.map((action) => (
-        <button
-          key={action}
-          type="button"
-          data-testid={ACTION_TEST_IDS[action]}
-          disabled={busyAction !== null}
-          onClick={() => void run(action)}
-        >
-          {busyAction === action ? labels.working : labels[action]}
-        </button>
+    <div
+      ref={rootRef}
+      className="md-public-delivery md-public-delivery-menus"
+      aria-label={locale === 'zh' ? '本地交付' : 'Local delivery'}
+    >
+      {menus.map(({ menu }) => (
+        <div key={menu} className="aad-toolbar-menu-wrapper">
+          {renderMenuButton(menu)}
+        </div>
       ))}
-      {status && <span className={status.kind === 'error' ? 'md-public-inline-error' : ''} role={status.kind === 'error' ? 'alert' : 'status'}>{status.text}</span>}
+      {renderMenuLayer()}
+      {status && typeof document !== 'undefined' && createPortal(
+        <div
+          className={`aad-editor-floating-toast aad-editor-import-toast aad-editor-import-toast-${status.kind}`}
+          role={status.kind === 'error' ? 'alert' : 'status'}
+        >
+          {status.kind === 'success' && <Check size={13} />}
+          <span>{status.text}</span>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 };

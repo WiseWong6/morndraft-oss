@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { FileCheck2, Upload } from 'lucide-react';
+import { Code2, FileCheck, Upload } from 'lucide-react';
+import { TextSearchControl, type TextSearchState } from '@morndraft/features-personal';
 import { TRANSLATIONS, getSampleEntries, loadSampleSource, type Locale, type SampleKey } from '../../i18n';
 import type { OssReleaseAdapters } from '../../apps/web-oss/src/releaseAdapters';
 import { useArtifactDocumentAnalysis } from '../../hooks/useArtifactDocumentAnalysis';
@@ -16,6 +17,8 @@ import {
 import { createLocalEditorImportImageAssetResolver } from '../editor/editorImportLocalAssets';
 import { useEditorImportDropZone } from '../editor/useEditorImportDropZone';
 import { createPublicAllOpenDeliveryAccess } from '../preview/deliveryAccess';
+import { usePreviewDeliveryDisplayOptions } from '../preview/PreviewDeliveryDisplayControls';
+import { getPreviewTextSearchLabels } from '../preview/previewToolbarText';
 import { PublicComplianceFooter } from '../public-workspace/PublicComplianceFooter';
 import { PublicDeliveryToolbar } from '../public-workspace/PublicDeliveryToolbar';
 import { PublicDialog } from '../public-workspace/PublicDialog';
@@ -30,10 +33,11 @@ type PublicDesktopView = {
   releaseConfig: MornDraftReleaseConfig;
   source: string;
   theme: 'light' | 'dark';
+  themeMode: 'light' | 'dark' | 'system';
   onDocumentImport(source: string, suggestedTitle?: string): void;
   onLocaleChange(locale: Locale): void;
   onSourceChange(source: string): void;
-  onThemeChange(theme: 'light' | 'dark'): void;
+  onThemeChange(theme: 'light' | 'dark' | 'system'): void;
 };
 
 const getLabels = (locale: Locale) => locale === 'zh'
@@ -68,6 +72,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
     releaseConfig,
     source,
     theme,
+    themeMode,
     onDocumentImport,
     onLocaleChange,
     onSourceChange,
@@ -90,6 +95,16 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
     });
   const artifactAnalysis = useArtifactDocumentAnalysis(source, handleEditorChange, onSourceChange);
   const localImageResolver = useMemo(() => createLocalEditorImportImageAssetResolver(), []);
+  const {
+    deliveryDisplayOptions,
+    toggleDeliveryA4Pagination,
+    toggleDeliveryCodeChrome,
+  } = usePreviewDeliveryDisplayOptions();
+  const [previewSearchState, setPreviewSearchState] = useState<TextSearchState | null>(null);
+  const textSearchLabels = useMemo(() => getPreviewTextSearchLabels(t.preview), [t]);
+  const handleTextSearchNavigate = useCallback(() => {
+    // Scrolling is driven by the highlight effect inside the shared preview.
+  }, []);
 
   const importDropData = useCallback(async (dropData: EditorImportDropData) => {
     setIsImporting(true);
@@ -126,20 +141,23 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
       });
   }, [locale, onDocumentImport, releaseConfig.mornDraftComponentScope]);
   const brandSlot = (
-    <div className="md-oss-shared-brand">
-      <WorkspaceBrandMark isDarkTheme={theme === 'dark'} />
-      <span className="md-oss-shared-title" title={documentTitle}>{documentTitle}</span>
-    </div>
+    <WorkspaceBrandMark isDarkTheme={theme === 'dark'} />
   );
-  const modeToggle = (
+  const modeSwitch = (
     <button
       type="button"
-      className="aad-action-button md-oss-mode-toggle"
+      className="aad-workspace-mode-switch is-final"
       data-testid="oss-workspace-mode-toggle"
-      onClick={() => setMode((current) => current === 'source' ? 'final' : 'source')}
+      onClick={() => setMode('source')}
+      title={t.preview.switchToSource}
+      aria-label={t.preview.switchToSource}
     >
-      <FileCheck2 size={14} />
-      <span>{mode === 'source' ? labels.final : labels.source}</span>
+      <span className="aad-workspace-mode-segment" aria-hidden="true">
+        <Code2 size={14} />
+      </span>
+      <span className="aad-workspace-mode-segment is-active" aria-hidden="true">
+        <FileCheck size={14} />
+      </span>
     </button>
   );
 
@@ -187,19 +205,23 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
           workspaceModeSwitchLabel={labels.final}
         />
       </div>
-      <div ref={previewRootRef} className="md-oss-workspace md-oss-final-workspace" style={{ display: mode === 'final' ? 'flex' : 'none' }}>
-        <header className="aad-preview-toolbar md-oss-shared-toolbar">
-          {brandSlot}
-          <div className="md-oss-shared-toolbar-actions">
-            {modeToggle}
+      <div
+        ref={previewRootRef}
+        className={`md-oss-workspace md-oss-final-workspace aad-preview-shell ${deliveryDisplayOptions.includeA4Pagination ? 'is-a4-paginated' : ''} ${deliveryDisplayOptions.includeCodeChrome ? '' : 'hide-code-chrome'}`.replace(/\s+/g, ' ').trim()}
+        style={{ display: mode === 'final' ? 'flex' : 'none' }}
+      >
+        <header className="aad-toolbar md-oss-shared-toolbar">
+          <div className="aad-workspace-title-tools md-oss-shared-toolbar-group">
+            {brandSlot}
             <button
               type="button"
-              className="aad-action-button"
+              className="aad-icon-button aad-toolbar-icon-button"
               disabled={isImporting}
+              title={isImporting ? labels.importing : labels.import}
+              aria-label={isImporting ? labels.importing : labels.import}
               onClick={() => importInputRef.current?.click()}
             >
               <Upload size={14} />
-              <span>{isImporting ? labels.importing : labels.import}</span>
             </button>
             <input
               ref={importInputRef}
@@ -212,6 +234,18 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
                 if (files?.length) void importDropData({ files });
               }}
             />
+            {modeSwitch}
+            <span className="aad-toolbar-title">{t.preview.title}</span>
+            <div className="aad-preview-title-search">
+              <TextSearchControl
+                value={source}
+                labels={textSearchLabels}
+                onNavigate={handleTextSearchNavigate}
+                onSearchStateChange={setPreviewSearchState}
+              />
+            </div>
+          </div>
+          <div className="aad-preview-toolbar-actions md-oss-shared-toolbar-actions">
             <OssSyntaxSamplesMenu locale={locale} onLoadSample={loadSample} sampleEntries={sampleEntries} />
             <PublicDeliveryToolbar
               adapter={adapters.delivery}
@@ -226,14 +260,15 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
               locale={locale}
               onAboutOpen={() => setIsAboutOpen(true)}
               onLocaleChange={onLocaleChange}
-              onThemeModeChange={(next) => onThemeChange(next === 'dark' ? 'dark' : 'light')}
+              onThemeModeChange={(next) => onThemeChange(next)}
               releaseConfig={releaseConfig}
-              themeMode={theme}
+              themeMode={themeMode}
             />
           </div>
         </header>
         <PublicSharedFinalPreview
           deliveryAccess={deliveryAccess}
+          deliveryDisplayOptions={deliveryDisplayOptions}
           diagnostics={artifactAnalysis.diagnostics}
           lastAppliedFix={artifactAnalysis.lastAppliedFix}
           mornDraftComponentScope={releaseConfig.mornDraftComponentScope}
@@ -241,8 +276,11 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
           onCancelFixReview={artifactAnalysis.cancelFixReview}
           onConfirmFixReview={artifactAnalysis.confirmFixReview}
           onPatch={handlePreviewSourcePatch}
+          onToggleA4Pagination={toggleDeliveryA4Pagination}
+          onToggleCodeChrome={toggleDeliveryCodeChrome}
           onUndoLastFix={artifactAnalysis.undoLastFix}
           pendingFixReview={artifactAnalysis.pendingFixReview}
+          searchState={previewSearchState}
           source={source}
           sourcePatchEcho={previewSourcePatchEcho}
           stateResetKey={`public:${documentEpoch}`}
