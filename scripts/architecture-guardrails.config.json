@@ -121,11 +121,33 @@
       "suggestedExtractionTarget": "Keep future Mermaid capture behavior in narrow helpers instead of growing this implementation."
     },
     {
+      "path": "components/preview/portablePreviewPayload.ts",
+      "maxLines": 720,
+      "softWarnPercent": 90,
+      "rationale": "Portable preview payloads are complex but should not absorb toolbar action state.",
+      "suggestedExtractionTarget": "Split new payload families into named helpers with focused tests."
+    },
+    {
+      "path": "components/preview/portablePreviewPayloadImpl.ts",
+      "maxLines": 720,
+      "softWarnPercent": 90,
+      "reportOnly": true,
+      "rationale": "Compatibility wrapper is small; the implementation remains the real portable payload budget surface.",
+      "suggestedExtractionTarget": "Split new payload families into named helpers with focused tests."
+    },
+    {
       "path": "components/preview/PreviewAiSelectionToolbar.tsx",
       "maxLines": 1710,
       "softWarnPercent": 90,
       "rationale": "AI selection toolbar owns selection overlay, session state, and streaming display together; this hard budget reflects the current dev baseline and blocks further growth.",
       "suggestedExtractionTarget": "Move selection session state and streaming display into focused preview hooks before adding new toolbar behavior."
+    },
+    {
+      "path": "components/preview/standaloneHtml.ts",
+      "maxLines": 80,
+      "softWarnPercent": 90,
+      "rationale": "Standalone HTML entrypoint should stay as a thin compatibility export.",
+      "suggestedExtractionTarget": "Keep implementation in htmlPreviewDocument or standalone export helpers."
     },
     {
       "path": "components/preview/syntaxHighlighting.ts",
