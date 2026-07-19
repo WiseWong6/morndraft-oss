@@ -3,8 +3,11 @@ import { gzipSync } from 'node:zlib';
 // The OSS release now mounts the 7·10 shared desktop editor instead of the
 // reduced PublicWorkspace. Treat that reviewed graph as the new baseline while
 // continuing to gate accidental growth and parser leakage independently.
-export const OSS_H61_ENTRY_GZIP_BYTES = 245_000;
-export const OSS_H61_INITIAL_STATIC_GZIP_BYTES = 320_000;
+// Baseline refreshed after the chrome parity additions (preview diagnostics,
+// AI fix, title metrics, artifact collapse, source/final line sync); the
+// delivery payload and block capture graphs stay behind dynamic imports.
+export const OSS_H61_ENTRY_GZIP_BYTES = 258_000;
+export const OSS_H61_INITIAL_STATIC_GZIP_BYTES = 332_000;
 // Keep the reviewed allowance bounded to 5 KiB so the gzip gate remains stable
 // across supported Node/zlib patch versions.
 export const OSS_ENTRY_GZIP_GROWTH_BUDGET_BYTES = 5 * 1024;

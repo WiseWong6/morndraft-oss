@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Code2, FileCheck, Upload } from 'lucide-react';
 import { TextSearchControl, type TextSearchState } from '@morndraft/features-personal';
 import { TRANSLATIONS, getSampleEntries, loadSampleSource, type Locale, type SampleKey } from '../../i18n';
@@ -22,6 +22,22 @@ import { getPreviewTextSearchLabels } from '../preview/previewToolbarText';
 import { PublicComplianceFooter } from '../public-workspace/PublicComplianceFooter';
 import { PublicDeliveryToolbar } from '../public-workspace/PublicDeliveryToolbar';
 import { PublicDialog } from '../public-workspace/PublicDialog';
+import { TextMetricsInline } from '../TextMetricsInline';
+import { DiagnosticConsoleButton } from '../DiagnosticConsoleButton';
+import { DiagnosticConsolePanel } from '../DiagnosticConsolePanel';
+import { PreviewNavigationProvider } from '../preview/ErrorLineMeta';
+import { usePreviewDiagnostics } from '../preview/usePreviewDiagnostics';
+import {
+  formatFinalSyntaxAiRepairError,
+  getFinalSyntaxRepairDiagnosticFixId,
+  requestFinalSyntaxAiRepair,
+} from '../preview/finalSyntaxAiRepair';
+import { getPublicAiSourceKindForContentType } from '@morndraft/features-personal/ai';
+import { buildArtifactMap } from '@morndraft/core';
+import type { ArtifactDiagnostic, ArtifactFixReview } from '../editor/diagnosticTypes';
+import { copyPlainText, copyRichHtmlPayload } from '../preview/clipboardWriters';
+import { detectArtifactContent } from '../../utils/content-detection.js';
+import { usePublicVisiblePreviewMetrics } from './usePublicVisiblePreviewMetrics';
 import { PublicSharedFinalPreview } from './PublicSharedFinalPreview';
 import './public-desktop.css';
 
@@ -44,6 +60,7 @@ const getLabels = (locale: Locale) => locale === 'zh'
   ? {
       about: '纯浏览器运行的 Agent 产物编辑、预览与本地交付工作区。',
       close: '关闭',
+      desktopNotice: '建议在桌面端使用完整编辑体验。',
       final: 'Final',
       import: '本地导入',
       importing: '正在导入…',
@@ -53,6 +70,7 @@ const getLabels = (locale: Locale) => locale === 'zh'
   : {
       about: 'A browser-only workspace for editing, previewing, and locally delivering agent output.',
       close: 'Close',
+      desktopNotice: 'For the full editing experience, open MornDraft on a desktop.',
       final: 'Final',
       import: 'Local import',
       importing: 'Importing…',
@@ -101,10 +119,126 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
     toggleDeliveryCodeChrome,
   } = usePreviewDeliveryDisplayOptions();
   const [previewSearchState, setPreviewSearchState] = useState<TextSearchState | null>(null);
+  const [previewMetricsRoot, setPreviewMetricsRoot] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (mode !== 'final') {
+      setPreviewMetricsRoot(null);
+      return;
+    }
+    setPreviewMetricsRoot(previewRootRef.current?.querySelector<HTMLElement>('[data-public-preview-root="true"]') ?? null);
+  }, [mode, documentEpoch]);
+  const previewMetrics = usePublicVisiblePreviewMetrics({
+    enabled: mode === 'final' && Boolean(previewMetricsRoot),
+    root: previewMetricsRoot,
+  });
+  const [renderDiagnostics, setRenderDiagnostics] = useState<readonly ArtifactDiagnostic[]>([]);
+  const { updatePreviewDiagnostic } = usePreviewDiagnostics({
+    resetKey: `${mode}:${documentEpoch}`,
+    sourceKey: source,
+    onChange: (next) => setRenderDiagnostics(next),
+  });
+  const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
+  const [diagnosticLineFocusRequest, setDiagnosticLineFocusRequest] = useState<{ line: number; requestId: number } | null>(null);
+  const [editorLineFocusRequest, setEditorLineFocusRequest] = useState<{ line: number; requestId: number } | null>(null);
+  const [sourceLineFocusRequest, setSourceLineFocusRequest] = useState<{ line: number; requestId: number } | null>(null);
+  const finalCursorLineRef = useRef(1);
+  const sourceCursorLineRef = useRef(1);
+  const allDiagnostics = useMemo(
+    () => [...artifactAnalysis.diagnostics, ...renderDiagnostics],
+    [artifactAnalysis.diagnostics, renderDiagnostics],
+  );
+  const requestDiagnosticLineFocus = useCallback((line: number) => {
+    setDiagnosticLineFocusRequest({ line, requestId: Date.now() });
+  }, []);
+  const [aiFixReview, setAiFixReview] = useState<ArtifactFixReview | null>(null);
+  const [aiFixError, setAiFixError] = useState<string | null>(null);
+  const [isAiFixBusy, setIsAiFixBusy] = useState(false);
+  const handleRequestAiFix = useCallback(async (diagnostic: ArtifactDiagnostic) => {
+    const fixId = getFinalSyntaxRepairDiagnosticFixId(diagnostic);
+    if (fixId && artifactAnalysis.beginFixReview(fixId)) return;
+    if (isAiFixBusy) return;
+    setIsAiFixBusy(true);
+    setAiFixError(null);
+    const sourceSnapshot = source;
+    try {
+      const repaired = await requestFinalSyntaxAiRepair({
+        diagnostic,
+        enableOssAiProvider: true,
+        source: sourceSnapshot,
+        sourceKind: getPublicAiSourceKindForContentType(detectArtifactContent(sourceSnapshot).primaryType),
+      });
+      if (!repaired.source.trim() || repaired.source === sourceSnapshot) return;
+      const errorLine = diagnostic.line ?? 1;
+      const beforeLines = sourceSnapshot.split('\n')
+        .slice(Math.max(0, errorLine - 2), errorLine + 2)
+        .join('\n');
+      setAiFixReview({
+        id: `ai-fix:${diagnostic.id}:${Date.now()}`,
+        mode: 'single',
+        source: sourceSnapshot,
+        nextSource: repaired.source,
+        fixes: diagnostic.fix ? [diagnostic.fix] : [],
+        previewLines: [{
+          id: `ai-fix:${diagnostic.id}`,
+          line: errorLine,
+          labelZh: diagnostic.messageZh,
+          labelEn: diagnostic.messageEn,
+          before: beforeLines,
+          after: repaired.source,
+        }],
+      });
+    } catch (error) {
+      setAiFixError(formatFinalSyntaxAiRepairError(error, t.preview.aiFixFailed));
+    } finally {
+      setIsAiFixBusy(false);
+    }
+  }, [artifactAnalysis, isAiFixBusy, source, t]);
+  const effectivePendingFixReview = artifactAnalysis.pendingFixReview ?? aiFixReview;
+  const handleConfirmFixReview = useCallback(() => {
+    if (artifactAnalysis.pendingFixReview) {
+      artifactAnalysis.confirmFixReview();
+      return;
+    }
+    if (aiFixReview) {
+      onSourceChange(aiFixReview.nextSource);
+      setAiFixReview(null);
+    }
+  }, [aiFixReview, artifactAnalysis, onSourceChange]);
+  const handleCancelFixReview = useCallback(() => {
+    if (artifactAnalysis.pendingFixReview) {
+      artifactAnalysis.cancelFixReview();
+      return;
+    }
+    setAiFixReview(null);
+  }, [artifactAnalysis]);
+  const handleFinalCursorLineChange = useCallback((line: number) => {
+    finalCursorLineRef.current = line;
+  }, []);
   const textSearchLabels = useMemo(() => getPreviewTextSearchLabels(t.preview), [t]);
+  const artifactMapEntries = useMemo(
+    () => buildArtifactMap(source).map((entry) => ({
+      id: entry.id,
+      kind: entry.kind,
+      level: entry.level,
+      title: entry.title,
+    })),
+    [source],
+  );
   const handleTextSearchNavigate = useCallback(() => {
     // Scrolling is driven by the highlight effect inside the shared preview.
   }, []);
+  const handleCopyRichText = useCallback(async () => {
+    const root = previewRootRef.current?.querySelector<HTMLElement>('[data-public-preview-root="true"]') ?? null;
+    const target = root?.querySelector<HTMLElement>('.aad-document-surface') ?? root;
+    if (!target) throw new Error('Final preview is not ready.');
+    if (detectArtifactContent(source).primaryType === 'json') {
+      await copyPlainText(source);
+      return;
+    }
+    const { buildPreviewCopyPayload } = await import('../preview/portablePreviewPayload');
+    const payload = await buildPreviewCopyPayload(target, theme);
+    await copyRichHtmlPayload(Promise.resolve(payload));
+  }, [source, theme]);
 
   const importDropData = useCallback(async (dropData: EditorImportDropData) => {
     setIsImporting(true);
@@ -143,12 +277,26 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
   const brandSlot = (
     <WorkspaceBrandMark isDarkTheme={theme === 'dark'} />
   );
+  const handleEnterSourceMode = useCallback(() => {
+    const line = finalCursorLineRef.current;
+    if (line > 0) {
+      setEditorLineFocusRequest({ line, requestId: Date.now() });
+    }
+    setMode('source');
+  }, []);
+  const handleEnterFinalMode = useCallback(() => {
+    const line = sourceCursorLineRef.current;
+    if (line > 0) {
+      setSourceLineFocusRequest({ line, requestId: Date.now() });
+    }
+    setMode('final');
+  }, []);
   const modeSwitch = (
     <button
       type="button"
       className="aad-workspace-mode-switch is-final"
       data-testid="oss-workspace-mode-toggle"
-      onClick={() => setMode('source')}
+      onClick={handleEnterSourceMode}
       title={t.preview.switchToSource}
       aria-label={t.preview.switchToSource}
     >
@@ -179,6 +327,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
           {importNotice.text}
         </div>
       )}
+      <p className="md-oss-desktop-notice" role="note">{labels.desktopNotice}</p>
       <div className="md-oss-workspace" style={{ display: mode === 'source' ? 'flex' : 'none' }}>
         <Editor
           value={source}
@@ -199,8 +348,11 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
             setMode('final');
           }}
           onUndoLastFix={artifactAnalysis.undoLastFix}
-          onWorkspaceModeToggle={() => setMode('final')}
+          onWorkspaceModeToggle={handleEnterFinalMode}
           pendingFixReview={artifactAnalysis.pendingFixReview}
+          lineFocusRequest={editorLineFocusRequest}
+          onSourceCursorLineChange={(line: number) => { sourceCursorLineRef.current = line; }}
+          searchState={previewSearchState}
           t={t.editor}
           workspaceModeSwitchLabel={labels.final}
         />
@@ -236,6 +388,20 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
             />
             {modeSwitch}
             <span className="aad-toolbar-title">{t.preview.title}</span>
+            <TextMetricsInline
+              compactCharacters={previewMetrics.compactCharacters}
+              compactTokens={previewMetrics.compactTokens}
+              metricsLabel={t.preview.metricsAria(previewMetrics.characters, previewMetrics.estimatedTokens)}
+              charactersLabel={t.preview.charactersShort}
+              tokensLabel={t.preview.tokens}
+            />
+            <DiagnosticConsoleButton
+              diagnostics={allDiagnostics}
+              fixCount={artifactAnalysis.fixes.length}
+              isOpen={isDiagnosticOpen}
+              onToggle={() => setIsDiagnosticOpen((current) => !current)}
+              getTitle={(issues, fixes) => t.preview.diagnosticPanelTitle(issues, fixes)}
+            />
             <div className="aad-preview-title-search">
               <TextSearchControl
                 value={source}
@@ -249,8 +415,16 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
             <OssSyntaxSamplesMenu locale={locale} onLoadSample={loadSample} sampleEntries={sampleEntries} />
             <PublicDeliveryToolbar
               adapter={adapters.delivery}
+              artifactMapEntries={artifactMapEntries}
               documentEpoch={documentEpoch}
-              getPreviewRoot={() => previewRootRef.current?.querySelector<HTMLElement>('[data-public-preview-root="true"]') ?? null}
+              onCopyRichText={handleCopyRichText}
+              getPreviewRoot={() => {
+                const root = previewRootRef.current?.querySelector<HTMLElement>('[data-public-preview-root="true"]') ?? null;
+                // Capture the Final paper itself, not the surrounding workspace:
+                // delivery image/PDF output must match the A4 paper width, never
+                // the fluid preview container width.
+                return root?.querySelector<HTMLElement>('.aad-document-surface') ?? root;
+              }}
               locale={locale}
               source={source}
               theme={theme}
@@ -266,27 +440,60 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
             />
           </div>
         </header>
+        <PreviewNavigationProvider value={{ enabledCapabilities: [], onRequestEditorLineFocus: requestDiagnosticLineFocus }}>
         <PublicSharedFinalPreview
           deliveryAccess={deliveryAccess}
           deliveryDisplayOptions={deliveryDisplayOptions}
+          diagnosticLineFocusRequest={diagnosticLineFocusRequest}
           diagnostics={artifactAnalysis.diagnostics}
+          isAiFixBusy={isAiFixBusy}
           lastAppliedFix={artifactAnalysis.lastAppliedFix}
           mornDraftComponentScope={releaseConfig.mornDraftComponentScope}
           onBeginFixReview={artifactAnalysis.beginFixReview}
-          onCancelFixReview={artifactAnalysis.cancelFixReview}
-          onConfirmFixReview={artifactAnalysis.confirmFixReview}
+          onCancelFixReview={handleCancelFixReview}
+          onConfirmFixReview={handleConfirmFixReview}
+          onFinalCursorLineChange={handleFinalCursorLineChange}
+          onMermaidDiagnosticChange={updatePreviewDiagnostic}
           onPatch={handlePreviewSourcePatch}
+          onRequestAiFix={handleRequestAiFix}
           onToggleA4Pagination={toggleDeliveryA4Pagination}
           onToggleCodeChrome={toggleDeliveryCodeChrome}
           onUndoLastFix={artifactAnalysis.undoLastFix}
-          pendingFixReview={artifactAnalysis.pendingFixReview}
+          pendingFixReview={effectivePendingFixReview}
           searchState={previewSearchState}
           source={source}
+          sourceLineFocusRequest={sourceLineFocusRequest}
           sourcePatchEcho={previewSourcePatchEcho}
           stateResetKey={`public:${documentEpoch}`}
           t={t}
           theme={theme}
         />
+        </PreviewNavigationProvider>
+        {isDiagnosticOpen && (
+          <DiagnosticConsolePanel
+            className="aad-editor-diagnostic-panel aad-preview-diagnostic-panel md-oss-diagnostic-panel"
+            aiFixError={aiFixError}
+            diagnostics={allDiagnostics}
+            fixCount={artifactAnalysis.fixes.length}
+            isAiFixBusy={isAiFixBusy}
+            locale={locale}
+            onBeginFixReviewAll={() => artifactAnalysis.beginFixReview('all')}
+            onClose={() => setIsDiagnosticOpen(false)}
+            onRequestAiFixAll={handleRequestAiFix}
+            onRequestLineFocus={requestDiagnosticLineFocus}
+            t={{
+              aiFix: t.preview.aiFix,
+              aiFixing: t.preview.aiFixing,
+              closeDiagnosticDialog: t.preview.closeDiagnosticDialog,
+              diagnosticDialogTitle: t.preview.diagnosticDialogTitle,
+              diagnosticPanelTitle: t.preview.diagnosticPanelTitle,
+              errorLine: t.preview.errorLine,
+              fix: t.preview.fix,
+              fixAll: t.preview.fixAll,
+              jumpToSourceLine: t.preview.jumpToSourceLine,
+            }}
+          />
+        )}
         <PublicComplianceFooter />
       </div>
       <PublicDialog
