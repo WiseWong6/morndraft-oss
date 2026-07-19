@@ -585,7 +585,7 @@ try {
     '```',
   ].join('\n');
   const openDeterministicRepairReview = async () => {
-    const consoleButton = page.locator('.aad-editor-diagnostic-console');
+    const consoleButton = page.locator('.md-oss-workspace:not(.md-oss-final-workspace) .aad-editor-diagnostic-console');
     await consoleButton.waitFor({ state: 'visible' });
     if (await consoleButton.getAttribute('aria-pressed') !== 'true') await consoleButton.click();
     await page.locator('.aad-editor-line-fix-button').first().click();
@@ -668,7 +668,7 @@ try {
     '```',
   ].join('\n');
   await sourceEditor.fill(unsafeJsonRepairSource);
-  const unsafeConsole = page.locator('.aad-editor-diagnostic-console');
+  const unsafeConsole = page.locator('.md-oss-workspace:not(.md-oss-final-workspace) .aad-editor-diagnostic-console');
   await unsafeConsole.waitFor({ state: 'visible' });
   if (await unsafeConsole.getAttribute('aria-pressed') !== 'true') await unsafeConsole.click();
   assert.equal(await page.locator('.aad-editor-diagnostic-fix-button').count(), 0);

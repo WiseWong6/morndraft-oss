@@ -8,6 +8,11 @@ export type PublicDeliveryInput = {
   contentType: PublicDeliveryContentType;
   theme: PublicDeliveryTheme;
   title: string;
+  /** Optional outline rendered as an anchor-linked table of contents in the standalone HTML export. */
+  artifactMap?: {
+    title: string;
+    entries: readonly { id: string; kind?: string; level: number; title: string }[];
+  };
   ensureRendered?: () => Promise<void>;
   /** Fails if the document changed while an asynchronous artifact was built. */
   assertCurrent?: () => void;

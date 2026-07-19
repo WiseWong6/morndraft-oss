@@ -516,6 +516,45 @@ ${buildPortableStyleEntries(styles)}
   });
 };
 
+const PUBLIC_STANDALONE_TOC_ID_PREFIX = 'aad-toc-target-';
+
+const escapeStandaloneHtmlText = (value: string) => value
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+// Render the artifact outline as an anchor-linked table of contents inside the
+// standalone document. Links are same-document fragment navigations and need
+// no scripts; block ids come from the preview's data-artifact-id markers.
+const buildStandaloneArtifactOutline = (
+  ownerDocument: Document,
+  renderedHtml: string,
+  artifactMap: NonNullable<PublicDeliveryInput['artifactMap']>,
+): string | null => {
+  const entries = artifactMap.entries.filter((entry) => entry.id && entry.title);
+  if (entries.length === 0) return null;
+  const template = ownerDocument.createElement('template');
+  template.innerHTML = renderedHtml;
+  const links: string[] = [];
+  const usedAnchorIds = new Set<string>();
+  for (const entry of entries) {
+    const target = template.content.querySelector(`[data-artifact-id="${CSS.escape(entry.id)}"]`);
+    if (!(target instanceof HTMLElement)) continue;
+    const anchorId = `${PUBLIC_STANDALONE_TOC_ID_PREFIX}${usedAnchorIds.size}`;
+    usedAnchorIds.add(anchorId);
+    target.setAttribute('id', anchorId);
+    const level = Math.max(1, Math.min(6, Math.round(entry.level || 1)));
+    const kindLabel = entry.kind && entry.kind !== 'heading' ? ` · ${escapeStandaloneHtmlText(entry.kind)}` : '';
+    links.push(
+      `<a href="#${anchorId}" style="display:block;padding:2px 0 2px ${(level - 1) * 16}px;color:inherit;text-decoration:none;">${escapeStandaloneHtmlText(entry.title)}${kindLabel}</a>`,
+    );
+  }
+  if (links.length === 0) return null;
+  const nav = `<nav data-morndraft-standalone-outline="true" style="max-width:720px;margin:0 auto 24px;padding:16px 20px;border:1px solid rgba(127,127,127,.35);border-radius:10px;font-size:14px;line-height:1.7;"><strong style="display:block;margin:0 0 8px;font-size:15px;">${escapeStandaloneHtmlText(artifactMap.title)}</strong>${links.join('')}</nav>`;
+  return `${nav}${template.innerHTML}`;
+};
+
 const buildPublicStandaloneHtmlWithinDeadline = async (
   input: PublicDeliveryInput,
 ) => {
@@ -536,8 +575,11 @@ const buildPublicStandaloneHtmlWithinDeadline = async (
   const themeBackground = input.theme === 'dark' ? '#11110f' : '#fff';
   const themeColor = input.theme === 'dark' ? '#f4f4ef' : '#20201d';
   const title = input.title || 'MornDraft';
+  const outlinedBody = input.artifactMap
+    ? buildStandaloneArtifactOutline(document, renderedHtml, input.artifactMap) ?? renderedHtml
+    : renderedHtml;
   const renderedDocument = buildPortableDocument({
-    body: renderedHtml,
+    body: outlinedBody,
     headBeforeTitle: `<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${escapePortableHtmlAttribute(PUBLIC_DOCUMENT_CSP)}">
