@@ -75,8 +75,34 @@ test('OSS shared shell keeps Source truth, local title derivation, delivery and 
   assert.match(finalPreview, /PreviewFormatToolbar/);
   assert.match(shell, /<PublicComplianceFooter \/>/);
   assert.match(compliance, /aria-label="网站备案信息"/);
+  assert.doesNotMatch(compliance, /深圳明日回声科技有限公司/);
   assert.match(filing, /粤ICP备2026082169号-1/);
   assert.match(filing, /粤公网安备44030002014257号/);
+});
+
+test('OSS preview chrome matches the 7.10 toolbar contract', () => {
+  const shell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
+  const finalPreview = read('../../../components/public-desktop/PublicSharedFinalPreview.tsx');
+  const deliveryToolbar = read('../../../components/public-workspace/PublicDeliveryToolbar.tsx');
+  const page = read('../index.html');
+
+  assert.match(page, /<title>明日回声-MornDraft<\/title>/);
+  assert.match(shell, /aad-toolbar md-oss-shared-toolbar/);
+  assert.match(shell, /aad-workspace-mode-switch is-final/);
+  assert.match(shell, /aad-toolbar-title">\{t\.preview\.title\}/);
+  assert.match(shell, /<TextSearchControl/);
+  assert.doesNotMatch(shell, /buttonLabel="Syntax"/);
+  assert.doesNotMatch(shell, /buttonLabel="More"/);
+  assert.match(deliveryToolbar, /aad-preview-copy-button/);
+  assert.match(deliveryToolbar, /aad-preview-share-button/);
+  assert.match(deliveryToolbar, /isCopy \? labels\.copyMenu : labels\.exportMenu/);
+  assert.match(deliveryToolbar, /copyMenu: '复制', exportMenu: '导出'/);
+  assert.match(finalPreview, /PreviewDeliveryDisplayControls/);
+  assert.match(finalPreview, /a4PaginationLabel=\{t\.preview\.deliveryA4Pagination\}/);
+  assert.match(finalPreview, /codeChromeLabel=\{t\.preview\.deliveryCode\}/);
+  assert.match(finalPreview, /usePreviewA4Pagination/);
+  assert.match(finalPreview, /ArtifactMapShell/);
+  assert.match(finalPreview, /applyPreviewSearchTextHighlights/);
 });
 
 test('OSS document routing keeps HTML in an explicit sandbox path', () => {

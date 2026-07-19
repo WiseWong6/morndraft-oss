@@ -3,17 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="MornDraft OSS — a local-first editor and preview workspace for Agent output." />
+    <meta name="description" content="MornDraft — Agent 编辑器，支持 Markdown、Mermaid、JSON、HTML 的预览、编辑与导出。" />
     <meta name="color-scheme" content="light dark" />
-    <title>MornDraft OSS</title>
+    <title>明日回声-MornDraft</title>
     <link rel="icon" type="image/webp" href="./morndraft-icon-light.webp" media="(prefers-color-scheme: light)" />
     <link rel="icon" type="image/webp" href="./morndraft-icon-dark.webp" media="(prefers-color-scheme: dark)" />
     <link rel="preload" href="./fonts/morndraft-fonts-critical.css" as="style" />
     <link rel="stylesheet" href="./fonts/morndraft-fonts-critical.css" />
     <script>
       try {
-        var theme = localStorage.getItem('morndraft.oss.theme');
-        if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
+        var themeMode = localStorage.getItem('morndraft.oss.theme');
+        var theme = themeMode === 'dark' || themeMode === 'light'
+          ? themeMode
+          : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.dataset.theme = theme;
       } catch (_) {}
     </script>
   </head>
