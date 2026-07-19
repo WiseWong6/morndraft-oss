@@ -17,6 +17,8 @@ type PublicDeliveryToolbarProps = {
   theme: PublicWorkspaceTheme;
   title: string;
   getPreviewRoot(): HTMLElement | null;
+  artifactMapEntries?: readonly { id: string; kind?: string; level: number; title: string }[];
+  onCopyRichText?: (() => Promise<void>) | null;
 };
 
 type DeliveryAction = 'copyImage' | 'downloadImage' | 'downloadPdf' | 'downloadHtml';
@@ -31,12 +33,16 @@ const MENU_ACTIONS: Record<DeliveryMenuKind, readonly DeliveryAction[]> = {
 const MENU_SIDE_MARGIN_PX = 8;
 
 const getLabels = (locale: PublicWorkspaceLocale) => locale === 'zh' ? {
+  artifactMapTitle: '目录',
   copyMenu: '复制', exportMenu: '导出',
   copyImage: '复制图片', downloadImage: '下载 PNG', downloadPdf: '下载 PDF', downloadHtml: '下载 HTML',
+  copyRichText: '复制到公众号', copyRichTextDone: '已复制到公众号', copyRichTextFailed: '复制失败，请重试。',
   working: '正在生成…', success: '本地交付已完成', failed: '无法生成交付产物，请检查预览内容后重试。', unavailable: '最终预览尚未准备好。',
 } : {
+  artifactMapTitle: 'Outline',
   copyMenu: 'Copy', exportMenu: 'Export',
   copyImage: 'Copy image', downloadImage: 'Download PNG', downloadPdf: 'Download PDF', downloadHtml: 'Download HTML',
+  copyRichText: 'Copy to rich editor', copyRichTextDone: 'Copied to rich editor', copyRichTextFailed: 'Copy failed. Please try again.',
   working: 'Generating…', success: 'Local delivery complete', failed: 'Unable to create the deliverable. Check the preview and try again.', unavailable: 'Final preview is not ready.',
 };
 
@@ -159,9 +165,12 @@ export const PublicDeliveryToolbar: React.FC<PublicDeliveryToolbarProps> = ({
   theme,
   title,
   getPreviewRoot,
+  artifactMapEntries,
+  onCopyRichText,
 }) => {
   const labels = getLabels(locale);
   const [busyAction, setBusyAction] = useState<DeliveryAction | null>(null);
+  const [isRichCopyBusy, setIsRichCopyBusy] = useState(false);
   const [status, setStatus] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [activeMenu, setActiveMenu] = useState<DeliveryMenuKind | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; right: number; maxWidth: number } | null>(null);
@@ -290,6 +299,9 @@ export const PublicDeliveryToolbar: React.FC<PublicDeliveryToolbarProps> = ({
       contentType: getPublicContentType(requestedSource),
       theme: requestedTheme,
       title: requestedTitle,
+      artifactMap: artifactMapEntries && artifactMapEntries.length > 0
+        ? { title: labels.artifactMapTitle, entries: artifactMapEntries }
+        : undefined,
       assertCurrent,
       signal: controller.signal,
       ensureRendered: async () => {
@@ -330,6 +342,17 @@ export const PublicDeliveryToolbar: React.FC<PublicDeliveryToolbarProps> = ({
   const runFromMenu = (action: DeliveryAction) => {
     closeMenu();
     void run(action);
+  };
+
+  const runRichCopy = () => {
+    if (!onCopyRichText || isRichCopyBusy) return;
+    closeMenu();
+    setIsRichCopyBusy(true);
+    setStatus(null);
+    void onCopyRichText()
+      .then(() => setStatus({ kind: 'success', text: labels.copyRichTextDone }))
+      .catch(() => setStatus({ kind: 'error', text: labels.copyRichTextFailed }))
+      .finally(() => setIsRichCopyBusy(false));
   };
 
   const renderMenuButton = (menu: DeliveryMenuKind) => {
@@ -375,6 +398,19 @@ export const PublicDeliveryToolbar: React.FC<PublicDeliveryToolbarProps> = ({
         style={style}
         data-preview-toolbar-menu-layer="top"
       >
+        {activeMenu === 'copy' && onCopyRichText && (
+          <button
+            type="button"
+            role="menuitem"
+            className="aad-toolbar-menu-item"
+            data-testid="oss-delivery-copy-rich-text"
+            disabled={busyAction !== null || isRichCopyBusy}
+            onClick={runRichCopy}
+          >
+            {isRichCopyBusy && <Loader2 size={14} className="animate-spin" />}
+            <span>{isRichCopyBusy ? labels.working : labels.copyRichText}</span>
+          </button>
+        )}
         {menu.actions.map((action) => (
           <button
             key={action}
