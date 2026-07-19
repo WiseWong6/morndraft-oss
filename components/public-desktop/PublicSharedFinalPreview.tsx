@@ -20,6 +20,12 @@ import {
 import { PreviewAiSelectionToolbar } from '../preview/PreviewAiSelectionToolbar';
 import { PreviewFixReviewOverlay } from '../preview/PreviewFixReviewOverlay';
 import { PreviewFormatToolbar } from '../preview/PreviewFormatToolbar';
+import { PreviewArtifactCollapseContext } from '../preview/CollapsibleArtifactBlock';
+import { ArtifactErrorAiRepairContext } from '../preview/ArtifactErrorBlock';
+import { BlockHeaderCopyContext, type BlockCopyContentKind } from '../preview/BlockHeaderCopyAction';
+import { copyImageBlobPayload } from '../preview/clipboardWriters';
+import { usePreviewArtifactCollapse, usePreviewArtifactEntries } from '../preview/usePreviewArtifactCollapse';
+import ScrollToTopButton, { getScrollToTopBehavior } from '../ScrollToTopButton';
 import {
   PreviewDeliveryDisplayControls,
   type PreviewDeliveryDisplayOptions,
@@ -52,6 +58,11 @@ import {
   serializePreviewEditingSourcePatch,
 } from '../preview/standaloneHtmlFenceEditing';
 import { useArtifactMapNavigation } from '../preview/useArtifactMapNavigation';
+import {
+  highlightPreviewDiagnosticLineTarget,
+  scrollPreviewDiagnosticLineIntoView,
+  scrollPreviewSourceLineIntoView,
+} from '../preview/previewDiagnosticLineNavigation';
 import { usePreviewMarkdownEditing } from '../preview/usePreviewMarkdownEditing';
 import { usePreviewMarkdownImageInsertion } from '../preview/usePreviewMarkdownImageInsertion';
 import type {
@@ -71,14 +82,20 @@ type PublicSharedFinalPreviewProps = {
   t: ArtifactDeskTranslations;
   deliveryAccess: DeliveryAccessState;
   deliveryDisplayOptions: PreviewDeliveryDisplayOptions;
+  diagnosticLineFocusRequest?: { line: number; requestId: number } | null;
   diagnostics: readonly ArtifactDiagnostic[];
   pendingFixReview: ArtifactFixReview | null;
   lastAppliedFix: ArtifactAppliedFix | null;
   mornDraftComponentScope?: MornDraftComponentScope;
   searchState?: TextSearchState | null;
+  sourceLineFocusRequest?: { line: number; requestId: number } | null;
+  isAiFixBusy?: boolean;
   onBeginFixReview(fixId: string | 'all'): void;
   onCancelFixReview(): void;
   onConfirmFixReview(): void;
+  onFinalCursorLineChange?: (line: number) => void;
+  onMermaidDiagnosticChange?: (id: string, diagnostic: { code: string; line?: number | null; messageZh: string; messageEn?: string } | null) => void;
+  onRequestAiFix?: (diagnostic: ArtifactDiagnostic) => void;
   onPatch(nextSource: string, meta?: Parameters<NonNullable<React.ComponentProps<typeof MarkdownDocumentRenderer>['onSourcePatch']>>[1]): void;
   onToggleA4Pagination(): void;
   onToggleCodeChrome(): void;
@@ -93,14 +110,20 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
   t,
   deliveryAccess,
   deliveryDisplayOptions,
+  diagnosticLineFocusRequest = null,
   diagnostics,
   pendingFixReview,
   lastAppliedFix,
   mornDraftComponentScope = 'showcase',
   searchState = null,
+  sourceLineFocusRequest = null,
+  isAiFixBusy = false,
   onBeginFixReview,
   onCancelFixReview,
   onConfirmFixReview,
+  onFinalCursorLineChange,
+  onMermaidDiagnosticChange,
+  onRequestAiFix,
   onPatch,
   onToggleA4Pagination,
   onToggleCodeChrome,
@@ -109,9 +132,17 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [previewSurface, setPreviewSurface] = useState<HTMLElement | null>(null);
   const [isArtifactMapPanelOpen, setIsArtifactMapPanelOpen] = useState(true);
+  const [isBackToTopVisible, setIsBackToTopVisible] = useState(false);
   const latestSourceRef = useRef(source);
   const [deliveryNotice, setDeliveryNotice] = useState<DeliveryNotice | null>(null);
   latestSourceRef.current = source;
+
+  const handlePreviewScroll = useCallback(() => {
+    setIsBackToTopVisible((scrollContainerRef.current?.scrollTop ?? 0) > 480);
+  }, []);
+  const handleBackToTop = useCallback(() => {
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: getScrollToTopBehavior() });
+  }, []);
 
   const sourceChannels = useMemo(
     () => resolvePreviewEditingSourceChannels({ code: source, latestSource: source }),
@@ -167,6 +198,7 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
     deliveryRequestContext,
     latestSource: sourceChannels.latestEditableSource,
     onAiInstructionNotice: setDeliveryNotice,
+    onFinalCursorSourceLineChange: onFinalCursorLineChange,
     onInsertImageFile: isA4PaginationActive ? undefined : handlePreviewMarkdownInsertImageFile,
     onPatch: isA4PaginationActive ? undefined : handlePatch,
     previewCode: editingResetSource,
@@ -183,6 +215,47 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
     scrollContainerRef,
   });
   const artifactMapEntries = artifactNavigation.entries;
+  const handledDiagnosticLineFocusRequestIdRef = useRef(0);
+  const diagnosticHighlightCleanupRef = useRef<(() => void) | null>(null);
+  const handledSourceLineFocusRequestIdRef = useRef(0);
+  useLayoutEffect(() => {
+    if (!sourceLineFocusRequest) return;
+    if (handledSourceLineFocusRequestIdRef.current === sourceLineFocusRequest.requestId) return;
+    handledSourceLineFocusRequestIdRef.current = sourceLineFocusRequest.requestId;
+    scrollPreviewSourceLineIntoView(scrollContainerRef.current, sourceLineFocusRequest.line);
+  }, [sourceLineFocusRequest]);
+  useLayoutEffect(() => {
+    if (!diagnosticLineFocusRequest) return undefined;
+    if (handledDiagnosticLineFocusRequestIdRef.current === diagnosticLineFocusRequest.requestId) return undefined;
+    handledDiagnosticLineFocusRequestIdRef.current = diagnosticLineFocusRequest.requestId;
+    diagnosticHighlightCleanupRef.current?.();
+    diagnosticHighlightCleanupRef.current = null;
+    const target = scrollPreviewDiagnosticLineIntoView(scrollContainerRef.current, diagnosticLineFocusRequest.line);
+    if (target) {
+      diagnosticHighlightCleanupRef.current = highlightPreviewDiagnosticLineTarget(target);
+    }
+    return () => {
+      diagnosticHighlightCleanupRef.current?.();
+      diagnosticHighlightCleanupRef.current = null;
+    };
+  }, [diagnosticLineFocusRequest]);
+  const { collapseContext, collapsedArtifactIds, onToggleEntryCollapsed } = usePreviewArtifactCollapse(artifactMapEntries);
+  const { artifactMapDisplayEntries, collapsibleArtifactEntryIds } = usePreviewArtifactEntries(artifactMapEntries, collapsedArtifactIds, contentType);
+  const blockHeaderCopyContextValue = useMemo(() => ({
+    copyBlockImage: async (element: HTMLElement, contentKind: BlockCopyContentKind) => {
+      const { captureBlockImageForCopy } = await import('../preview/liveBlockImageCapture');
+      const { capture } = await captureBlockImageForCopy({
+        authorizeDelivery: async () => ({ captureScale: 2 }),
+        blockContentKind: contentKind,
+        blockRoot: element,
+        currentTheme: theme,
+        ensureMermaidRendered: async () => undefined,
+        includeCodeChrome: true,
+        noMermaidReadyMessage: t.preview.noMermaidReady,
+      });
+      await copyImageBlobPayload(Promise.resolve(capture.blob));
+    },
+  }), [t, theme]);
   const handledSearchNavigationRequestIdRef = useRef(0);
   const getPreviewSearchMatchBlock = useCallback(
     (match: { line: number }) => {
@@ -312,12 +385,17 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
 
   return (
     <ArtifactMapShell
-      entries={artifactMapEntries}
+      entries={artifactMapDisplayEntries}
+      collapsedEntryIds={collapsedArtifactIds}
+      collapsibleEntryIds={collapsibleArtifactEntryIds}
       title={t.preview.artifactMap}
       emptyLabel={t.preview.artifactMapEmpty}
       closeLabel={t.preview.closeArtifactMap}
+      expandEntryLabel={(entry) => t.preview.expandArtifact(entry.title)}
+      collapseEntryLabel={(entry) => t.preview.collapseArtifact(entry.title)}
       lineLabel={t.preview.errorLine}
-      isEnabled={artifactMapEntries.length > 0}
+      onToggleEntryCollapsed={onToggleEntryCollapsed}
+      isEnabled={artifactMapDisplayEntries.length > 0}
       isOpen={false}
       isPanelOpen={isArtifactMapPanelOpen}
       panelExpandLabel={t.preview.openArtifactMap}
@@ -332,6 +410,7 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
       data-public-final="true"
       data-public-preview-root="true"
       data-shared-final-preview="true"
+      onScroll={handlePreviewScroll}
     >
       <div className="aad-preview-display-controls-bar md-oss-shared-final-controls">
         {!isA4PaginationActive && <PreviewFormatToolbar controls={editing.toolbar} t={t.preview} />}
@@ -369,6 +448,11 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
         </div>
       )}
       <HtmlPreviewMountSchedulerProvider maxActiveMounts={2} resetKey={stateResetKey}>
+        <PreviewArtifactCollapseContext.Provider value={collapseContext}>
+        <ArtifactErrorAiRepairContext.Provider
+          value={onRequestAiFix ? { isAiFixBusy, onRequestAiFix, repairMode: 'ai' as const } : null}
+        >
+        <BlockHeaderCopyContext.Provider value={blockHeaderCopyContextValue}>
         <div className="aad-preview-pad w-full">
           <div ref={setPreviewSurface} className="aad-document-surface md-public-final-surface">
             <PreviewThemeContext.Provider value={theme}>
@@ -386,13 +470,14 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
                   mornDraftComponentScope={mornDraftComponentScope}
                   onBeginFixReview={onBeginFixReview}
                   onJsonFormatted={() => undefined}
-                  onMermaidDiagnosticChange={() => undefined}
+                  onMermaidDiagnosticChange={onMermaidDiagnosticChange ?? (() => undefined)}
                   onMermaidSvgReady={() => undefined}
+                  onRequestAiFix={onRequestAiFix}
                   onSourcePatch={handlePatch}
                   previewMarkdownEdit={editing.editState}
                   previewSourcePatchEnabled
                   renderDeliveryAccess={renderDeliveryAccess}
-                  repairMode="deterministic"
+                  repairMode={onRequestAiFix ? 'ai' : 'deterministic'}
                   sourceLineMap={previewLineMap}
                   t={t.preview}
                   withArtifactTarget={artifactNavigation.withArtifactTarget}
@@ -401,6 +486,9 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
             </PreviewThemeContext.Provider>
           </div>
         </div>
+        </BlockHeaderCopyContext.Provider>
+        </ArtifactErrorAiRepairContext.Provider>
+        </PreviewArtifactCollapseContext.Provider>
       </HtmlPreviewMountSchedulerProvider>
       <PreviewFixReviewOverlay
         pendingFixReview={pendingFixReview}
@@ -409,6 +497,12 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
         onConfirmFixReview={onConfirmFixReview}
         onUndoLastFix={onUndoLastFix}
         t={t.preview}
+      />
+      <ScrollToTopButton
+        className="aad-preview-back-to-top"
+        label={t.preview.backToTop}
+        onClick={handleBackToTop}
+        visible={isBackToTopVisible}
       />
     </div>
     </ArtifactMapShell>

@@ -143,6 +143,40 @@ export const captureHtmlFrameWithModernScreenshot = async (
   return captureSinglePage(element, captureWidth, captureHeight, shouldCrop);
 };
 
+const CAPTURE_UNSUPPORTED_COLOR_FUNCTION_RE = /\b(?:oklch|oklab|lch|lab|color-mix)\(/i;
+
+// html2canvas cannot parse modern CSS color functions and throws before
+// producing a canvas; strip them from the cloned capture document only.
+const sanitizeCaptureDocumentColorFunctions = (clonedDocument: Document) => {
+  for (const sheet of Array.from(clonedDocument.styleSheets)) {
+    let rules: CSSRuleList | null = null;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      rules = null;
+    }
+    if (!rules) continue;
+    for (const rule of Array.from(rules)) {
+      if (rule.type !== CSSRule.STYLE_RULE) continue;
+      const style = (rule as CSSStyleRule).style;
+      for (let index = style.length - 1; index >= 0; index -= 1) {
+        const property = style.item(index);
+        if (CAPTURE_UNSUPPORTED_COLOR_FUNCTION_RE.test(style.getPropertyValue(property))) {
+          style.removeProperty(property);
+        }
+      }
+    }
+  }
+  for (const element of Array.from(clonedDocument.querySelectorAll<HTMLElement>('[style]'))) {
+    for (let index = element.style.length - 1; index >= 0; index -= 1) {
+      const property = element.style.item(index);
+      if (CAPTURE_UNSUPPORTED_COLOR_FUNCTION_RE.test(element.style.getPropertyValue(property))) {
+        element.style.removeProperty(property);
+      }
+    }
+  }
+};
+
 export const captureHtmlElementWithHtml2Canvas = async (
   element: HTMLElement,
   backgroundColor = '#ffffff',
@@ -175,6 +209,7 @@ export const captureHtmlElementWithHtml2Canvas = async (
     backgroundColor,
     height: captureHeight,
     logging: false,
+    onclone: sanitizeCaptureDocumentColorFunctions,
     removeContainer: true,
     scale,
     scrollX: view?.scrollX ?? 0,
