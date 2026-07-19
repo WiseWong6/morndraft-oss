@@ -107,7 +107,7 @@ const getWorkspaceMode = async (page) => (
 
 const ensureSourceMode = async (page) => {
   if (await getWorkspaceMode(page) !== 'source') {
-    await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+    await page.locator('[data-testid="oss-workspace-mode-toggle"]').click();
   }
   await page.locator('.md-oss-workspace:not(.md-oss-final-workspace) .aad-editor-input').waitFor({ state: 'visible' });
 };
@@ -148,7 +148,7 @@ const providerRequests = [];
 try {
   await waitForPreview(appUrl, preview);
   browser = await chromium.launch({ headless: true });
-  context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  context = await browser.newContext({ acceptDownloads: true, locale: 'zh-CN', viewport: { width: 1280, height: 720 } });
   await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
   tracing = true;
   page = await context.newPage();
@@ -824,7 +824,15 @@ try {
   ));
   await ensureSourceMode(page);
   assert.match(await sourceEditor.inputValue(), /^!\[pixel\.png\]\(data:image\/png;base64,/u);
-  assert.equal((await page.locator('.md-oss-shared-title').first().textContent())?.trim(), 'pixel.png');
+  await ensureFinalMode(page);
+  // The 7.10 chrome does not show the document title in the toolbar; the
+  // derived title is asserted through the exported file name instead.
+  const exportMenuButton = page.locator('.aad-preview-share-button');
+  await exportMenuButton.click();
+  const downloadPromise = page.waitForEvent('download', { timeout: 30_000 });
+  await page.getByTestId('oss-delivery-download-html').click();
+  const pixelDownload = await downloadPromise;
+  assert.equal(pixelDownload.suggestedFilename(), 'pixel.png.html');
 
   const dropText = async (type, value) => {
     await page.evaluate(({ dataType, dataValue }) => {
