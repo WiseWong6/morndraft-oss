@@ -23,17 +23,17 @@
   position: relative;
   z-index: 35;
   display: flex;
-  min-height: 54px;
+  height: 48px;
+  min-height: 48px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 14px;
+  padding: 0 1rem;
   border-bottom: 1px solid var(--aad-border);
-  background: var(--aad-toolbar-bg);
-  backdrop-filter: blur(14px);
 }
 
-.md-oss-shared-brand,
+.md-oss-shared-toolbar-group,
 .md-oss-shared-toolbar-actions {
   display: flex;
   min-width: 0;
@@ -41,13 +41,14 @@
   gap: 8px;
 }
 
-.md-oss-shared-title {
-  max-width: min(30vw, 360px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--aad-muted-strong);
-  font-size: 13px;
+.md-oss-shared-toolbar-group {
+  flex: 1 1 auto;
+}
+
+.md-oss-shared-toolbar-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  overflow: visible;
 }
 
 .md-oss-shared-final-scroll {
@@ -71,19 +72,22 @@
   z-index: 90;
 }
 
+.md-oss-final-workspace > .aad-preview-content-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .md-oss-final-workspace > .aad-preview-icp-footer {
   flex: 0 0 auto;
 }
 
 @media (max-width: 900px) {
   .md-oss-shared-toolbar {
+    height: auto;
+    min-height: 48px;
     align-items: flex-start;
     overflow-x: auto;
     padding-block: 8px;
-  }
-
-  .md-oss-shared-title {
-    display: none;
   }
 
   .md-oss-shared-toolbar-actions {

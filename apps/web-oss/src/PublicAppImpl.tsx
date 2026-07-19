@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { PublicDesktopMornDraftShell as DesktopMornDraftShell } from '../../../components/public-desktop/PublicDesktopMornDraftShell';
-import type { Locale } from '../../../i18n';
+import { getInitialLocale, TRANSLATIONS, type Locale } from '../../../i18n';
 import { derivePublicImportedDocumentTitle } from '../../../components/public-workspace/publicDocumentTitle';
 import { createOssReleaseAdapters } from './releaseAdapters';
 import { OSS_RELEASE_CONFIG } from './ossReleaseConfig';
@@ -9,6 +9,8 @@ import './release.css';
 
 const LOCALE_KEY = 'morndraft.oss.locale';
 const THEME_KEY = 'morndraft.oss.theme';
+
+type MornDraftThemeMode = 'light' | 'dark' | 'system';
 
 const readPreference = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
   if (typeof window === 'undefined') return fallback;
@@ -20,11 +22,17 @@ const readPreference = <T extends string>(key: string, allowed: readonly T[], fa
   }
 };
 
+const resolveSystemTheme = (): 'light' | 'dark' => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+};
+
 export const PublicAppImpl: React.FC = () => {
   const adapters = useMemo(() => createOssReleaseAdapters(), []);
   const releaseConfig = OSS_RELEASE_CONFIG;
-  const [locale, setLocale] = useState<Locale>(() => readPreference(LOCALE_KEY, ['zh', 'en'], 'zh'));
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => readPreference(THEME_KEY, ['light', 'dark'], 'light'));
+  const [locale, setLocale] = useState<Locale>(() => readPreference(LOCALE_KEY, ['zh', 'en'], getInitialLocale()));
+  const [themeMode, setThemeMode] = useState<MornDraftThemeMode>(() => readPreference(THEME_KEY, ['light', 'dark', 'system'], 'system'));
+  const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(resolveSystemTheme);
   const [source, setSource] = useState(() => adapters.persistence.readInitialSource());
   const [importedFileTitle, setImportedFileTitle] = useState<string | undefined>(undefined);
   const [documentEpoch, setDocumentEpoch] = useState(0);
@@ -32,15 +40,26 @@ export const PublicAppImpl: React.FC = () => {
     () => derivePublicImportedDocumentTitle(source, locale, importedFileTitle),
     [importedFileTitle, locale, source],
   );
+  const theme = themeMode === 'system' ? systemTheme : themeMode;
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (event: MediaQueryListEvent) => setSystemTheme(event.matches ? 'dark' : 'light');
+    setSystemTheme(media.matches ? 'dark' : 'light');
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    try { window.localStorage.setItem(THEME_KEY, theme); } catch { /* Browser storage may be unavailable. */ }
-  }, [theme]);
+    try { window.localStorage.setItem(THEME_KEY, themeMode); } catch { /* Browser storage may be unavailable. */ }
+  }, [theme, themeMode]);
 
   useEffect(() => {
     document.documentElement.lang = locale === 'zh' ? 'zh-CN' : 'en';
+    document.title = TRANSLATIONS[locale].documentTitle;
     try { window.localStorage.setItem(LOCALE_KEY, locale); } catch { /* Browser storage may be unavailable. */ }
   }, [locale]);
 
@@ -69,10 +88,11 @@ export const PublicAppImpl: React.FC = () => {
           onDocumentImport: handleDocumentImport,
           onLocaleChange: setLocale,
           onSourceChange: setSource,
-          onThemeChange: setTheme,
+          onThemeChange: setThemeMode,
           releaseConfig,
           source,
           theme,
+          themeMode,
         }}
       />
     </div>

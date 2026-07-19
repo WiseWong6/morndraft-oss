@@ -38,6 +38,7 @@ type OssMoreMenuProps = {
   onThemeModeChange: (mode: MornDraftThemeMode) => void;
   releaseConfig: MornDraftReleaseConfig;
   themeMode: MornDraftThemeMode;
+  buttonLabel?: string;
 };
 
 type MoreMenuPosition = {
@@ -117,6 +118,7 @@ export const OssMoreMenu: React.FC<OssMoreMenuProps> = ({
   onThemeModeChange,
   releaseConfig,
   themeMode,
+  buttonLabel,
 }) => {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -467,7 +469,7 @@ export const OssMoreMenu: React.FC<OssMoreMenuProps> = ({
         onClick={toggleMenu}
       >
         <Settings2 size={14} />
-        <span>{labels.more}</span>
+        <span>{buttonLabel ?? labels.more}</span>
         <ChevronDown size={12} className="aad-action-chevron" />
       </button>
       {renderMoreMenu()}
