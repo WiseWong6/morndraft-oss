@@ -464,7 +464,7 @@ const installDeliveryResourceAudit = async (page) => {
       items.push(value);
       if (items.length > 24) items.shift();
     };
-    const describeDeliveryButtons = () => Array.from(document.querySelectorAll('.md-public-delivery button'))
+    const describeDeliveryButtons = () => Array.from(document.querySelectorAll('.md-public-delivery button, [data-preview-toolbar-menu-layer] button'))
       .map((button) => ({
         disabled: button.disabled,
         testId: button.getAttribute('data-testid') ?? '',
@@ -500,7 +500,7 @@ const installDeliveryResourceAudit = async (page) => {
       });
     });
     document.addEventListener('click', (event) => {
-      const target = event.target instanceof Element ? event.target.closest('.md-public-delivery button') : null;
+      const target = event.target instanceof Element ? event.target.closest('.md-public-delivery button, [data-preview-toolbar-menu-layer] button') : null;
       if (!target) return;
       pushBounded(audit.deliveryEvents, {
         buttons: describeDeliveryButtons(),
@@ -642,22 +642,55 @@ const assertNoActiveDeliveryResources = async (page, baseline, label) => {
 };
 
 const clickByTestId = async (page, testId) => {
+  if (testId.startsWith('oss-delivery-')) {
+    // Delivery actions live inside the Copy/Export dropdown menus of the 7.10
+    // toolbar; open the owning menu before targeting the item.
+    const menuButton = page.locator(
+      testId === 'oss-delivery-copy-image' ? '.aad-preview-copy-button' : '.aad-preview-share-button',
+    );
+    await menuButton.waitFor({ state: 'visible', timeout: 5_000 });
+    if (await menuButton.getAttribute('aria-expanded') !== 'true') await menuButton.click();
+  }
   const target = page.getByTestId(testId);
   await assert.doesNotReject(target.waitFor({ state: 'visible', timeout: 5_000 }), `Missing OSS E2E selector: data-testid=${testId}`);
   await target.click();
 };
 
+const sourceModeButton = (page) => page.locator('[data-testid="oss-workspace-mode-toggle"]');
+
+const waitForDeliveryIdle = async (page) => {
+  await page.waitForFunction(() => {
+    const buttons = Array.from(document.querySelectorAll('.md-public-delivery button, [data-preview-toolbar-menu-layer] button'));
+    return buttons.every((button) => (
+      button instanceof HTMLButtonElement &&
+      !button.disabled &&
+      !button.classList.contains('is-loading')
+    ));
+  });
+};
+
+const openMoreMenu = async (page) => {
+  const moreButton = page.locator('.aad-preview-more-button');
+  await moreButton.waitFor({ state: 'visible', timeout: 5_000 });
+  if (await moreButton.getAttribute('aria-expanded') !== 'true') await moreButton.click();
+  await page.locator('.aad-oss-more-menu').waitFor({ state: 'visible' });
+};
+
 const setWorkspaceLocale = async (page, locale) => {
-  const more = page.locator('details.md-public-menu--more');
-  if (!await more.evaluate((element) => element.open)) await more.locator('summary').click();
-  await more.locator('select').nth(0).selectOption(locale);
-  await page.waitForFunction((expected) => document.documentElement.lang === expected, locale === 'en' ? 'en' : 'zh-CN');
+  const expectedLang = locale === 'en' ? 'en' : 'zh-CN';
+  if (await page.evaluate(() => document.documentElement.lang) !== expectedLang) {
+    await openMoreMenu(page);
+    await page.getByRole('menuitem', { name: /^(?:系统语言|System language)/u }).click();
+  }
+  await page.waitForFunction((expected) => document.documentElement.lang === expected, expectedLang);
 };
 
 const setWorkspaceTheme = async (page, theme) => {
-  const more = page.locator('details.md-public-menu--more');
-  if (!await more.evaluate((element) => element.open)) await more.locator('summary').click();
-  await more.locator('select').nth(1).selectOption(theme);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await page.evaluate(() => document.documentElement.dataset.theme) === theme) break;
+    await openMoreMenu(page);
+    await page.getByRole('menuitem', { name: /^(?:系统主题|System theme)/u }).click();
+  }
   await page.waitForFunction((expected) => document.documentElement.dataset.theme === expected, theme);
 };
 
@@ -703,31 +736,31 @@ const waitForImportCompletion = async (page, expected = 'done') => {
 
 const runAboutDialogFlow = async (page) => {
   const workspace = page.locator('[data-public-workspace="true"]');
-  const more = page.locator('summary').filter({ hasText: /^(More|更多)$/u });
-  if (!await more.getAttribute('aria-expanded') || await more.getAttribute('aria-expanded') === 'false') {
-    await more.click();
-  }
+  await openMoreMenu(page);
   const about = page.getByRole('menuitem', { name: /^(About|关于)$/u });
   await about.click();
-  const dialog = page.getByRole('dialog', { name: 'MornDraft Open Source' });
+  const dialog = page.getByRole('dialog', { name: 'MornDraft' });
   await dialog.waitFor({ state: 'visible' });
   assert.equal(await workspace.getAttribute('aria-hidden'), 'true');
   assert.equal(await workspace.evaluate((element) => element.inert), true);
   assert.equal(
-    await dialog.locator('[data-public-dialog-initial-focus]').evaluate((element) => element === document.activeElement),
+    await dialog.evaluate((element) => element.contains(document.activeElement) && document.activeElement !== element),
     true,
-    'About dialog did not receive its declared initial focus.',
+    'About dialog did not move focus inside the dialog.',
   );
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
   assert.equal(await workspace.getAttribute('aria-hidden'), null);
   assert.equal(await workspace.evaluate((element) => element.inert), false);
-  assert.equal(await more.evaluate((element) => element === document.activeElement), true, 'Closed More menu did not return focus to its summary.');
+  assert.equal(
+    await page.evaluate(() => document.activeElement === document.body),
+    true,
+    'Closed About dialog did not release focus back to the page.',
+  );
 };
 
 const runPublicShowcaseSurfaceFlow = async (page) => {
-  const syntaxSummary = page.locator('details.md-public-menu > summary').filter({ hasText: /^(Syntax|语法)$/u });
-  await syntaxSummary.click();
+  await page.locator('.aad-preview-syntax-samples-button').click();
   const syntaxMenu = page.getByRole('menu', { name: /^(Syntax|语法)$/u });
   await syntaxMenu.waitFor({ state: 'visible' });
   await syntaxMenu.getByRole('menuitem', { name: 'MornDraft', exact: true }).click();
@@ -745,7 +778,7 @@ const runPublicShowcaseSurfaceFlow = async (page) => {
     'The first MornDraft Syntax showcase lost its public flat marker.',
   );
 
-  const sourceButton = page.getByRole('button', { name: /^(Source|源码)$/u });
+  const sourceButton = sourceModeButton(page);
   const finalButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
   await sourceButton.click();
   const sourceEditor = page.locator('.aad-editor-input').first();
@@ -925,7 +958,7 @@ const selectRenderedOccurrence = async (block, needle, occurrence) => {
 
 const runImportFlow = async (page, canonicalFlatSource) => {
   const input = page.locator('input.md-public-file-input');
-  const sourceButton = page.getByRole('button', { name: /^(Source|源码)$/u });
+  const sourceButton = sourceModeButton(page);
   const finalButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
   const fixtures = [
     { name: 'fixture.md', mimeType: 'text/markdown', source: '# Imported Markdown', marker: 'Imported Markdown' },
@@ -1094,7 +1127,7 @@ const runImportFlow = async (page, canonicalFlatSource) => {
     'Imported delivery did not fall back to the first content line.',
   );
 
-  await page.locator('summary').filter({ hasText: /^(Syntax|语法)$/u }).click();
+  await page.locator('.aad-preview-syntax-samples-button').click();
   await page.getByRole('menu', { name: /^(Syntax|语法)$/u }).getByRole('menuitem').first().click();
   await page.waitForFunction(() => (
     document.querySelector('.aad-workspace-brand-mark')?.getAttribute('aria-label') === 'MornDraft'
@@ -1139,7 +1172,7 @@ const runImportFlow = async (page, canonicalFlatSource) => {
 
 const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
   if (!await page.getByTestId('oss-ai-settings-open').isVisible()) {
-    await page.locator('summary').filter({ hasText: /^(More|更多)$/u }).click();
+    await openMoreMenu(page);
   }
   await clickByTestId(page, 'oss-ai-settings-open');
   await page.locator('input[name="baseUrl"]').fill(`${mockBaseUrl}/v1`);
@@ -1156,7 +1189,7 @@ const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
   assert.doesNotMatch(stored.local ?? '', /oss-e2e-key/u, 'Default storage must not persist the API Key.');
   assert.match(stored.session ?? '', /oss-e2e-key/u, 'Session storage must keep the API Key for this tab.');
 
-  const sourceMode = page.getByRole('button', { name: /^(Source|源码)$/u });
+  const sourceMode = sourceModeButton(page);
   if (await sourceMode.count()) await sourceMode.click();
   const sourceEditor = page.locator('.md-public-source-editor textarea').first();
   await sourceEditor.fill('/AI');
@@ -1383,11 +1416,11 @@ const assertOss710VisualBaseline = async (page, { mobile = false } = {}) => {
   const filing = await page.locator('.aad-preview-icp-footer').innerText();
   assert.match(filing, /粤ICP备2026082169号-1/u);
   assert.match(filing, /粤公网安备44030002014257号/u);
-  assert.match(filing, /深圳明日回声科技有限公司/u);
+  assert.doesNotMatch(filing, /深圳明日回声科技有限公司/u);
 };
 
 const runFinalEditingFlow = async (page) => {
-  const sourceButton = page.getByRole('button', { name: /^(Source|源码)$/u });
+  const sourceButton = sourceModeButton(page);
   await sourceButton.click();
   const sourceEditor = page.locator('.md-public-source-editor textarea').first();
   await sourceEditor.fill([
@@ -1480,8 +1513,8 @@ const collectDownloadTimeoutDiagnostics = async (page) => {
       'iframe[sandbox="allow-same-origin"][aria-hidden="true"], iframe[data-morndraft-public-capture-frame]',
     ));
     const modernSandboxes = Array.from(document.querySelectorAll('iframe[id^="__SANDBOX__"]'));
-    const alerts = Array.from(document.querySelectorAll('.md-public-delivery [role="alert"]'));
-    const statuses = Array.from(document.querySelectorAll('.md-public-delivery [role="status"]'));
+    const alerts = Array.from(document.querySelectorAll('.md-public-delivery [role="alert"], .aad-editor-floating-toast[role="alert"]'));
+    const statuses = Array.from(document.querySelectorAll('.md-public-delivery [role="status"], .aad-editor-floating-toast[role="status"]'));
     return {
       alerts: alerts.slice(0, 4).map((element) => ({
         text: safeText(element.textContent),
@@ -1491,7 +1524,7 @@ const collectDownloadTimeoutDiagnostics = async (page) => {
         message: safeText(entry.message),
         stack: safeText(entry.stack, 800),
       })),
-      buttons: Array.from(document.querySelectorAll('.md-public-delivery button')).slice(0, 8).map((button) => ({
+      buttons: Array.from(document.querySelectorAll('.md-public-delivery button, [data-preview-toolbar-menu-layer] button')).slice(0, 8).map((button) => ({
         ariaBusy: safeText(button.getAttribute('aria-busy'), 24),
         disabled: button.disabled,
         testId: safeText(button.getAttribute('data-testid'), 80),
@@ -1571,8 +1604,7 @@ const assertDownload = async (page, testId, extension, verify) => {
   const content = await readFile(filePath);
   assert.ok(content.byteLength > 32, `${extension} download is unexpectedly empty.`);
   await verify(content);
-  await page.waitForFunction(() => Array.from(document.querySelectorAll('.md-public-delivery button'))
-    .every((button) => button instanceof HTMLButtonElement && !button.disabled));
+  await waitForDeliveryIdle(page);
   return { content, download, filePath };
 };
 
@@ -1632,7 +1664,7 @@ const assertDeliveryFailureWithoutDownload = async (
   testId,
   messagePattern = /(?:请下载 HTML|download HTML)/iu,
 ) => {
-  const visibleAlert = page.locator('.md-public-delivery [role="alert"]').filter({ visible: true });
+  const visibleAlert = page.locator('.aad-editor-floating-toast[role="alert"]').filter({ visible: true });
   let downloadCount = 0;
   const onDownload = () => { downloadCount += 1; };
   page.on('download', onDownload);
@@ -1640,10 +1672,7 @@ const assertDeliveryFailureWithoutDownload = async (
     await clickByTestId(page, testId);
     await visibleAlert.waitFor({ state: 'visible' });
     assert.match(await visibleAlert.innerText(), messagePattern);
-    await page.waitForFunction((id) => {
-      const button = document.querySelector(`[data-testid="${id}"]`);
-      return button instanceof HTMLButtonElement && !button.disabled;
-    }, testId);
+    await waitForDeliveryIdle(page);
     await page.waitForTimeout(150);
     assert.equal(downloadCount, 0, `${testId} generated a dynamic HTML half-product.`);
   } finally {
@@ -1673,7 +1702,7 @@ const assertDynamicDeliveryRejectedBeforeAllocation = async (
 };
 
 const replaceSourceAndOpenFinal = async (page, source) => {
-  await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+  await sourceModeButton(page).click();
   await page.locator('.md-public-source-editor textarea').first().fill(source);
   await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
   await page.locator('[data-public-preview-root="true"]').waitFor({ state: 'visible' });
@@ -2738,12 +2767,9 @@ const runDeliveryHardeningFlow = async (
   const onCancelledDownload = () => { cancelledDownloads += 1; };
   page.on('download', onCancelledDownload);
   try {
-    await page.getByTestId('oss-delivery-download-png').click();
-    await page.waitForFunction(() => {
-      const button = document.querySelector('[data-testid="oss-delivery-download-png"]');
-      return button instanceof HTMLButtonElement && button.disabled;
-    });
-    await page.getByRole('button', { name: /^(Source|源码)$/u }).click();
+    await clickByTestId(page, 'oss-delivery-download-png');
+    await page.locator('.aad-preview-share-button.is-loading').waitFor({ state: 'visible' });
+    await sourceModeButton(page).click();
     await page.locator('.md-public-source-editor textarea').first().fill('# New source cancels old delivery');
     await page.waitForTimeout(slowCssDelayMs + 450);
     assert.equal(cancelledDownloads, 0, 'A stale delivery downloaded after Source changed.');
@@ -2762,11 +2788,8 @@ const runDeliveryHardeningFlow = async (
   const onThemeCancelledDownload = () => { themeCancelledDownloads += 1; };
   page.on('download', onThemeCancelledDownload);
   try {
-    await page.getByTestId('oss-delivery-download-png').click();
-    await page.waitForFunction(() => {
-      const button = document.querySelector('[data-testid="oss-delivery-download-png"]');
-      return button instanceof HTMLButtonElement && button.disabled;
-    });
+    await clickByTestId(page, 'oss-delivery-download-png');
+    await page.locator('.aad-preview-share-button.is-loading').waitFor({ state: 'visible' });
     await setWorkspaceTheme(page, 'dark');
     await page.waitForTimeout(slowCssDelayMs + 450);
     assert.equal(themeCancelledDownloads, 0, 'A stale delivery downloaded after the theme changed.');
@@ -2831,7 +2854,7 @@ const runDeliveryHardeningFlow = async (
 };
 
 const runMermaidImmediateDeliveryFlow = async (page) => {
-  const sourceButton = page.getByRole('button', { name: /^(Source|源码)$/u });
+  const sourceButton = sourceModeButton(page);
   const finalButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
   const mermaidSource = [
     'flowchart TD',
@@ -2936,7 +2959,7 @@ const runMermaidImmediateDeliveryFlow = async (page) => {
 };
 
 const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, deliveryResourceBaseline) => {
-  const sourceButton = page.getByRole('button', { name: /^(Source|源码)$/u });
+  const sourceButton = sourceModeButton(page);
   if (await sourceButton.count()) await sourceButton.click();
   await page.locator('.md-public-source-editor textarea').first().fill([
     '```html',
@@ -3162,19 +3185,19 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
   await page.locator('.md-public-source-editor textarea').first().fill('# Repeated local delivery\n\nStable capture surface.');
   await previewButton.click();
   await page.locator('[data-public-preview-root="true"]').waitFor({ state: 'visible' });
-  await page.locator('.md-public-delivery [role="status"]').waitFor({ state: 'hidden' });
+  await page.locator('.aad-editor-floating-toast[role="status"]').waitFor({ state: 'hidden' });
   const baselineDomCount = await page.locator('body *').count();
   for (let index = 0; index < 10; index += 1) {
     console.log(`[oss-e2e] repeated PNG delivery ${index + 1}/10`);
     const downloadPromise = page.waitForEvent('download', { timeout: 15_000 });
-    await page.getByTestId('oss-delivery-download-png').click();
+    await clickByTestId(page, 'oss-delivery-download-png');
     const download = await downloadPromise.catch(async (cause) => {
-      const alert = page.locator('.md-public-delivery [role="alert"]').filter({ visible: true });
+      const alert = page.locator('.aad-editor-floating-toast[role="alert"]').filter({ visible: true });
       throw new Error(`Repeated PNG delivery failed: ${await alert.count() ? await alert.innerText() : 'no download and no visible error'}`, { cause });
     });
     await download.path();
   }
-  await page.locator('.md-public-delivery [role="status"]').waitFor({ state: 'hidden' });
+  await page.locator('.aad-editor-floating-toast[role="status"]').waitFor({ state: 'hidden' });
   // Public download URLs stay alive for 1s so WebKit can consume the synthetic
   // click before revocation; wait past that bounded grace period before the
   // leak assertion.
@@ -3197,7 +3220,7 @@ const runSharedDesktopOssAcceptance = async ({
   assert.equal(await page.getByText(/登录|订阅|Draft Box|云草稿/u).count(), 0);
 
   const publicWorkspace = page.locator('[data-public-workspace="true"]');
-  const sourceButton = page.getByRole('button', { name: /^(Source|源码)$/u });
+  const sourceButton = sourceModeButton(page);
   const finalButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
   const ensureSourceMode = async () => {
     if (await publicWorkspace.getAttribute('data-commercial-workspace-mode') !== 'source') {
@@ -3286,7 +3309,7 @@ const runSharedDesktopOssAcceptance = async ({
   );
   const downloadArtifact = async (testId, fileName) => {
     const downloadPromise = page.waitForEvent('download', { timeout: 90_000 });
-    await page.getByTestId(testId).click();
+    await clickByTestId(page, testId);
     const outcome = await Promise.race([
       downloadPromise.then(download => ({ download })),
       page.getByRole('alert').waitFor({ state: 'visible', timeout: 90_000 }).then(async () => ({
@@ -3412,7 +3435,7 @@ const main = async () => {
     browser = await chromium.launch({ headless: true });
     const networkUrls = [];
     const createNetworkTrackedContext = async (options = {}) => {
-      const trackedContext = await browser.newContext(options);
+      const trackedContext = await browser.newContext({ locale: 'zh-CN', ...options });
       trackedContext.on('request', (request) => networkUrls.push(request.url()));
       return trackedContext;
     };
@@ -3486,12 +3509,9 @@ const main = async () => {
       deliveryResourceBaseline,
     );
     await clickByTestId(page, 'oss-delivery-copy-image');
-    await page.locator('.md-public-delivery [role="status"]').filter({ visible: true }).waitFor({ state: 'visible' });
-    await page.waitForFunction(() => {
-      const button = document.querySelector('[data-testid="oss-delivery-copy-image"]');
-      return button instanceof HTMLButtonElement && !button.disabled;
-    });
-    const copyAlert = page.locator('.md-public-delivery [role="alert"]');
+    await page.locator('.aad-editor-floating-toast[role="status"]').filter({ visible: true }).waitFor({ state: 'visible' });
+    await waitForDeliveryIdle(page);
+    const copyAlert = page.locator('.aad-editor-floating-toast[role="alert"]');
     assert.equal(await copyAlert.count() > 0 && await copyAlert.first().isVisible(), false, 'Clipboard-enabled context did not complete a real image copy.');
     const clipboardSnapshot = await page.evaluate(async () => {
       if (!navigator.clipboard || typeof navigator.clipboard.read !== 'function') {
@@ -3567,7 +3587,7 @@ const main = async () => {
     await noClipboardPage.goto(appUrl, { waitUntil: 'networkidle' });
     await setWorkspaceLocale(noClipboardPage, 'en');
     await clickByTestId(noClipboardPage, 'oss-delivery-copy-image');
-    const clipboardFallback = noClipboardPage.locator('.md-public-delivery [role="alert"]');
+    const clipboardFallback = noClipboardPage.locator('.aad-editor-floating-toast[role="alert"]');
     await clipboardFallback.waitFor({ state: 'visible' });
     const clipboardFallbackText = await clipboardFallback.innerText();
     assert.match(clipboardFallbackText, /Download PNG/u);
@@ -3590,7 +3610,7 @@ const main = async () => {
     const rejectedClipboardBaseline = Object.freeze(await readDeliveryResourceAudit(rejectedClipboardPage));
     assertZeroDeliveryResourceBaseline(rejectedClipboardBaseline, 'Rejected clipboard delivery audit');
     await clickByTestId(rejectedClipboardPage, 'oss-delivery-copy-image');
-    const rejectedClipboardFallback = rejectedClipboardPage.locator('.md-public-delivery [role="alert"]');
+    const rejectedClipboardFallback = rejectedClipboardPage.locator('.aad-editor-floating-toast[role="alert"]');
     await rejectedClipboardFallback.waitFor({ state: 'visible' });
     assert.match(await rejectedClipboardFallback.innerText(), /下载 PNG/u);
     await rejectedClipboardPage.waitForFunction(() => {

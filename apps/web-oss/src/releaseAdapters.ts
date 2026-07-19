@@ -35,25 +35,7 @@ export type OssReleaseAdapters = Readonly<{
   ai: PublicAiAdapter;
 }>;
 
-export const OSS_INITIAL_SOURCE = `# MornDraft Open Source
-
-Source 是唯一真相源；你可以在 Source 或 Final 修改内容。
-
-\`\`\`json5
-{
-  // JSON5 支持注释、单引号和尾逗号
-  edition: 'open-source',
-  storage: 'memory-only',
-}
-\`\`\`
-
-\`\`\`mermaid
-flowchart LR
-  Agent[Agent 生成] --> Review[人工审核]
-  Review --> Deliver[本地交付]
-\`\`\`
-
-输入 \`/\` 可以插入 Markdown 表格和 MornDraft flat 组件；输入 \`/AI\` 可以调用你配置的生成模型。`;
+export const OSS_INITIAL_SOURCE = '';
 
 type PublicDeliveryAction = 'copyImage' | 'downloadImage' | 'downloadPdf' | 'downloadHtml';
 

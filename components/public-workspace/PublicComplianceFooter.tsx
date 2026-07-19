@@ -27,6 +27,5 @@ export const PublicComplianceFooter: React.FC = () => (
     >
       {ICP_FILING_NUMBER}
     </a>
-    <span className="aad-preview-filing-item">© 2026 深圳明日回声科技有限公司</span>
   </footer>
 );
