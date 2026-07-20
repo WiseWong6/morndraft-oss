@@ -446,7 +446,7 @@ type PreviewArtifactRenderContextValue = {
 };
 
 const FINAL_INSERT_AI_ACTIVE_INDEX = -1;
-const FINAL_SLASH_AI_ENABLED = true;
+const FINAL_SLASH_AI_ENABLED = false; // TEMP: AI 生成入口临时下线，恢复时改回 true（同步 ossReleaseConfig showOssAiConfig、PublicSharedFinalPreview AI_SELECTION_TOOLBAR_ENABLED）
 
 type FinalSlashCommandCandidate = {
   blockKey: string;
