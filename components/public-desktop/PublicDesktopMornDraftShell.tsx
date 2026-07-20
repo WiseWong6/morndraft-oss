@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
 import { TextSearchControl, type TextSearchState } from '@morndraft/features-personal';
 import { TRANSLATIONS, getSampleEntries, loadSampleSource, type Locale, type SampleKey } from '../../i18n';
@@ -37,6 +37,12 @@ import { buildArtifactMap } from '@morndraft/core';
 import type { ArtifactDiagnostic, ArtifactFixReview } from '../editor/diagnosticTypes';
 import { copyPlainText, copyRichHtmlPayload } from '../preview/clipboardWriters';
 import { detectArtifactContent } from '../../utils/content-detection.js';
+import {
+  DEFAULT_DESKTOP_EDITOR_WIDTH,
+  clampDesktopEditorWidth,
+  resolveDesktopEditorWidthBounds,
+  type DesktopEditorWidthBounds,
+} from '../../utils/desktopEditorWidth';
 import { usePublicVisiblePreviewMetrics } from './usePublicVisiblePreviewMetrics';
 import { PublicSharedFinalPreview } from './PublicSharedFinalPreview';
 // Dialog/compliance styles live in public-workspace.css; PublicWorkspace is
@@ -61,8 +67,6 @@ type PublicDesktopView = {
 
 const getLabels = (locale: Locale) => locale === 'zh'
   ? {
-      about: '纯浏览器运行的 Agent 产物编辑、预览与本地交付工作区。',
-      close: '关闭',
       desktopNotice: '建议在桌面端使用完整编辑体验。',
       final: 'Final',
       import: '本地导入',
@@ -71,8 +75,6 @@ const getLabels = (locale: Locale) => locale === 'zh'
       drop: '松开即可导入文件、文本或 URL',
     }
   : {
-      about: 'A browser-only workspace for editing, previewing, and locally delivering agent output.',
-      close: 'Close',
       desktopNotice: 'For the full editing experience, open MornDraft on a desktop.',
       final: 'Final',
       import: 'Local import',
@@ -107,6 +109,67 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importNotice, setImportNotice] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
+  // Split workspace reuses the established desktop editor width system
+  // (default 420px, drag-resizable, preview keeps at least half).
+  const [editorBounds, setEditorBounds] = useState<DesktopEditorWidthBounds>(() => (
+    resolveDesktopEditorWidthBounds({
+      draftSidebarWidth: 0,
+      mainWidth: typeof window !== 'undefined' ? window.innerWidth : undefined,
+    })
+  ));
+  const editorBoundsRef = useRef(editorBounds);
+  editorBoundsRef.current = editorBounds;
+  const [editorWidth, setEditorWidth] = useState(() => (
+    clampDesktopEditorWidth(DEFAULT_DESKTOP_EDITOR_WIDTH, editorBoundsRef.current)
+  ));
+  useEffect(() => {
+    setEditorWidth((currentWidth) => clampDesktopEditorWidth(currentWidth, editorBounds));
+  }, [editorBounds]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleResize = () => {
+      setEditorBounds(resolveDesktopEditorWidthBounds({
+        draftSidebarWidth: 0,
+        mainWidth: window.innerWidth,
+      }));
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  const setClampedEditorWidth = useCallback((nextWidth: number) => {
+    setEditorWidth(clampDesktopEditorWidth(nextWidth, editorBoundsRef.current));
+  }, []);
+  const isEditorDragging = useRef(false);
+  const startEditorDrag = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    isEditorDragging.current = true;
+    const startX = event.clientX;
+    const startWidth = editorWidth || DEFAULT_DESKTOP_EDITOR_WIDTH;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!isEditorDragging.current) return;
+      setClampedEditorWidth(startWidth + (moveEvent.clientX - startX));
+    };
+    const onMouseUp = () => {
+      isEditorDragging.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [editorWidth, setClampedEditorWidth]);
+  const sourcePaneStyle = useMemo(() => ({
+    flex: '0 0 auto',
+    flexBasis: editorWidth,
+    maxWidth: editorWidth,
+    minWidth: 0,
+    width: editorWidth,
+  } as React.CSSProperties), [editorWidth]);
   const { handleEditorChange, handlePreviewSourcePatch, previewSourcePatchEcho } =
     usePreviewSourcePatchEcho({
       previewSource: source,
@@ -285,7 +348,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
         </div>
       )}
       <p className="md-oss-desktop-notice" role="note">{labels.desktopNotice}</p>
-      <div className="md-oss-workspace md-oss-source-workspace">
+      <div className="md-oss-workspace md-oss-source-workspace" style={sourcePaneStyle}>
         <Editor
           value={source}
           deliveryAccess={deliveryAccess}
@@ -308,6 +371,10 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
           t={t.editor}
         />
       </div>
+      <div
+        className="aad-resize-handle hidden md:block relative flex-shrink-0 group cursor-col-resize transition-colors"
+        onMouseDown={startEditorDrag}
+      />
       <div
         ref={previewRootRef}
         className={`md-oss-workspace md-oss-final-workspace aad-preview-shell ${deliveryDisplayOptions.includeA4Pagination ? 'is-a4-paginated' : ''} ${deliveryDisplayOptions.includeCodeChrome ? '' : 'hide-code-chrome'}`.replace(/\s+/g, ' ').trim()}
@@ -449,10 +516,18 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
         labelledBy="oss-about-title"
         onClose={() => setIsAboutOpen(false)}
       >
-        <h2 id="oss-about-title">MornDraft</h2>
-        <p>{labels.about}</p>
+        <h2 id="oss-about-title">{t.about.title}</h2>
+        {t.about.problems.map((problem) => (
+          <p key={problem}>{problem}</p>
+        ))}
+        {Boolean(t.about.usageTitle || t.about.usage) && (
+          <section className="md-public-about-section">
+            {t.about.usageTitle && <h3>{t.about.usageTitle}</h3>}
+            {t.about.usage && <p className="md-public-about-usage">{t.about.usage}</p>}
+          </section>
+        )}
         <button type="button" className="aad-action-button" onClick={() => setIsAboutOpen(false)}>
-          {labels.close}
+          {t.about.confirm}
         </button>
       </PublicDialog>
     </main>
