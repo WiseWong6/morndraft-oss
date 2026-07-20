@@ -52,6 +52,26 @@
   transform-origin: top left;
 }
 
+/* The legacy `.md-public-insert-menu` class is kept on the island menu for
+   selector parity with the old public workspace. When public-workspace.css
+   loads alongside this file, its bottom-anchored legacy geometry would pin
+   the menu to the island's bottom edge and crush it, so neutralize the
+   legacy box styles here: the island anchors via `top` and the inner panel
+   owns border/shadow/max-height. */
+.aad-final-insert-menu.md-public-insert-menu {
+  left: 0;
+  bottom: auto;
+  min-width: 0;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .aad-final-insert-menu[data-placement='above'] {
   transform: translateY(-100%);
 }

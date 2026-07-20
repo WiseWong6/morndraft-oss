@@ -101,21 +101,38 @@ const leaveFinalEditing = async (page) => {
   await final.waitFor({ state: 'visible' });
 };
 
-const getWorkspaceMode = async (page) => (
-  page.locator('[data-public-workspace="true"]').getAttribute('data-commercial-workspace-mode')
-);
+const waitForSourceStable = async (page) => {
+  // Final-side edits write back to Source asynchronously (patch echo + React
+  // state). Poll until the Source editor value stops changing instead of
+  // asserting against a fixed delay.
+  await page.waitForFunction(() => new Promise((resolve) => {
+    const selector = '.md-oss-workspace:not(.md-oss-final-workspace) .aad-editor-input';
+    let last = document.querySelector(selector)?.value ?? '';
+    let stableReads = 0;
+    const timer = window.setInterval(() => {
+      const current = document.querySelector(selector)?.value ?? '';
+      if (current === last) {
+        stableReads += 1;
+        if (stableReads >= 3) {
+          window.clearInterval(timer);
+          resolve(true);
+        }
+      } else {
+        last = current;
+        stableReads = 0;
+      }
+    }, 50);
+  }), undefined, { timeout: 15_000 });
+};
 
 const ensureSourceMode = async (page) => {
-  if (await getWorkspaceMode(page) !== 'source') {
-    await page.locator('[data-testid="oss-workspace-mode-toggle"]').click();
-  }
+  // Dual-pane workspace: the Source editor is always visible.
   await page.locator('.md-oss-workspace:not(.md-oss-final-workspace) .aad-editor-input').waitFor({ state: 'visible' });
+  await waitForSourceStable(page);
 };
 
 const ensureFinalMode = async (page) => {
-  if (await getWorkspaceMode(page) !== 'final') {
-    await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
-  }
+  // Dual-pane workspace: the Final preview is always visible.
   await page.locator('[data-public-final="true"]').waitFor({ state: 'visible' });
 };
 
