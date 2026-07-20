@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Upload } from 'lucide-react';
 import { TextSearchControl, type TextSearchState } from '@morndraft/features-personal';
 import { TRANSLATIONS, getSampleEntries, loadSampleSource, type Locale, type SampleKey } from '../../i18n';
 import type { OssReleaseAdapters } from '../../apps/web-oss/src/releaseAdapters';
@@ -67,6 +66,8 @@ type PublicDesktopView = {
 
 const getLabels = (locale: Locale) => locale === 'zh'
   ? {
+      aboutText: '纯浏览器运行的 Agent 产物编辑、预览与本地交付工作区。',
+      close: '关闭',
       desktopNotice: '建议在桌面端使用完整编辑体验。',
       final: 'Final',
       import: '本地导入',
@@ -75,6 +76,8 @@ const getLabels = (locale: Locale) => locale === 'zh'
       drop: '松开即可导入文件、文本或 URL',
     }
   : {
+      aboutText: 'A browser-only workspace for editing, previewing, and locally delivering agent output.',
+      close: 'Close',
       desktopNotice: 'For the full editing experience, open MornDraft on a desktop.',
       final: 'Final',
       import: 'Local import',
@@ -107,7 +110,6 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
   const [importNotice, setImportNotice] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
   // Split workspace reuses the established desktop editor width system
   // (default 420px, drag-resizable, preview keeps at least half).
@@ -295,7 +297,6 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
   }, [source, theme]);
 
   const importDropData = useCallback(async (dropData: EditorImportDropData) => {
-    setIsImporting(true);
     setImportNotice(null);
     try {
       const files = dropData.files ? Array.from(dropData.files as ArrayLike<File>) : [];
@@ -309,8 +310,6 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
         tone: 'error',
         text: error instanceof Error ? error.message : (locale === 'zh' ? '导入失败' : 'Import failed'),
       });
-    } finally {
-      setIsImporting(false);
     }
   }, [localImageResolver, locale, onDocumentImport]);
   const { dropZoneProps, isDragActive } = useEditorImportDropZone({
@@ -351,6 +350,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
       <div className="md-oss-workspace md-oss-source-workspace" style={sourcePaneStyle}>
         <Editor
           value={source}
+          brandSlot={brandSlot}
           deliveryAccess={deliveryAccess}
           diagnostics={artifactAnalysis.diagnostics}
           fixes={artifactAnalysis.fixes}
@@ -381,17 +381,6 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
       >
         <header className="aad-toolbar md-oss-shared-toolbar">
           <div className="aad-workspace-title-tools md-oss-shared-toolbar-group">
-            {brandSlot}
-            <button
-              type="button"
-              className="aad-icon-button aad-toolbar-icon-button"
-              disabled={isImporting}
-              title={isImporting ? labels.importing : labels.import}
-              aria-label={isImporting ? labels.importing : labels.import}
-              onClick={() => importInputRef.current?.click()}
-            >
-              <Upload size={14} />
-            </button>
             <input
               ref={importInputRef}
               className="sr-only md-public-file-input"
@@ -516,18 +505,10 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
         labelledBy="oss-about-title"
         onClose={() => setIsAboutOpen(false)}
       >
-        <h2 id="oss-about-title">{t.about.title}</h2>
-        {t.about.problems.map((problem) => (
-          <p key={problem}>{problem}</p>
-        ))}
-        {Boolean(t.about.usageTitle || t.about.usage) && (
-          <section className="md-public-about-section">
-            {t.about.usageTitle && <h3>{t.about.usageTitle}</h3>}
-            {t.about.usage && <p className="md-public-about-usage">{t.about.usage}</p>}
-          </section>
-        )}
-        <button type="button" className="aad-action-button" onClick={() => setIsAboutOpen(false)}>
-          {t.about.confirm}
+        <h2 id="oss-about-title">MornDraft Open Source</h2>
+        <p>{labels.aboutText}</p>
+        <button type="button" data-public-dialog-initial-focus onClick={() => setIsAboutOpen(false)}>
+          {labels.close}
         </button>
       </PublicDialog>
     </main>
