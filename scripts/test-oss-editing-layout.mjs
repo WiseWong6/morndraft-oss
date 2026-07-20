@@ -113,7 +113,7 @@ const waitForSourceStable = async (page) => {
       const current = document.querySelector(selector)?.value ?? '';
       if (current === last) {
         stableReads += 1;
-        if (stableReads >= 3) {
+        if (stableReads >= 5) {
           window.clearInterval(timer);
           resolve(true);
         }
@@ -121,7 +121,7 @@ const waitForSourceStable = async (page) => {
         last = current;
         stableReads = 0;
       }
-    }, 50);
+    }, 100);
   }), undefined, { timeout: 15_000 });
 };
 
