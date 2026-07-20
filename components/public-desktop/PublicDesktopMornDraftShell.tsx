@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Code2, FileCheck } from 'lucide-react';
 import { TextSearchControl, type TextSearchState } from '@morndraft/features-personal';
 import { TRANSLATIONS, getSampleEntries, loadSampleSource, type Locale, type SampleKey } from '../../i18n';
 import type { OssReleaseAdapters } from '../../apps/web-oss/src/releaseAdapters';
@@ -36,17 +37,8 @@ import { buildArtifactMap } from '@morndraft/core';
 import type { ArtifactDiagnostic, ArtifactFixReview } from '../editor/diagnosticTypes';
 import { copyPlainText, copyRichHtmlPayload } from '../preview/clipboardWriters';
 import { detectArtifactContent } from '../../utils/content-detection.js';
-import {
-  DEFAULT_DESKTOP_EDITOR_WIDTH,
-  clampDesktopEditorWidth,
-  resolveDesktopEditorWidthBounds,
-  type DesktopEditorWidthBounds,
-} from '../../utils/desktopEditorWidth';
 import { usePublicVisiblePreviewMetrics } from './usePublicVisiblePreviewMetrics';
 import { PublicSharedFinalPreview } from './PublicSharedFinalPreview';
-// Dialog/compliance styles live in public-workspace.css; PublicWorkspace is
-// tree-shaken out of this shell, so the stylesheet must be imported here.
-import '../public-workspace/public-workspace.css';
 import './public-desktop.css';
 
 type PublicDesktopView = {
@@ -66,7 +58,7 @@ type PublicDesktopView = {
 
 const getLabels = (locale: Locale) => locale === 'zh'
   ? {
-      aboutText: '纯浏览器运行的 Agent 产物编辑、预览与本地交付工作区。',
+      about: '纯浏览器运行的 Agent 产物编辑、预览与本地交付工作区。',
       close: '关闭',
       desktopNotice: '建议在桌面端使用完整编辑体验。',
       final: 'Final',
@@ -76,7 +68,7 @@ const getLabels = (locale: Locale) => locale === 'zh'
       drop: '松开即可导入文件、文本或 URL',
     }
   : {
-      aboutText: 'A browser-only workspace for editing, previewing, and locally delivering agent output.',
+      about: 'A browser-only workspace for editing, previewing, and locally delivering agent output.',
       close: 'Close',
       desktopNotice: 'For the full editing experience, open MornDraft on a desktop.',
       final: 'Final',
@@ -109,69 +101,9 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
   const deliveryAccess = useMemo(() => createPublicAllOpenDeliveryAccess(), []);
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [mode, setMode] = useState<'source' | 'final'>('final');
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [importNotice, setImportNotice] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
-  // Split workspace reuses the established desktop editor width system
-  // (default 420px, drag-resizable, preview keeps at least half).
-  const [editorBounds, setEditorBounds] = useState<DesktopEditorWidthBounds>(() => (
-    resolveDesktopEditorWidthBounds({
-      draftSidebarWidth: 0,
-      mainWidth: typeof window !== 'undefined' ? window.innerWidth : undefined,
-    })
-  ));
-  const editorBoundsRef = useRef(editorBounds);
-  editorBoundsRef.current = editorBounds;
-  const [editorWidth, setEditorWidth] = useState(() => (
-    clampDesktopEditorWidth(DEFAULT_DESKTOP_EDITOR_WIDTH, editorBoundsRef.current)
-  ));
-  useEffect(() => {
-    setEditorWidth((currentWidth) => clampDesktopEditorWidth(currentWidth, editorBounds));
-  }, [editorBounds]);
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    const handleResize = () => {
-      setEditorBounds(resolveDesktopEditorWidthBounds({
-        draftSidebarWidth: 0,
-        mainWidth: window.innerWidth,
-      }));
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-  const setClampedEditorWidth = useCallback((nextWidth: number) => {
-    setEditorWidth(clampDesktopEditorWidth(nextWidth, editorBoundsRef.current));
-  }, []);
-  const isEditorDragging = useRef(false);
-  const startEditorDrag = useCallback((event: React.MouseEvent) => {
-    event.preventDefault();
-    isEditorDragging.current = true;
-    const startX = event.clientX;
-    const startWidth = editorWidth || DEFAULT_DESKTOP_EDITOR_WIDTH;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      if (!isEditorDragging.current) return;
-      setClampedEditorWidth(startWidth + (moveEvent.clientX - startX));
-    };
-    const onMouseUp = () => {
-      isEditorDragging.current = false;
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [editorWidth, setClampedEditorWidth]);
-  const sourcePaneStyle = useMemo(() => ({
-    flex: '0 0 auto',
-    flexBasis: editorWidth,
-    maxWidth: editorWidth,
-    minWidth: 0,
-    width: editorWidth,
-  } as React.CSSProperties), [editorWidth]);
   const { handleEditorChange, handlePreviewSourcePatch, previewSourcePatchEcho } =
     usePreviewSourcePatchEcho({
       previewSource: source,
@@ -188,20 +120,28 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
   const [previewSearchState, setPreviewSearchState] = useState<TextSearchState | null>(null);
   const [previewMetricsRoot, setPreviewMetricsRoot] = useState<HTMLElement | null>(null);
   useLayoutEffect(() => {
+    if (mode !== 'final') {
+      setPreviewMetricsRoot(null);
+      return;
+    }
     setPreviewMetricsRoot(previewRootRef.current?.querySelector<HTMLElement>('[data-public-preview-root="true"]') ?? null);
-  }, [documentEpoch]);
+  }, [mode, documentEpoch]);
   const previewMetrics = usePublicVisiblePreviewMetrics({
-    enabled: Boolean(previewMetricsRoot),
+    enabled: mode === 'final' && Boolean(previewMetricsRoot),
     root: previewMetricsRoot,
   });
   const [renderDiagnostics, setRenderDiagnostics] = useState<readonly ArtifactDiagnostic[]>([]);
   const { updatePreviewDiagnostic } = usePreviewDiagnostics({
-    resetKey: `${documentEpoch}`,
+    resetKey: `${mode}:${documentEpoch}`,
     sourceKey: source,
     onChange: (next) => setRenderDiagnostics(next),
   });
   const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
   const [diagnosticLineFocusRequest, setDiagnosticLineFocusRequest] = useState<{ line: number; requestId: number } | null>(null);
+  const [editorLineFocusRequest, setEditorLineFocusRequest] = useState<{ line: number; requestId: number } | null>(null);
+  const [sourceLineFocusRequest, setSourceLineFocusRequest] = useState<{ line: number; requestId: number } | null>(null);
+  const finalCursorLineRef = useRef(1);
+  const sourceCursorLineRef = useRef(1);
   const allDiagnostics = useMemo(
     () => [...artifactAnalysis.diagnostics, ...renderDiagnostics],
     [artifactAnalysis.diagnostics, renderDiagnostics],
@@ -270,6 +210,9 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
     }
     setAiFixReview(null);
   }, [artifactAnalysis]);
+  const handleFinalCursorLineChange = useCallback((line: number) => {
+    finalCursorLineRef.current = line;
+  }, []);
   const textSearchLabels = useMemo(() => getPreviewTextSearchLabels(t.preview), [t]);
   const artifactMapEntries = useMemo(
     () => buildArtifactMap(source).map((entry) => ({
@@ -304,6 +247,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
         resolveImageAsset: localImageResolver,
       });
       onDocumentImport(nextSource, files[0]?.name);
+      setMode('final');
       setImportNotice({ tone: 'success', text: locale === 'zh' ? '本地导入完成' : 'Local import complete' });
     } catch (error) {
       setImportNotice({
@@ -320,6 +264,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
     void loadSampleSource(locale, key, releaseConfig.mornDraftComponentScope)
       .then((nextSource) => {
         onDocumentImport(nextSource);
+        setMode('final');
       })
       .catch((error) => {
         setImportNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Failed to load sample.' });
@@ -328,10 +273,42 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
   const brandSlot = (
     <WorkspaceBrandMark isDarkTheme={theme === 'dark'} />
   );
+  const handleEnterSourceMode = useCallback(() => {
+    const line = finalCursorLineRef.current;
+    if (line > 0) {
+      setEditorLineFocusRequest({ line, requestId: Date.now() });
+    }
+    setMode('source');
+  }, []);
+  const handleEnterFinalMode = useCallback(() => {
+    const line = sourceCursorLineRef.current;
+    if (line > 0) {
+      setSourceLineFocusRequest({ line, requestId: Date.now() });
+    }
+    setMode('final');
+  }, []);
+  const modeSwitch = (
+    <button
+      type="button"
+      className="aad-workspace-mode-switch is-final"
+      data-testid="oss-workspace-mode-toggle"
+      onClick={handleEnterSourceMode}
+      title={t.preview.switchToSource}
+      aria-label={t.preview.switchToSource}
+    >
+      <span className="aad-workspace-mode-segment" aria-hidden="true">
+        <Code2 size={14} />
+      </span>
+      <span className="aad-workspace-mode-segment is-active" aria-hidden="true">
+        <FileCheck size={14} />
+      </span>
+    </button>
+  );
 
   return (
     <main
       className="aad-commercial-workspace-shell is-public-workspace md-oss-shared-shell"
+      data-commercial-workspace-mode={mode}
       data-public-workspace="true"
       data-shared-desktop-shell="true"
       {...dropZoneProps}
@@ -347,7 +324,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
         </div>
       )}
       <p className="md-oss-desktop-notice" role="note">{labels.desktopNotice}</p>
-      <div className="md-oss-workspace md-oss-source-workspace" style={sourcePaneStyle}>
+      <div className="md-oss-workspace" style={{ display: mode === 'source' ? 'flex' : 'none' }}>
         <Editor
           value={source}
           brandSlot={brandSlot}
@@ -364,23 +341,26 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
           onConfirmFixReview={artifactAnalysis.confirmFixReview}
           onImportComplete={({ content, suggestedTitle }) => {
             onDocumentImport(content, suggestedTitle);
+            setMode('final');
           }}
           onUndoLastFix={artifactAnalysis.undoLastFix}
+          onWorkspaceModeToggle={handleEnterFinalMode}
           pendingFixReview={artifactAnalysis.pendingFixReview}
+          lineFocusRequest={editorLineFocusRequest}
+          onSourceCursorLineChange={(line: number) => { sourceCursorLineRef.current = line; }}
           searchState={previewSearchState}
           t={t.editor}
+          workspaceModeSwitchLabel={labels.final}
         />
       </div>
       <div
-        className="aad-resize-handle hidden md:block relative flex-shrink-0 group cursor-col-resize transition-colors"
-        onMouseDown={startEditorDrag}
-      />
-      <div
         ref={previewRootRef}
         className={`md-oss-workspace md-oss-final-workspace aad-preview-shell ${deliveryDisplayOptions.includeA4Pagination ? 'is-a4-paginated' : ''} ${deliveryDisplayOptions.includeCodeChrome ? '' : 'hide-code-chrome'}`.replace(/\s+/g, ' ').trim()}
+        style={{ display: mode === 'final' ? 'flex' : 'none' }}
       >
         <header className="aad-toolbar md-oss-shared-toolbar">
           <div className="aad-workspace-title-tools md-oss-shared-toolbar-group">
+            {brandSlot}
             <input
               ref={importInputRef}
               className="sr-only md-public-file-input"
@@ -392,6 +372,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
                 if (files?.length) void importDropData({ files });
               }}
             />
+            {modeSwitch}
             <span className="aad-toolbar-title">{t.preview.title}</span>
             <TextMetricsInline
               compactCharacters={previewMetrics.compactCharacters}
@@ -458,6 +439,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
           onBeginFixReview={artifactAnalysis.beginFixReview}
           onCancelFixReview={handleCancelFixReview}
           onConfirmFixReview={handleConfirmFixReview}
+          onFinalCursorLineChange={handleFinalCursorLineChange}
           onMermaidDiagnosticChange={updatePreviewDiagnostic}
           onPatch={handlePreviewSourcePatch}
           onRequestAiFix={handleRequestAiFix}
@@ -467,6 +449,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
           pendingFixReview={effectivePendingFixReview}
           searchState={previewSearchState}
           source={source}
+          sourceLineFocusRequest={sourceLineFocusRequest}
           sourcePatchEcho={previewSourcePatchEcho}
           stateResetKey={`public:${documentEpoch}`}
           t={t}
@@ -506,7 +489,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
         onClose={() => setIsAboutOpen(false)}
       >
         <h2 id="oss-about-title">MornDraft Open Source</h2>
-        <p>{labels.aboutText}</p>
+        <p>{labels.about}</p>
         <button type="button" data-public-dialog-initial-focus onClick={() => setIsAboutOpen(false)}>
           {labels.close}
         </button>
