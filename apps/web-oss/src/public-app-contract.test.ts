@@ -73,7 +73,8 @@ test('OSS shared shell keeps Source truth, local title derivation, delivery and 
   assert.match(shell, /createLocalEditorImportImageAssetResolver/);
   assert.match(shell, /PublicDeliveryToolbar/);
   assert.match(finalPreview, /PreviewFormatToolbar/);
-  assert.match(shell, /<PublicComplianceFooter \/>/);
+  assert.match(shell, /complianceFooter=\{<PublicComplianceFooter \/>\}/);
+  assert.match(finalPreview, /\{complianceFooter\}/);
   assert.match(compliance, /aria-label="网站备案信息"/);
   assert.doesNotMatch(compliance, /深圳明日回声科技有限公司/);
   assert.match(filing, /粤ICP备2026082169号-1/);
@@ -87,8 +88,14 @@ test('OSS preview chrome matches the 7.10 toolbar contract', () => {
   const page = read('../index.html');
 
   assert.match(page, /<title>明日回声-MornDraft<\/title>/);
+  assert.match(page, /class="skeleton-app"/);
+  assert.match(page, /class="skeleton-source-pane"/);
+  assert.match(page, /class="skeleton-final-pane"/);
+  assert.doesNotMatch(page, /matchMedia/);
   assert.match(shell, /aad-toolbar md-oss-shared-toolbar/);
-  assert.match(shell, /aad-workspace-mode-switch is-final/);
+  assert.doesNotMatch(shell, /aad-workspace-mode-switch/);
+  assert.doesNotMatch(shell, /data-commercial-workspace-mode/);
+  assert.match(shell, /md-oss-workspace md-oss-source-workspace/);
   assert.match(shell, /aad-toolbar-title">\{t\.preview\.title\}/);
   assert.match(shell, /<TextSearchControl/);
   assert.doesNotMatch(shell, /buttonLabel="Syntax"/);

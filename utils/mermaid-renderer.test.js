@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   __resetMermaidRendererForTests,
   __setMermaidLoaderForTests,
+  __setMermaidLoadTimeoutForTests,
   __setMermaidRenderTimeoutForTests,
   getCachedMermaidSvg,
   prewarmAlternateMermaidTheme,
@@ -112,4 +113,48 @@ test('stuck renders reject with timeout and release the render queue', async () 
 
   assert.match(next, /after-timeout/);
   assert.deepEqual(renderCalls.map((call) => call.code), ['stuck', 'after-timeout']);
+});
+
+test('hanging mermaid module load rejects with load timeout and releases the render queue', async () => {
+  __setMermaidLoadTimeoutForTests(20);
+  __setMermaidLoaderForTests(() => new Promise(() => {}));
+
+  await assert.rejects(
+    renderMermaidSvg({ code: 'needs-module', theme: 'light' }),
+    (error) => error?.code === 'MERMAID_LOAD_TIMEOUT',
+  );
+
+  assert.equal(getCachedMermaidSvg({ code: 'needs-module', theme: 'light' }), null);
+  __setMermaidLoaderForTests(async () => ({
+    initialize() {},
+    async render(id, code) {
+      return { svg: `<svg id="${id}"><text>${code}</text></svg>` };
+    },
+  }));
+  const next = await renderMermaidSvg({ code: 'after-load-timeout', theme: 'light' });
+
+  assert.match(next, /after-load-timeout/);
+});
+
+test('rejected mermaid module load does not poison later renders', async () => {
+  let loaderCalls = 0;
+  __setMermaidLoaderForTests(async () => {
+    loaderCalls += 1;
+    if (loaderCalls === 1) throw new Error('chunk load failed');
+    return {
+      initialize() {},
+      async render(id, code) {
+        return { svg: `<svg id="${id}"><text>${code}</text></svg>` };
+      },
+    };
+  });
+
+  await assert.rejects(
+    renderMermaidSvg({ code: 'flaky-load', theme: 'light' }),
+    /chunk load failed/,
+  );
+
+  const next = await renderMermaidSvg({ code: 'flaky-load', theme: 'light' });
+  assert.match(next, /flaky-load/);
+  assert.equal(loaderCalls, 2);
 });

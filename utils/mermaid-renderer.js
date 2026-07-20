@@ -10,11 +10,13 @@ const PRIORITY_RANK = {
 const THEMES = ['light', 'dark'];
 
 export const MERMAID_RENDER_TIMEOUT_MS = 8000;
+export const MERMAID_LOAD_TIMEOUT_MS = 10000;
 
 let loadMermaid = () => import('mermaid').then((mod) => mod.default);
 let mermaidPromise = null;
 let activeTheme = null;
 let activeRenderTimeoutMs = MERMAID_RENDER_TIMEOUT_MS;
+let activeLoadTimeoutMs = MERMAID_LOAD_TIMEOUT_MS;
 let isProcessing = false;
 let isProcessScheduled = false;
 let taskOrder = 0;
@@ -36,6 +38,13 @@ const createRenderTimeoutError = (task) => {
   return error;
 };
 
+const createLoadTimeoutError = () => {
+  const error = new Error(`Mermaid module load timed out after ${activeLoadTimeoutMs}ms.`);
+  error.name = 'MermaidLoadTimeoutError';
+  error.code = 'MERMAID_LOAD_TIMEOUT';
+  return error;
+};
+
 const withRenderTimeout = (promise, task) => new Promise((resolve, reject) => {
   const timer = globalThis.setTimeout(() => {
     reject(createRenderTimeoutError(task));
@@ -53,9 +62,31 @@ const withRenderTimeout = (promise, task) => new Promise((resolve, reject) => {
   );
 });
 
+const withLoadTimeout = (promise) => new Promise((resolve, reject) => {
+  const timer = globalThis.setTimeout(() => {
+    reject(createLoadTimeoutError());
+  }, activeLoadTimeoutMs);
+
+  promise.then(
+    (value) => {
+      globalThis.clearTimeout(timer);
+      resolve(value);
+    },
+    (error) => {
+      globalThis.clearTimeout(timer);
+      reject(error);
+    },
+  );
+});
+
 const getMermaid = () => {
   if (!mermaidPromise) {
-    mermaidPromise = loadMermaid();
+    mermaidPromise = loadMermaid().catch((error) => {
+      // A failed chunk load must not poison every future render: allow the
+      // next task to retry the import instead of reusing a rejected promise.
+      mermaidPromise = null;
+      throw error;
+    });
   }
   return mermaidPromise;
 };
@@ -89,7 +120,7 @@ const takeNextTask = () => {
 
 async function runRenderTask(task) {
   task.started = true;
-  const mermaid = await getMermaid();
+  const mermaid = await withLoadTimeout(getMermaid());
   if (activeTheme !== task.theme) {
     mermaid.initialize(getMermaidConfig(task.theme));
     activeTheme = task.theme;
@@ -181,6 +212,7 @@ export const __resetMermaidRendererForTests = () => {
   mermaidPromise = null;
   activeTheme = null;
   activeRenderTimeoutMs = MERMAID_RENDER_TIMEOUT_MS;
+  activeLoadTimeoutMs = MERMAID_LOAD_TIMEOUT_MS;
   isProcessing = false;
   isProcessScheduled = false;
   taskOrder = 0;
@@ -197,4 +229,8 @@ export const __setMermaidLoaderForTests = (loader) => {
 
 export const __setMermaidRenderTimeoutForTests = (timeoutMs) => {
   activeRenderTimeoutMs = timeoutMs;
+};
+
+export const __setMermaidLoadTimeoutForTests = (timeoutMs) => {
+  activeLoadTimeoutMs = timeoutMs;
 };
