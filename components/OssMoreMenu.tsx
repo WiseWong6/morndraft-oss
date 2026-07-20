@@ -49,6 +49,8 @@ type MoreMenuPosition = {
 
 const AI_MODEL_ROLES = ['generate', 'modify', 'summarize'] satisfies OssAiModelRole[];
 const MORE_MENU_SIDE_MARGIN_PX = 8;
+// TEMP: AI 配置入口临时下线（恢复时改回 true）。
+const OSS_AI_CONFIG_ENTRY_ENABLED = false;
 
 const cloneDefaultOssAiConfig = (): OssAiConfig => ({
   ...DEFAULT_OSS_AI_CONFIG,
@@ -123,11 +125,14 @@ export const OssMoreMenu: React.FC<OssMoreMenuProps> = ({
   const [aiConfig, setAiConfig] = useState<OssAiConfig>(() => cloneDefaultOssAiConfig());
   const [aiToast, setAiToast] = useState<{ id: number; kind: 'error' | 'success'; text: string } | null>(null);
   const labels = getMoreLabels(locale);
+  // TEMP: AI 配置入口临时下线（恢复时改回 true）；release 契约保持
+  // showOssAiConfig: true 不变，仅在 UI 层隐藏入口。
+  const showAiConfigEntry = releaseConfig.showOssAiConfig && OSS_AI_CONFIG_ENTRY_ENABLED;
 
   useEffect(() => {
-    if (!releaseConfig.showOssAiConfig) return;
+    if (!showAiConfigEntry) return;
     setAiConfig(readOssAiConfig());
-  }, [releaseConfig.showOssAiConfig]);
+  }, [showAiConfigEntry]);
 
   const closeMenu = useCallback(() => {
     setIsOpen(false);
@@ -213,10 +218,10 @@ export const OssMoreMenu: React.FC<OssMoreMenuProps> = ({
   }, [isAiConfigDialogOpen]);
 
   useEffect(() => {
-    if (!releaseConfig.showOssAiConfig) return undefined;
+    if (!showAiConfigEntry) return undefined;
     window.addEventListener(OSS_AI_CONFIG_REQUEST_EVENT, openAiConfigDialog);
     return () => window.removeEventListener(OSS_AI_CONFIG_REQUEST_EVENT, openAiConfigDialog);
-  }, [openAiConfigDialog, releaseConfig.showOssAiConfig]);
+  }, [openAiConfigDialog, showAiConfigEntry]);
 
   useEffect(() => {
     if (!aiToast) return undefined;
@@ -371,7 +376,7 @@ export const OssMoreMenu: React.FC<OssMoreMenuProps> = ({
           <Palette size={14} aria-hidden="true" />
           <span>{getThemeLabel(locale, themeMode)}</span>
         </button>
-        {releaseConfig.showOssAiConfig && (
+        {showAiConfigEntry && (
           <button
             type="button"
             className="aad-toolbar-menu-item aad-oss-more-row"
@@ -389,7 +394,7 @@ export const OssMoreMenu: React.FC<OssMoreMenuProps> = ({
   };
 
   const renderAiConfigDialog = () => {
-    if (!releaseConfig.showOssAiConfig || !isAiConfigDialogOpen || typeof document === 'undefined') return null;
+    if (!showAiConfigEntry || !isAiConfigDialogOpen || typeof document === 'undefined') return null;
     const titleId = 'aad-oss-more-ai-config-title';
     return createPortal(
       <div

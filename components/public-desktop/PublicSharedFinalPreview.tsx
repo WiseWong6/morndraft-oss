@@ -74,6 +74,9 @@ const PublicStrictHtmlPreviewBlock: React.FC<React.ComponentProps<typeof HtmlPre
   <HtmlPreviewBlock {...props} securityMode="publicStrict" />
 );
 
+// TEMP: 选区 AI 工具条总开关，临时下线时保持 false。
+const AI_SELECTION_TOOLBAR_ENABLED = false;
+
 type PublicSharedFinalPreviewProps = {
   complianceFooter?: React.ReactNode;
   source: string;
@@ -429,7 +432,10 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
           showA4PaginationControl={isA4PaginationAvailable}
         />
       </div>
-      {!isA4PaginationActive && (
+      {/* TEMP: 选区 AI 工具条（总结 / 修改）临时下线（恢复时改回 true），
+          同步见 ossReleaseConfig showOssAiConfig 与 MarkdownLexicalIsland
+          FINAL_SLASH_AI_ENABLED。 */}
+      {AI_SELECTION_TOOLBAR_ENABLED && !isA4PaginationActive && (
         <PreviewAiSelectionToolbar
           appliedReplacement={editing.appliedAiReplacement}
           applyReplacement={editing.applyAiReplacement}
