@@ -399,8 +399,10 @@ try {
   const insertMenu = page.getByRole('menu', { name: /^(Insert content|插入内容)$/u });
   await insertMenu.waitFor({ state: 'visible' });
   const items = insertMenu.getByRole('menuitem');
-  assert.ok(await items.count() >= 7, 'The shared OSS slash menu must expose its portable local insert actions.');
-  assert.match((await items.nth(0).textContent()) ?? '', /AI/u, 'AI generate must remain the first slash action.');
+  assert.ok(await items.count() >= 6, 'The shared OSS slash menu must expose its portable local insert actions.');
+  // AI entries are temporarily disabled (FINAL_SLASH_AI_ENABLED=false).
+  assert.equal(await insertMenu.getByTestId('oss-ai-generate').count(), 0, 'AI generate must stay hidden while AI entries are disabled.');
+  assert.doesNotMatch((await items.nth(0).textContent()) ?? '', /AI/u, 'AI generate must not lead the slash menu while disabled.');
   await items.last().scrollIntoViewIfNeeded();
   const menuLayout = await page.evaluate(() => {
     const menu = document.querySelector('.md-public-insert-menu');
@@ -1019,30 +1021,12 @@ try {
     );
   }
   assert.equal(await selectPreviewParagraph('First privacy paragraph'), 'First privacy paragraph');
-  await aiModify.waitFor({ state: 'visible' });
-  await aiModify.click();
-  await page.getByTestId('oss-ai-instruction').fill('Rewrite this paragraph clearly.');
-  await page.getByRole('button', { name: /^(Send|发送)$/u }).click();
-  await page.getByTestId('oss-ai-result').waitFor({ state: 'visible' });
-  assert.equal(await page.getByTestId('oss-ai-result').textContent(), 'AI_BROWSER_RESULT');
-  assert.equal(providerRequests.length, 1, 'Modify must issue exactly one provider request.');
-  const modifyProviderBody = JSON.stringify(providerRequests[0]);
-  const modifyProviderContent = providerRequests[0]?.messages
-    ?.map(message => String(message?.content ?? ''))
-    .join('\n') ?? '';
-  assert.doesNotMatch(modifyProviderBody, /data:/iu);
-  assert.doesNotMatch(modifyProviderBody, /image\/(?:png|gif|svg\+xml)|application\/octet-stream|text\/plain/iu);
-  assert.doesNotMatch(modifyProviderBody, /iVBORw0KGgo|R0lGODlh/iu);
-  assert.doesNotMatch(modifyProviderBody, /QUJD/iu);
-  assert.doesNotMatch(modifyProviderBody, /QURKQUNFTlRCUk9XU0VSU0VDUkVU|NON_BASE64_BROWSER_SECRET|AFTER_NON_BASE64_BROWSER_SECRET/u);
-  assert.doesNotMatch(modifyProviderBody, /REVG|R0hJ|SktM/u);
-  assert.match(modifyProviderContent, /İ{8}/u, 'Ordinary Unicode before the resource must retain its original offsets.');
-  assert.doesNotMatch(
-    modifyProviderContent,
-    /&#97;|&(?:bsol|colon|sol|semi|comma|plus|equals|percnt);/iu,
-  );
-  assert.match(modifyProviderContent, /\[local image data omitted\]/u);
-  await page.getByRole('button', { name: /^(Close|关闭)$/u }).click();
+  // AI entries are temporarily disabled (PreviewAiSelectionToolbar is off):
+  // no AI action may appear and no provider request may be issued. Re-enable
+  // this flow together with AI_SELECTION_TOOLBAR_ENABLED.
+  await page.waitForTimeout(100);
+  assert.equal(await aiModify.count(), 0, 'AI actions must stay hidden while AI entries are disabled.');
+  assert.equal(providerRequests.length, 0, 'A disabled AI surface must not issue provider requests.');
   }
   assert.deepEqual(pageErrors, [], `OSS editing and local AI raised browser errors: ${pageErrors.join(' | ')}`);
 
