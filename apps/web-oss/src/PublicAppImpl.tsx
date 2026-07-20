@@ -10,7 +10,7 @@ import './release.css';
 const LOCALE_KEY = 'morndraft.oss.locale';
 const THEME_KEY = 'morndraft.oss.theme';
 
-type MornDraftThemeMode = 'light' | 'dark' | 'system';
+type MornDraftThemeMode = 'light' | 'dark';
 
 const readPreference = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
   if (typeof window === 'undefined') return fallback;
@@ -22,17 +22,11 @@ const readPreference = <T extends string>(key: string, allowed: readonly T[], fa
   }
 };
 
-const resolveSystemTheme = (): 'light' | 'dark' => {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light';
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-};
-
 export const PublicAppImpl: React.FC = () => {
   const adapters = useMemo(() => createOssReleaseAdapters(), []);
   const releaseConfig = OSS_RELEASE_CONFIG;
   const [locale, setLocale] = useState<Locale>(() => readPreference(LOCALE_KEY, ['zh', 'en'], getInitialLocale()));
-  const [themeMode, setThemeMode] = useState<MornDraftThemeMode>(() => readPreference(THEME_KEY, ['light', 'dark', 'system'], 'system'));
-  const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(resolveSystemTheme);
+  const [themeMode, setThemeMode] = useState<MornDraftThemeMode>(() => readPreference(THEME_KEY, ['light', 'dark'], 'light'));
   const [source, setSource] = useState(() => adapters.persistence.readInitialSource());
   const [importedFileTitle, setImportedFileTitle] = useState<string | undefined>(undefined);
   const [documentEpoch, setDocumentEpoch] = useState(0);
@@ -40,16 +34,7 @@ export const PublicAppImpl: React.FC = () => {
     () => derivePublicImportedDocumentTitle(source, locale, importedFileTitle),
     [importedFileTitle, locale, source],
   );
-  const theme = themeMode === 'system' ? systemTheme : themeMode;
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (event: MediaQueryListEvent) => setSystemTheme(event.matches ? 'dark' : 'light');
-    setSystemTheme(media.matches ? 'dark' : 'light');
-    media.addEventListener('change', handleChange);
-    return () => media.removeEventListener('change', handleChange);
-  }, []);
+  const theme = themeMode;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
