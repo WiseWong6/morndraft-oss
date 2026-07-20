@@ -1,6 +1,5 @@
 .md-oss-shared-shell {
   position: relative;
-  display: flex;
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -8,7 +7,6 @@
 }
 
 .md-oss-workspace {
-  display: flex;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -17,12 +15,7 @@
   overflow: hidden;
 }
 
-.md-oss-source-workspace {
-  border-right: 1px solid var(--aad-border);
-}
-
 .md-oss-final-workspace {
-  flex: 1 1 0;
   background: var(--aad-canvas);
 }
 
@@ -86,23 +79,8 @@
   min-height: 0;
 }
 
+
 @media (max-width: 900px) {
-  .md-oss-shared-shell {
-    flex-direction: column;
-  }
-
-  .md-oss-shared-shell > .aad-resize-handle {
-    display: none;
-  }
-
-  .md-oss-source-workspace {
-    width: 100% !important;
-    max-width: none !important;
-    flex-basis: auto !important;
-    border-right: 0;
-    border-bottom: 1px solid var(--aad-border);
-  }
-
   .md-oss-shared-toolbar {
     height: auto;
     min-height: 48px;

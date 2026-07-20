@@ -126,13 +126,17 @@ const waitForSourceStable = async (page) => {
 };
 
 const ensureSourceMode = async (page) => {
-  // Dual-pane workspace: the Source editor is always visible.
+  if (await page.locator('[data-public-workspace="true"]').getAttribute('data-commercial-workspace-mode') !== 'source') {
+    await page.locator('[data-testid="oss-workspace-mode-toggle"]').click();
+  }
   await page.locator('.md-oss-workspace:not(.md-oss-final-workspace) .aad-editor-input').waitFor({ state: 'visible' });
   await waitForSourceStable(page);
 };
 
 const ensureFinalMode = async (page) => {
-  // Dual-pane workspace: the Final preview is always visible.
+  if (await page.locator('[data-public-workspace="true"]').getAttribute('data-commercial-workspace-mode') !== 'final') {
+    await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  }
   await page.locator('[data-public-final="true"]').waitFor({ state: 'visible' });
 };
 
