@@ -3220,21 +3220,16 @@ const runSharedDesktopOssAcceptance = async ({
   assert.equal(await page.getByText(/登录|订阅|Draft Box|云草稿/u).count(), 0);
 
   const publicWorkspace = page.locator('[data-public-workspace="true"]');
-  const sourceButton = sourceModeButton(page);
-  const finalButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
+  await publicWorkspace.waitFor({ state: 'visible' });
+  // Dual-pane workspace: Source and Final are both visible at all times.
+  assert.equal(await page.locator('[data-testid="oss-workspace-mode-toggle"]').count(), 0);
   const ensureSourceMode = async () => {
-    if (await publicWorkspace.getAttribute('data-commercial-workspace-mode') !== 'source') {
-      await sourceButton.click();
-    }
     await page.locator('.md-oss-workspace:not(.md-oss-final-workspace) .aad-editor-input').waitFor({
       state: 'visible',
       timeout: 15_000,
     });
   };
   const ensureFinalMode = async () => {
-    if (await publicWorkspace.getAttribute('data-commercial-workspace-mode') !== 'final') {
-      await finalButton.click();
-    }
     await page.locator('[data-public-final="true"]').waitFor({ state: 'visible', timeout: 15_000 });
   };
   await ensureSourceMode();

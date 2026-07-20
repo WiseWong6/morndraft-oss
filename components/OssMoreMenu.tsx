@@ -14,7 +14,7 @@ import {
 import type { Locale } from '../i18n';
 import type { MornDraftReleaseConfig } from '../utils/releaseConfigTypes';
 
-type MornDraftThemeMode = 'dark' | 'light' | 'system';
+type MornDraftThemeMode = 'dark' | 'light';
 import {
   getPublicAiSettingsSaveErrorKind,
   savePublicAiSettings,
@@ -62,11 +62,9 @@ const readButtonPaddingPx = (button: HTMLButtonElement, side: 'right') => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const getNextThemeMode = (mode: MornDraftThemeMode): MornDraftThemeMode => {
-  if (mode === 'system') return 'light';
-  if (mode === 'light') return 'dark';
-  return 'system';
-};
+const getNextThemeMode = (mode: MornDraftThemeMode): MornDraftThemeMode => (
+  mode === 'light' ? 'dark' : 'light'
+);
 
 const getMoreLabels = (locale: Locale) => {
   const zh = locale === 'zh';
@@ -85,7 +83,7 @@ const getMoreLabels = (locale: Locale) => {
     invalidUrl: zh ? 'Base URL 必须使用 HTTPS；仅 localhost 可使用 HTTP。' : 'Base URL must use HTTPS; only localhost may use HTTP.',
     required: zh ? '请填写 Base URL、API Key 和三个模型。' : 'Enter a Base URL, API Key, and all three models.',
     storage: zh ? '浏览器拒绝保存设置，请允许本页面使用本地存储后重试。' : 'The browser blocked settings storage. Allow site storage and try again.',
-    language: zh ? '系统语言' : 'System language',
+    language: zh ? '语言' : 'Language',
     model: {
       generate: zh ? '生成模型' : 'Generate model',
       modify: zh ? '修改模型' : 'Modify model',
@@ -96,19 +94,15 @@ const getMoreLabels = (locale: Locale) => {
     requestOrigin: zh ? '请求将发送到' : 'Requests will be sent to',
     saved: zh ? '已保存' : 'Saved',
     save: zh ? '保存' : 'Save',
-    theme: zh ? '系统主题' : 'System theme',
+    theme: zh ? '主题' : 'Theme',
   };
 };
 
 const getThemeLabel = (locale: Locale, mode: MornDraftThemeMode) => {
   if (locale === 'zh') {
-    if (mode === 'system') return '系统';
-    if (mode === 'light') return '浅色';
-    return '深色';
+    return mode === 'light' ? '浅色' : '深色';
   }
-  if (mode === 'system') return 'System';
-  if (mode === 'light') return 'Light';
-  return 'Dark';
+  return mode === 'light' ? 'Light' : 'Dark';
 };
 
 export const OssMoreMenu: React.FC<OssMoreMenuProps> = ({

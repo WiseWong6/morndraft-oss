@@ -75,6 +75,7 @@ const PublicStrictHtmlPreviewBlock: React.FC<React.ComponentProps<typeof HtmlPre
 );
 
 type PublicSharedFinalPreviewProps = {
+  complianceFooter?: React.ReactNode;
   source: string;
   sourcePatchEcho: PreviewSourcePatchEcho;
   stateResetKey: string;
@@ -103,6 +104,7 @@ type PublicSharedFinalPreviewProps = {
 };
 
 export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> = ({
+  complianceFooter = null,
   source,
   sourcePatchEcho,
   stateResetKey,
@@ -490,6 +492,7 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
         </ArtifactErrorAiRepairContext.Provider>
         </PreviewArtifactCollapseContext.Provider>
       </HtmlPreviewMountSchedulerProvider>
+      {complianceFooter}
       <PreviewFixReviewOverlay
         pendingFixReview={pendingFixReview}
         lastAppliedFix={lastAppliedFix}
