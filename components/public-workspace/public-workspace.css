@@ -373,11 +373,6 @@
   --md-public-hover: var(--aad-muted-surface);
   position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, .48);
 }
-.md-public-dialog h2 { margin: 0 0 10px; font-size: 17px; }
-.md-public-dialog p { margin: 0 0 16px; color: var(--md-public-muted); line-height: 1.6; }
-.md-public-about-section { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--md-public-border); }
-.md-public-dialog h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--md-public-text); }
-.md-public-about-usage { white-space: pre-line; }
 .md-public-dialog { width: min(480px, 100%); padding: 24px; border-radius: 14px; color: var(--md-public-text); background: var(--md-public-paper); box-shadow: 0 24px 70px rgba(0, 0, 0, .3); }
 
 @media (max-width: 760px) {
