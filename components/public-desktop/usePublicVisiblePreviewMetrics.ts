@@ -1,14 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
-import { getEditorTextMetrics } from '../../utils/text-metrics';
+import { formatCompactCount, getEditorTextMetrics } from '../../utils/text-metrics';
 
 const METRICS_DEBOUNCE_MS = 200;
 
-const EMPTY_METRICS: ReturnType<typeof getEditorTextMetrics> = Object.freeze({
+type PublicVisiblePreviewMetrics = ReturnType<typeof getEditorTextMetrics> & {
+  compactCharacters: string;
+  compactTokens: string;
+};
+
+const EMPTY_METRICS: PublicVisiblePreviewMetrics = Object.freeze({
   characters: 0,
   compactCharacters: '0',
   compactTokens: '0',
   estimatedTokens: 0,
 });
+
+const buildVisibleMetrics = (text: string): PublicVisiblePreviewMetrics => {
+  const next = getEditorTextMetrics(text);
+  return {
+    ...next,
+    compactCharacters: formatCompactCount(next.characters),
+    compactTokens: formatCompactCount(next.estimatedTokens),
+  };
+};
 
 /**
  * Counts the visible text of the public Final preview (characters and
@@ -38,7 +52,7 @@ export const usePublicVisiblePreviewMetrics = ({
         setMetrics(EMPTY_METRICS);
         return;
       }
-      const next = getEditorTextMetrics(target.innerText ?? '');
+      const next = buildVisibleMetrics(target.innerText ?? '');
       setMetrics((current) => (
         current.characters === next.characters && current.estimatedTokens === next.estimatedTokens
           ? current

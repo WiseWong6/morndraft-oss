@@ -96,6 +96,11 @@ test('OSS preview chrome matches the 7.10 toolbar contract', () => {
   assert.match(shell, /aad-workspace-mode-switch is-final/);
   assert.match(shell, /data-commercial-workspace-mode/);
   assert.match(shell, /aad-toolbar-title">\{t\.preview\.title\}/);
+  assert.match(shell, /<TextMetricsInline/);
+  assert.match(
+    read('../../../components/public-desktop/usePublicVisiblePreviewMetrics.ts'),
+    /compactCharacters: formatCompactCount\(next\.characters\)[\s\S]*?compactTokens: formatCompactCount\(next\.estimatedTokens\)/,
+  );
   assert.match(shell, /<TextSearchControl/);
   assert.doesNotMatch(shell, /buttonLabel="Syntax"/);
   assert.doesNotMatch(shell, /buttonLabel="More"/);
