@@ -341,6 +341,48 @@ const createReplacementImage = (
   return frame;
 };
 
+// html2canvas 对 <textarea> 只用单次 fillText 渲染 value，不支持换行；
+// 克隆进静态 iframe 前必须把可编辑 code layer 归一化为静态 <pre>，
+// 文本取 live textarea 的当前 value（cloneNode 只带初始 defaultValue）。
+const normalizeCloneEditableCodeLayers = (source: HTMLElement, clone: HTMLElement) => {
+  const sourceLayers = source.classList.contains('aad-editable-code-layer')
+    ? [source]
+    : Array.from(source.querySelectorAll<HTMLElement>('.aad-editable-code-layer'));
+  if (!sourceLayers.length) return;
+  const cloneLayers = clone.classList.contains('aad-editable-code-layer')
+    ? [clone]
+    : Array.from(clone.querySelectorAll<HTMLElement>('.aad-editable-code-layer'));
+
+  sourceLayers.forEach((sourceLayer, index) => {
+    const cloneLayer = cloneLayers[index];
+    if (!cloneLayer) return;
+    if (cloneLayer.querySelector('.aad-editable-json-tree')) return;
+
+    const doc = cloneLayer.ownerDocument;
+    const highlightCode = cloneLayer.querySelector<HTMLElement>('.aad-code-highlight-overlay code');
+    const pre = doc.createElement('pre');
+    pre.className = 'aad-code-block';
+    const code = doc.createElement('code');
+    if (highlightCode) {
+      code.innerHTML = highlightCode.innerHTML;
+    } else {
+      const textarea = sourceLayer.querySelector<HTMLTextAreaElement>('textarea.aad-code-edit-textarea');
+      code.textContent = textarea?.value ?? '';
+    }
+    pre.append(code);
+    cloneLayer.classList.remove('has-json-highlight');
+    cloneLayer.replaceChildren(pre);
+  });
+};
+
+// 选中态描边/阴影使用 color-mix，Chromium 会计算为 color(srgb ...)，
+// html2canvas 无法解析 color() 函数导致整个 capture 抛错；
+// 且复制图片本就不应带交互选中环，克隆时统一剥离。
+const stripCloneSelectionState = (clone: HTMLElement) => {
+  clone.classList.remove('is-selected');
+  clone.querySelectorAll('.is-selected').forEach((element) => element.classList.remove('is-selected'));
+};
+
 const captureDetachedCloneImage = async ({
   captureScale,
   configureClone,
@@ -362,6 +404,8 @@ const captureDetachedCloneImage = async ({
   const clone = source.cloneNode(true) as HTMLElement;
   const width = Math.max(1, Math.ceil(expectedWidth ?? 0), getElementCaptureWidth(source));
   removeCloneInteractionChrome(clone);
+  normalizeCloneEditableCodeLayers(source, clone);
+  stripCloneSelectionState(clone);
   clone.style.setProperty('width', `${width}px`, 'important');
   clone.style.setProperty('max-width', 'none', 'important');
   clone.style.setProperty('box-sizing', 'border-box', 'important');
