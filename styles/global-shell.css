@@ -2907,3 +2907,18 @@ code.editor-code .token.italic { font-style: italic; }
     transform: rotate(360deg);
   }
 }
+
+/*
+ * AboutModal (shared with the commercial build) styles its sticky footer
+ * confirm button with Tailwind utilities (text-white / text-sm / font-medium).
+ * In the OSS build the prebuilt tailwind.css @layer utilities can lose the
+ * cascade war against the unlayered base rules in this file, so the white label,
+ * smaller size and medium weight silently drop. Restore the intended presentation
+ * on the About modal's confirm button without touching the shared component.
+ */
+.fixed.inset-0.z-50 .sticky.bottom-0 > button {
+  color: var(--color-white, #ffffff);
+  font-size: var(--text-sm, 0.875rem);
+  font-weight: var(--font-weight-medium, 500);
+  line-height: var(--text-sm--line-height, 1.25rem);
+}
