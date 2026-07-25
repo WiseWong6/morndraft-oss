@@ -49,8 +49,6 @@ type MoreMenuPosition = {
 
 const AI_MODEL_ROLES = ['generate', 'modify', 'summarize'] satisfies OssAiModelRole[];
 const MORE_MENU_SIDE_MARGIN_PX = 8;
-// TEMP: AI 配置入口临时下线（恢复时改回 true）。
-const OSS_AI_CONFIG_ENTRY_ENABLED = false;
 
 const cloneDefaultOssAiConfig = (): OssAiConfig => ({
   ...DEFAULT_OSS_AI_CONFIG,
@@ -125,9 +123,8 @@ export const OssMoreMenu: React.FC<OssMoreMenuProps> = ({
   const [aiConfig, setAiConfig] = useState<OssAiConfig>(() => cloneDefaultOssAiConfig());
   const [aiToast, setAiToast] = useState<{ id: number; kind: 'error' | 'success'; text: string } | null>(null);
   const labels = getMoreLabels(locale);
-  // TEMP: AI 配置入口临时下线（恢复时改回 true）；release 契约保持
-  // showOssAiConfig: true 不变，仅在 UI 层隐藏入口。
-  const showAiConfigEntry = releaseConfig.showOssAiConfig && OSS_AI_CONFIG_ENTRY_ENABLED;
+  // AI 配置入口受 release 契约 showOssAiConfig 与 OSS AI 总开关共同约束。
+  const showAiConfigEntry = releaseConfig.showOssAiConfig && releaseConfig.enableOssAiFeatures;
 
   useEffect(() => {
     if (!showAiConfigEntry) return;
