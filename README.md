@@ -14,7 +14,7 @@ MornDraft OSS is the public local-first client for previewing, reviewing, and co
 
 ## What is intentionally excluded
 
-The OSS edition does not include draft box, account login, cloud drafts, avatar/profile editing, subscriptions, payment checkout, hosted/private AI providers, AI usage ledger, MCP, admin apps, SMS, private APIs, or hosted public share links. The public site uses only anonymous Baidu Analytics page-view statistics (disclosed in the site footer, no account or private telemetry).
+The OSS edition does not include draft box, account login, cloud drafts, avatar/profile editing, subscriptions, payment checkout, hosted/private AI providers, AI usage ledger, MCP, admin apps, telemetry, SMS, private APIs, or hosted public share links.
 
 ## Development
 
