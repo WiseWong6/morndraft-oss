@@ -478,6 +478,9 @@
     },
     "private payment marker": {
       "i18n.ts": 51
+    },
+    "baidu analytics marker": {
+      "vite.config.ts": 3
     }
   },
   "requiredFiles": [
