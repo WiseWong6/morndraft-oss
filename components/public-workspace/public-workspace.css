@@ -940,39 +940,6 @@
   text-underline-offset: 3px;
 }
 
-.aad-preview-analytics-disclosure {
-  cursor: pointer;
-  list-style: none;
-}
-
-.aad-preview-analytics-disclosure summary {
-  display: inline-flex;
-  list-style: none;
-  color: color-mix(in srgb, var(--aad-muted) 74%, transparent);
-  font-size: 11px;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.aad-preview-analytics-disclosure summary::-webkit-details-marker {
-  display: none;
-}
-
-.aad-preview-analytics-disclosure summary:hover {
-  color: var(--aad-muted-strong);
-}
-
-.aad-preview-analytics-detail {
-  flex-basis: 100%;
-  max-width: min(794px, 100%);
-  margin-top: .25rem;
-  color: color-mix(in srgb, var(--aad-muted) 74%, transparent);
-  font-size: 11px;
-  line-height: 1.4;
-  text-align: center;
-  white-space: normal;
-}
-
 @media (max-width: 980px) {
   .md-public-toolbar {
     padding-inline: 12px;
