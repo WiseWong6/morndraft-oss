@@ -436,6 +436,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
           isAiFixBusy={isAiFixBusy}
           lastAppliedFix={artifactAnalysis.lastAppliedFix}
           mornDraftComponentScope={releaseConfig.mornDraftComponentScope}
+          enableOssAiFeatures={releaseConfig.enableOssAiFeatures}
           onBeginFixReview={artifactAnalysis.beginFixReview}
           onCancelFixReview={handleCancelFixReview}
           onConfirmFixReview={handleConfirmFixReview}

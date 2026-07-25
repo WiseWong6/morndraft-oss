@@ -1,6 +1,7 @@
 export type DeliveryRequestContext = {
   draftId?: string | null;
   disableAiAssistUi?: boolean;
+  enableOssAiFeatures?: boolean;
   enableOssAiProvider?: boolean;
   isDevMode: boolean;
   publicAllOpen?: boolean;
