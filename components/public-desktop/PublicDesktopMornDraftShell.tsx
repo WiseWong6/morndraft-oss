@@ -9,6 +9,7 @@ import type { MornDraftReleaseConfig } from '../../utils/releaseConfigTypes';
 import Editor from '../Editor';
 import { OssMoreMenu } from '../OssMoreMenu';
 import { OssSyntaxSamplesMenu } from '../OssSyntaxSamplesMenu';
+import AboutModal from '../AboutModal';
 import { WorkspaceBrandMark } from '../WorkspaceBrandMark';
 import {
   buildEditorImportContentFromDropData,
@@ -21,7 +22,6 @@ import { usePreviewDeliveryDisplayOptions } from '../preview/PreviewDeliveryDisp
 import { getPreviewTextSearchLabels } from '../preview/previewToolbarText';
 import { PublicComplianceFooter } from '../public-workspace/PublicComplianceFooter';
 import { PublicDeliveryToolbar } from '../public-workspace/PublicDeliveryToolbar';
-import { PublicDialog } from '../public-workspace/PublicDialog';
 import { TextMetricsInline } from '../TextMetricsInline';
 import { DiagnosticConsoleButton } from '../DiagnosticConsoleButton';
 import { DiagnosticConsolePanel } from '../DiagnosticConsolePanel';
@@ -58,8 +58,6 @@ type PublicDesktopView = {
 
 const getLabels = (locale: Locale) => locale === 'zh'
   ? {
-      about: '纯浏览器运行的 Agent 产物编辑、预览与本地交付工作区。',
-      close: '关闭',
       desktopNotice: '建议在桌面端使用完整编辑体验。',
       final: 'Final',
       import: '本地导入',
@@ -68,8 +66,6 @@ const getLabels = (locale: Locale) => locale === 'zh'
       drop: '松开即可导入文件、文本或 URL',
     }
   : {
-      about: 'A browser-only workspace for editing, previewing, and locally delivering agent output.',
-      close: 'Close',
       desktopNotice: 'For the full editing experience, open MornDraft on a desktop.',
       final: 'Final',
       import: 'Local import',
@@ -483,18 +479,13 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
           />
         )}
       </div>
-      <PublicDialog
-        className="md-public-about-dialog"
+      <AboutModal
         isOpen={isAboutOpen}
-        labelledBy="oss-about-title"
         onClose={() => setIsAboutOpen(false)}
-      >
-        <h2 id="oss-about-title">MornDraft Open Source</h2>
-        <p>{labels.about}</p>
-        <button type="button" data-public-dialog-initial-focus onClick={() => setIsAboutOpen(false)}>
-          {labels.close}
-        </button>
-      </PublicDialog>
+        showEnterpriseInfo={releaseConfig.showAboutEnterpriseInfo}
+        showSupportQr={releaseConfig.showAboutSupportQr}
+        t={t.about}
+      />
     </main>
   );
 };
