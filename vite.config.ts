@@ -92,19 +92,6 @@ export default defineConfig({
         }
       },
     },
-    {
-      name: 'morndraft-oss-baidu-analytics',
-      transformIndexHtml: {
-        order: 'post',
-        handler(html) {
-          // Baidu Analytics: anonymous page-view statistics, disclosed in the site compliance footer.
-          // Injected here (not authored in apps/web-oss/index.html) because Vite's HTML pipeline drops
-          // additional inline classic scripts adjacent to the entry module script during build.
-          const baiduAnalyticsSnippet = `<script>var _hmt=_hmt||[];(function(){var e=document.createElement("script");e.src="https://hm.baidu.com/hm.js?54623798eae9b6ca005a7749179e86f2";var t=document.getElementsByTagName("script")[0];t.parentNode.insertBefore(e,t)})();</script>`;
-          return html.replace('</head>', `${baiduAnalyticsSnippet}\n  </head>`);
-        },
-      },
-    },
     createOssBundleBudgetPlugin(),
   ],
   build: {
