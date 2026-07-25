@@ -74,9 +74,6 @@ const PublicStrictHtmlPreviewBlock: React.FC<React.ComponentProps<typeof HtmlPre
   <HtmlPreviewBlock {...props} securityMode="publicStrict" />
 );
 
-// TEMP: 选区 AI 工具条总开关，临时下线时保持 false。
-const AI_SELECTION_TOOLBAR_ENABLED = false;
-
 type PublicSharedFinalPreviewProps = {
   complianceFooter?: React.ReactNode;
   source: string;
@@ -91,6 +88,7 @@ type PublicSharedFinalPreviewProps = {
   pendingFixReview: ArtifactFixReview | null;
   lastAppliedFix: ArtifactAppliedFix | null;
   mornDraftComponentScope?: MornDraftComponentScope;
+  enableOssAiFeatures?: boolean;
   searchState?: TextSearchState | null;
   sourceLineFocusRequest?: { line: number; requestId: number } | null;
   isAiFixBusy?: boolean;
@@ -120,6 +118,7 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
   pendingFixReview,
   lastAppliedFix,
   mornDraftComponentScope = 'showcase',
+  enableOssAiFeatures = false,
   searchState = null,
   sourceLineFocusRequest = null,
   isAiFixBusy = false,
@@ -179,8 +178,8 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
     [deliveryAccess],
   );
   const deliveryRequestContext = useMemo(
-    () => createPreviewDeliveryRequestContext(null, deliveryAccess, false, true),
-    [deliveryAccess],
+    () => createPreviewDeliveryRequestContext(null, deliveryAccess, false, true, enableOssAiFeatures),
+    [deliveryAccess, enableOssAiFeatures],
   );
   const { handlePreviewMarkdownInsertImageFile } = usePreviewMarkdownImageInsertion({
     deliveryAccess,
@@ -432,10 +431,9 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
           showA4PaginationControl={isA4PaginationAvailable}
         />
       </div>
-      {/* TEMP: 选区 AI 工具条（总结 / 修改）临时下线（恢复时改回 true），
-          同步见 ossReleaseConfig showOssAiConfig 与 MarkdownLexicalIsland
-          FINAL_SLASH_AI_ENABLED。 */}
-      {AI_SELECTION_TOOLBAR_ENABLED && !isA4PaginationActive && (
+      {/* 选区 AI 工具条（总结 / 修改），由 releaseConfig.enableOssAiFeatures 统一驱动，
+          与 OssMoreMenu AI 配置入口、MarkdownLexicalIsland 斜杠生成入口共享同一开关。 */}
+      {enableOssAiFeatures && !isA4PaginationActive && (
         <PreviewAiSelectionToolbar
           appliedReplacement={editing.appliedAiReplacement}
           applyReplacement={editing.applyAiReplacement}

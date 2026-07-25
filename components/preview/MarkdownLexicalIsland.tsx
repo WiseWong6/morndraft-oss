@@ -446,7 +446,6 @@ type PreviewArtifactRenderContextValue = {
 };
 
 const FINAL_INSERT_AI_ACTIVE_INDEX = -1;
-const FINAL_SLASH_AI_ENABLED = false; // TEMP: AI 生成入口临时下线，恢复时改回 true（同步 ossReleaseConfig showOssAiConfig、PublicSharedFinalPreview AI_SELECTION_TOOLBAR_ENABLED）
 
 type FinalSlashCommandCandidate = {
   blockKey: string;
@@ -3758,7 +3757,7 @@ const selectRootEndEditableTextBlock = () => {
   return selectEditableTextBlockEdge(target, 'end');
 };
 
-const getFinalSlashCommandCandidate = (finalSlashAiEnabled = FINAL_SLASH_AI_ENABLED): FinalSlashCommandCandidate | null => {
+const getFinalSlashCommandCandidate = (finalSlashAiEnabled = false): FinalSlashCommandCandidate | null => {
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return null;
   const block = getRootLevelEditableTextBlock(selection.anchor.getNode());
@@ -6621,7 +6620,7 @@ const LexicalFinalInsertCommandPlugin: React.FC<{
     deliveryRequestContext,
     onAiInstructionNotice,
   } = editState;
-  const isFinalSlashAiEnabled = FINAL_SLASH_AI_ENABLED && !deliveryRequestContext?.disableAiAssistUi;
+  const isFinalSlashAiEnabled = (deliveryRequestContext?.enableOssAiFeatures ?? false) && !deliveryRequestContext?.disableAiAssistUi;
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeMenuLevel, setActiveMenuLevel] = useState<'primary' | 'secondary'>('primary');
   const aiInstructionAbortRef = useRef<AbortController | null>(null);
@@ -10346,7 +10345,7 @@ const areDeliveryRequestContextsEqual = (
       previous &&
       next &&
       previous.draftId === next.draftId &&
-      previous.disableAiAssistUi === next.disableAiAssistUi && previous.enableOssAiProvider === next.enableOssAiProvider &&
+      previous.disableAiAssistUi === next.disableAiAssistUi && previous.enableOssAiFeatures === next.enableOssAiFeatures && previous.enableOssAiProvider === next.enableOssAiProvider &&
       previous.isDevMode === next.isDevMode &&
       previous.publicAllOpen === next.publicAllOpen &&
       previous.refresh === next.refresh &&

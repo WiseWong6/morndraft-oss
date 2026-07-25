@@ -7,6 +7,7 @@ export type MornDraftReleaseConfig = {
   disableReferralsUi: boolean;
   disableMcpUi: boolean;
   disableAiAssistUi: boolean;
+  enableOssAiFeatures: boolean;
   disableFeedbackUi: boolean;
   disablePaymentCheckout: boolean;
   disablePreviewDeliveryActions: boolean;

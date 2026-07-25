@@ -8,6 +8,7 @@ export const OSS_RELEASE_CONFIG: MornDraftReleaseConfig = Object.freeze({
   disableReferralsUi: true,
   disableMcpUi: true,
   disableAiAssistUi: false,
+  enableOssAiFeatures: true,
   disableFeedbackUi: true,
   disablePaymentCheckout: true,
   disablePreviewDeliveryActions: false,
