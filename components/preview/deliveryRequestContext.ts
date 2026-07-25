@@ -6,9 +6,11 @@ export const createPreviewDeliveryRequestContext = (
   deliveryAccess: DeliveryAccessState | undefined,
   disableAiAssistUi: boolean,
   enableOssAiProvider: boolean,
+  enableOssAiFeatures: boolean,
 ): DeliveryRequestContext => ({
   draftId: activeDraftId,
   disableAiAssistUi,
+  enableOssAiFeatures,
   enableOssAiProvider,
   isDevMode: deliveryAccess?.isDevMode ?? false,
   publicAllOpen: deliveryAccess?.accessMode === 'public-all-open',
