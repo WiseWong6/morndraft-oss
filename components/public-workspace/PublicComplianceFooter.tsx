@@ -1,5 +1,7 @@
 import React from 'react';
 import {
+  ANALYTICS_DISCLOSURE_DETAIL,
+  ANALYTICS_DISCLOSURE_SUMMARY,
   ICP_FILING_NUMBER,
   ICP_FILING_URL,
   PUBLIC_SECURITY_FILING_ICON_SRC,
@@ -27,5 +29,9 @@ export const PublicComplianceFooter: React.FC = () => (
     >
       {ICP_FILING_NUMBER}
     </a>
+    <details className="aad-preview-filing-item aad-preview-analytics-disclosure">
+      <summary>{ANALYTICS_DISCLOSURE_SUMMARY}</summary>
+      <span className="aad-preview-analytics-detail">{ANALYTICS_DISCLOSURE_DETAIL}</span>
+    </details>
   </footer>
 );
