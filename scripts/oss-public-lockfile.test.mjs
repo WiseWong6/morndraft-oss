@@ -39,7 +39,7 @@ const sourceLock = {
 const publicPackageJson = {
   name: 'morndraft',
   version: '1.0.0',
-  license: 'Apache-2.0',
+  license: 'AGPL-3.0-only',
   engines: { node: '>=22' },
   dependencies: { public: '1.0.0' },
   devDependencies: {},
