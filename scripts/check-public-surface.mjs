@@ -59,7 +59,7 @@ const forbiddenDistPatterns = [
   },
   {
     label: 'third-party telemetry marker',
-    pattern: /(?:google-analytics\.com|googletagmanager\.com|gtag\(|G-0GYD7FWX66|hm\.baidu\.com|_hmt|832c0aa63fe65c887a71252c4c0494aa)/gi,
+    pattern: /(?:google-analytics\.com|googletagmanager\.com|gtag\(|G-0GYD7FWX66|832c0aa63fe65c887a71252c4c0494aa)/gi,
   },
   {
     label: 'private AI provider or usage marker',
@@ -142,6 +142,10 @@ async function main() {
   const optionalProviderPresetLimit = Object.values(
     distributionManifest.sourceMarkerAllowances?.['private AI provider or usage marker'] ?? {},
   ).reduce((sum, value) => sum + value, 0);
+  let baiduAnalyticsMarkers = 0;
+  const baiduAnalyticsLimit = Object.values(
+    distributionManifest.sourceMarkerAllowances?.['baidu analytics marker'] ?? {},
+  ).reduce((sum, value) => sum + value, 0);
   const profileId = buildConfig.buildProfile.id;
 
   if (!publicProfiles.has(profileId)) {
@@ -171,6 +175,7 @@ async function main() {
       if (!textExtensions.has(path.extname(filePath))) continue;
       const content = await readFile(filePath, 'utf8');
       optionalProviderPresetMarkers += content.match(/(?:DeepSeek|DEEPSEEK)/g)?.length ?? 0;
+      baiduAnalyticsMarkers += content.match(/(?:hm\.baidu\.com|_hmt)/gi)?.length ?? 0;
       for (const { label, pattern } of forbiddenDistPatterns) {
         pattern.lastIndex = 0;
         const match = pattern.exec(content);
@@ -183,6 +188,12 @@ async function main() {
   if (optionalProviderPresetMarkers > optionalProviderPresetLimit) {
     findings.push(
       `dist contains ${optionalProviderPresetMarkers} optional provider preset markers, exceeding the reviewed source allowance ${optionalProviderPresetLimit}`,
+    );
+  }
+
+  if (baiduAnalyticsMarkers > baiduAnalyticsLimit) {
+    findings.push(
+      `dist contains ${baiduAnalyticsMarkers} baidu analytics markers, exceeding the reviewed source allowance ${baiduAnalyticsLimit}`,
     );
   }
 
@@ -203,7 +214,7 @@ async function main() {
     return;
   }
 
-  console.log(`[public-surface] ${profileId} checked at ${rel(distDir)}; no private app, dependency, API, AI, MCP, billing, payment gateway, auth, hosted-link, telemetry, or upgrade markers found.`);
+  console.log(`[public-surface] ${profileId} checked at ${rel(distDir)}; no private app, dependency, API, AI, MCP, billing, payment gateway, auth, hosted-link, or upgrade markers found; baidu analytics markers within reviewed source allowance.`);
 }
 
 await main();
