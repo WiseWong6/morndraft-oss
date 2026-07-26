@@ -37,7 +37,7 @@ function validPackage() {
     name: 'morndraft',
     version: '1.0.0',
     private: true,
-    license: 'Apache-2.0',
+    license: 'AGPL-3.0-only',
     engines: { node: '>=22' },
     morndraftDistribution: 'oss',
     scripts: {

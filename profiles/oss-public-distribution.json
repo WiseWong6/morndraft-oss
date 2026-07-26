@@ -14,7 +14,6 @@
   ],
   "copyFiles": [
     "App.tsx",
-    "components/AboutModal.tsx",
     "apps/web-oss/index.html",
     "apps/web-oss/src/PublicAppImpl.tsx",
     "apps/web-oss/src/index.ts",
@@ -304,8 +303,6 @@
     "public/morndraft-icon-light.webp",
     "public/morndraft-wordmark-dark.webp",
     "public/morndraft-wordmark-light.webp",
-    "public/qrcode.jpg",
-    "public/reward.jpg",
     "public/tailwind.css",
     "samples/defaultHtmlSample.ts",
     "samples/mixedMcpAdminHtmlSample.ts",
@@ -510,7 +507,6 @@
   ],
   "resolvedSourceClosure": [
     "App.tsx",
-    "components/AboutModal.tsx",
     "apps/web-oss/src/PublicAppImpl.tsx",
     "apps/web-oss/src/index.ts",
     "apps/web-oss/src/ossReleaseConfig.ts",
@@ -689,7 +685,7 @@
     "components/public-desktop/usePublicVisiblePreviewMetrics.ts",
     "components/public-workspace/PublicComplianceFooter.tsx",
     "components/public-workspace/PublicDeliveryToolbar.tsx",
-    "components/public-workspace/public-workspace.css",
+    "components/public-workspace/PublicDialog.tsx",
     "components/public-workspace/publicAiContext.ts",
     "components/public-workspace/publicCompliance.ts",
     "components/public-workspace/publicDocument.ts",

@@ -34,4 +34,4 @@ Use GitHub Security Advisories for private vulnerability reports. Do not post se
 
 ## License
 
-Apache-2.0. See [LICENSE](./LICENSE).
+AGPL-3.0-only (GNU Affero General Public License v3.0 only). This is a strong copyleft license: network use and all derivative works must publish their complete corresponding source code under AGPL-3.0-only. See [LICENSE](./LICENSE).
