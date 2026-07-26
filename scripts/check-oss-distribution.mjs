@@ -70,6 +70,7 @@ export const SOURCE_MARKER_PATTERNS = Object.freeze({
   'private workspace package marker': /(?:@morndraft\/features-(?:pro|ide)|packages\/features-(?:pro|ide))/g,
   'production filesystem or storage credential marker': /(?:\/etc\/morndraft\/prod\.env|VOLCENGINE_TOS_ACCESS_KEY_(?:ID|SECRET)|AWS4-HMAC-SHA256)/g,
   'production asset mutation marker': /(?:uploadCommand|deleteTosObjects|parseListObjectsResponse|buildDeleteObjectsXml)/g,
+  'baidu analytics marker': /(?:hm\.baidu\.com|_hmt)/gi,
 });
 
 const sortedUniqueStrings = (values) => [...new Set(values)].sort();
@@ -238,7 +239,7 @@ export function validatePublicPackageContract({ filePaths, packageJson, manifest
   const findings = [];
   if (packageJson.name !== manifest.packageName) findings.push(`package.json name must be ${manifest.packageName}`);
   if (packageJson.private !== true) findings.push('package.json must use private: true to block accidental npm publication');
-  if (packageJson.license !== 'Apache-2.0') findings.push('package.json license must be Apache-2.0');
+  if (packageJson.license !== 'AGPL-3.0-only') findings.push('package.json license must be AGPL-3.0-only');
   if (packageJson.morndraftDistribution !== manifest.profile) {
     findings.push(`package.json morndraftDistribution must be ${manifest.profile}`);
   }
