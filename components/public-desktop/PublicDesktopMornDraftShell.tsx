@@ -22,6 +22,7 @@ import { getPreviewTextSearchLabels } from '../preview/previewToolbarText';
 import { PublicComplianceFooter } from '../public-workspace/PublicComplianceFooter';
 import { PublicDeliveryToolbar } from '../public-workspace/PublicDeliveryToolbar';
 import { PublicDialog } from '../public-workspace/PublicDialog';
+import '../public-workspace/public-workspace.css';
 import { TextMetricsInline } from '../TextMetricsInline';
 import { DiagnosticConsoleButton } from '../DiagnosticConsoleButton';
 import { DiagnosticConsolePanel } from '../DiagnosticConsolePanel';

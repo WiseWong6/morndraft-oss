@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ANALYTICS_DISCLOSURE_DETAIL,
   ANALYTICS_DISCLOSURE_SUMMARY,
+  COPYRIGHT_NOTICE,
   ICP_FILING_NUMBER,
   ICP_FILING_URL,
   PUBLIC_SECURITY_FILING_ICON_SRC,
@@ -10,6 +11,9 @@ import {
 
 export const PublicComplianceFooter: React.FC = () => (
   <footer className="aad-preview-icp-footer" aria-label="网站备案信息">
+    <span className="aad-preview-filing-item aad-preview-copyright-notice">
+      {COPYRIGHT_NOTICE}
+    </span>
     <span className="aad-preview-filing-item aad-preview-public-security-filing">
       <img
         className="aad-preview-public-security-icon"
