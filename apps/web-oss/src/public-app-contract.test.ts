@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -140,26 +140,15 @@ test('OSS entry page ships the static SEO layer', () => {
   assert.match(page, /class="skeleton-bar/);
 });
 
-// robots.txt and sitemap.xml are intentionally not part of the OSS export
-// manifest; production serves manually placed copies, so this contract only
-// runs where the files exist (the private repo).
-const sitemapUrl = new URL('../../../public/sitemap.xml', import.meta.url);
-const robotsUrl = new URL('../../../public/robots.txt', import.meta.url);
-const hasEdgeSeoFiles = existsSync(sitemapUrl) && existsSync(robotsUrl);
+test('OSS sitemap and robots stay crawlable with a dated sitemap', () => {
+  const robots = read('../../../public/robots.txt');
+  const sitemap = read('../../../public/sitemap.xml');
 
-test(
-  'OSS sitemap and robots stay crawlable with a dated sitemap',
-  { skip: hasEdgeSeoFiles ? false : 'public/robots.txt and public/sitemap.xml are not exported to the OSS candidate' },
-  () => {
-    const robots = readFileSync(robotsUrl, 'utf8');
-    const sitemap = readFileSync(sitemapUrl, 'utf8');
-
-    assert.match(robots, /User-agent: \*[\s\S]*?Allow: \//);
-    assert.match(robots, /Sitemap: https:\/\/morndraft\.com\/sitemap\.xml/);
-    assert.match(sitemap, /<loc>https:\/\/morndraft\.com\/<\/loc>/);
-    assert.match(sitemap, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
-  },
-);
+  assert.match(robots, /User-agent: \*[\s\S]*?Allow: \//);
+  assert.match(robots, /Sitemap: https:\/\/morndraft\.com\/sitemap\.xml/);
+  assert.match(sitemap, /<loc>https:\/\/morndraft\.com\/<\/loc>/);
+  assert.match(sitemap, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
+});
 
 test('OSS preview chrome matches the 7.10 toolbar contract', () => {
   const shell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
