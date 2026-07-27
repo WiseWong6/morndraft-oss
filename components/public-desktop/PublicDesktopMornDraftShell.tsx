@@ -1,5 +1,5 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Code2, FileCheck } from 'lucide-react';
+import { Code2, FileCheck, X } from 'lucide-react';
 import { TextSearchControl, type TextSearchState } from '@morndraft/features-personal';
 import { TRANSLATIONS, getSampleEntries, loadSampleSource, type Locale, type SampleKey } from '../../i18n';
 import type { OssReleaseAdapters } from '../../apps/web-oss/src/releaseAdapters';
@@ -59,8 +59,6 @@ type PublicDesktopView = {
 
 const getLabels = (locale: Locale) => locale === 'zh'
   ? {
-      about: '纯浏览器运行的 Agent 产物编辑、预览与本地交付工作区。',
-      close: '关闭',
       desktopNotice: '建议在桌面端使用完整编辑体验。',
       final: 'Final',
       import: '本地导入',
@@ -69,8 +67,6 @@ const getLabels = (locale: Locale) => locale === 'zh'
       drop: '松开即可导入文件、文本或 URL',
     }
   : {
-      about: 'A browser-only workspace for editing, previewing, and locally delivering agent output.',
-      close: 'Close',
       desktopNotice: 'For the full editing experience, open MornDraft on a desktop.',
       final: 'Final',
       import: 'Local import',
@@ -490,11 +486,39 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
         labelledBy="oss-about-title"
         onClose={() => setIsAboutOpen(false)}
       >
-        <h2 id="oss-about-title">MornDraft Open Source</h2>
-        <p>{labels.about}</p>
-        <button type="button" data-public-dialog-initial-focus onClick={() => setIsAboutOpen(false)}>
-          {labels.close}
-        </button>
+        <header className="md-public-about-header">
+          <h2 id="oss-about-title">{t.about.title}</h2>
+          <button
+            type="button"
+            className="md-public-about-close"
+            aria-label={t.about.close}
+            onClick={() => setIsAboutOpen(false)}
+          >
+            <X size={16} />
+          </button>
+        </header>
+        <div className="md-public-about-body">
+          <section>
+            {t.about.problemTitle && <h3>{t.about.problemTitle}</h3>}
+            {t.about.problems.map((problem) => (
+              <p key={problem}>{problem}</p>
+            ))}
+          </section>
+          <section>
+            <h3>{t.about.usageTitle}</h3>
+            <p>{t.about.usage}</p>
+          </section>
+        </div>
+        <footer className="md-public-about-footer">
+          <button
+            type="button"
+            className="md-public-about-confirm"
+            data-public-dialog-initial-focus
+            onClick={() => setIsAboutOpen(false)}
+          >
+            {t.about.confirm}
+          </button>
+        </footer>
       </PublicDialog>
     </main>
   );
