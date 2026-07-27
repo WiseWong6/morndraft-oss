@@ -126,6 +126,7 @@ test('OSS entry page ships the static SEO layer', () => {
   assert.match(page, /<meta name="description" content="MornDraft 初稿是面向 Agent 产物的交付编辑器/);
   assert.match(page, /<meta name="keywords" content="MornDraft,初稿,/);
   assert.match(page, /<meta name="robots" content="index,follow"/);
+  assert.match(page, /<meta name="baidu-site-verification" content="codeva-VRKwGwEWRA" \/>/);
   assert.match(page, /<link rel="canonical" href="https:\/\/morndraft\.com\/" \/>/);
   // Social cards.
   assert.match(page, /<meta property="og:image" content="https:\/\/morndraft\.com\/og-cover\.png" \/>/);
