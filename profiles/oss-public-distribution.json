@@ -304,6 +304,8 @@
     "public/morndraft-wordmark-dark.webp",
     "public/morndraft-wordmark-light.webp",
     "public/og-cover.png",
+    "public/robots.txt",
+    "public/sitemap.xml",
     "public/tailwind.css",
     "samples/defaultHtmlSample.ts",
     "samples/mixedMcpAdminHtmlSample.ts",
