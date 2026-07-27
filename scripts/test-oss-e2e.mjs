@@ -1416,7 +1416,15 @@ const assertOss710VisualBaseline = async (page, { mobile = false } = {}) => {
   const filing = await page.locator('.aad-preview-icp-footer').innerText();
   assert.match(filing, /粤ICP备2026082169号-1/u);
   assert.match(filing, /粤公网安备44030002014257号/u);
-  assert.doesNotMatch(filing, /深圳明日回声科技有限公司/u);
+  assert.match(filing, /© 2026 深圳明日回声科技有限公司/u);
+  assert.doesNotMatch(filing, /匿名访问统计/u);
+  // The copyright notice opens the About dialog, which carries the analytics disclosure.
+  await page.locator('.aad-preview-copyright-button').click();
+  const aboutDialog = page.getByRole('dialog', { name: 'MornDraft' });
+  await aboutDialog.waitFor({ state: 'visible' });
+  assert.match(await aboutDialog.innerText(), /百度统计|Baidu Analytics/u);
+  await page.keyboard.press('Escape');
+  await aboutDialog.waitFor({ state: 'hidden' });
 };
 
 const runFinalEditingFlow = async (page) => {
