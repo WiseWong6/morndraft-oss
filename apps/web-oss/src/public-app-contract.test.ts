@@ -151,6 +151,14 @@ test('OSS sitemap and robots stay crawlable with a dated sitemap', () => {
   assert.match(sitemap, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
 });
 
+test('OSS Baidu site verification file ships at the site root', () => {
+  const verifyFile = read('../../../public/baidu_verify_codeva-pSX2jJB9B0.html');
+  const manifest = read('../../../profiles/oss-public-distribution.json');
+
+  assert.match(verifyFile.trim(), /^59bf4485e422ffdedb38c6625cf39844$/);
+  assert.match(manifest, /"public\/baidu_verify_codeva-pSX2jJB9B0\.html"/);
+});
+
 test('OSS preview chrome matches the 7.10 toolbar contract', () => {
   const shell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
   const finalPreview = read('../../../components/public-desktop/PublicSharedFinalPreview.tsx');
