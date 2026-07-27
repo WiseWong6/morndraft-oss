@@ -1,7 +1,5 @@
 import React from 'react';
 import {
-  ANALYTICS_DISCLOSURE_DETAIL,
-  ANALYTICS_DISCLOSURE_SUMMARY,
   COPYRIGHT_NOTICE,
   ICP_FILING_NUMBER,
   ICP_FILING_URL,
@@ -9,11 +7,25 @@ import {
   PUBLIC_SECURITY_FILING_NUMBER,
 } from './publicCompliance';
 
-export const PublicComplianceFooter: React.FC = () => (
+type PublicComplianceFooterProps = {
+  onAboutOpen?(): void;
+};
+
+export const PublicComplianceFooter: React.FC<PublicComplianceFooterProps> = ({ onAboutOpen }) => (
   <footer className="aad-preview-icp-footer" aria-label="网站备案信息">
-    <span className="aad-preview-filing-item aad-preview-copyright-notice">
-      {COPYRIGHT_NOTICE}
-    </span>
+    {onAboutOpen ? (
+      <button
+        type="button"
+        className="aad-preview-filing-item aad-preview-copyright-notice aad-preview-copyright-button"
+        onClick={onAboutOpen}
+      >
+        {COPYRIGHT_NOTICE}
+      </button>
+    ) : (
+      <span className="aad-preview-filing-item aad-preview-copyright-notice">
+        {COPYRIGHT_NOTICE}
+      </span>
+    )}
     <span className="aad-preview-filing-item aad-preview-public-security-filing">
       <img
         className="aad-preview-public-security-icon"
@@ -33,9 +45,5 @@ export const PublicComplianceFooter: React.FC = () => (
     >
       {ICP_FILING_NUMBER}
     </a>
-    <details className="aad-preview-filing-item aad-preview-analytics-disclosure">
-      <summary>{ANALYTICS_DISCLOSURE_SUMMARY}</summary>
-      <span className="aad-preview-analytics-detail">{ANALYTICS_DISCLOSURE_DETAIL}</span>
-    </details>
   </footer>
 );
