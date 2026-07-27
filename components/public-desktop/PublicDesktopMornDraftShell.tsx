@@ -20,6 +20,7 @@ import { createPublicAllOpenDeliveryAccess } from '../preview/deliveryAccess';
 import { usePreviewDeliveryDisplayOptions } from '../preview/PreviewDeliveryDisplayControls';
 import { getPreviewTextSearchLabels } from '../preview/previewToolbarText';
 import { PublicComplianceFooter } from '../public-workspace/PublicComplianceFooter';
+import { COPYRIGHT_NOTICE } from '../public-workspace/publicCompliance';
 import { PublicDeliveryToolbar } from '../public-workspace/PublicDeliveryToolbar';
 import { PublicDialog } from '../public-workspace/PublicDialog';
 import '../public-workspace/public-workspace.css';
@@ -59,6 +60,7 @@ type PublicDesktopView = {
 
 const getLabels = (locale: Locale) => locale === 'zh'
   ? {
+      analyticsDisclosure: '本站接入百度统计，使用匿名访问统计以优化体验',
       desktopNotice: '建议在桌面端使用完整编辑体验。',
       final: 'Final',
       import: '本地导入',
@@ -67,6 +69,7 @@ const getLabels = (locale: Locale) => locale === 'zh'
       drop: '松开即可导入文件、文本或 URL',
     }
   : {
+      analyticsDisclosure: 'This site uses Baidu Analytics to collect anonymous visit statistics to improve the experience.',
       desktopNotice: 'For the full editing experience, open MornDraft on a desktop.',
       final: 'Final',
       import: 'Local import',
@@ -425,7 +428,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
         </header>
         <PreviewNavigationProvider value={{ enabledCapabilities: [], onRequestEditorLineFocus: requestDiagnosticLineFocus }}>
         <PublicSharedFinalPreview
-          complianceFooter={<PublicComplianceFooter />}
+          complianceFooter={<PublicComplianceFooter onAboutOpen={() => setIsAboutOpen(true)} />}
           deliveryAccess={deliveryAccess}
           deliveryDisplayOptions={deliveryDisplayOptions}
           diagnosticLineFocusRequest={diagnosticLineFocusRequest}
@@ -505,8 +508,8 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
             ))}
           </section>
           <section>
-            <h3>{t.about.usageTitle}</h3>
-            <p>{t.about.usage}</p>
+            <p>{labels.analyticsDisclosure}</p>
+            <p>{COPYRIGHT_NOTICE}</p>
           </section>
         </div>
         <footer className="md-public-about-footer">
