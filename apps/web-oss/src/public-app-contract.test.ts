@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -116,6 +116,50 @@ test('OSS shared shell keeps Source truth, local title derivation, delivery and 
   assert.match(filing, /粤ICP备2026082169号-1/);
   assert.match(filing, /粤公网安备44030002014257号/);
 });
+test('OSS entry page ships the static SEO layer', () => {
+  const page = read('../index.html');
+
+  // Crawlers must get real text without executing the SPA.
+  assert.match(page, /<h1 class="skeleton-brand">MornDraft<span>初稿<\/span><\/h1>/);
+  assert.match(page, /class="skeleton-tagline"/);
+  assert.match(page, /<noscript>[\s\S]*?<h1>MornDraft 初稿 - Agent 产物交付编辑器<\/h1>/);
+  assert.match(page, /<meta name="description" content="MornDraft 初稿是面向 Agent 产物的交付编辑器/);
+  assert.match(page, /<meta name="keywords" content="MornDraft,初稿,/);
+  assert.match(page, /<meta name="robots" content="index,follow"/);
+  assert.match(page, /<link rel="canonical" href="https:\/\/morndraft\.com\/" \/>/);
+  // Social cards.
+  assert.match(page, /<meta property="og:image" content="https:\/\/morndraft\.com\/og-cover\.png" \/>/);
+  assert.match(page, /<meta name="twitter:card" content="summary"/);
+  // Structured data.
+  assert.match(page, /<script type="application\/ld\+json">/);
+  assert.match(page, /"@type": "WebApplication"/);
+  assert.match(page, /"alternateName": "初稿"/);
+  assert.match(page, /深圳明日回声科技有限公司/);
+  // The skeleton keeps the loading visuals; the SEO layer must not remove them.
+  assert.match(page, /class="skeleton-app" aria-hidden="true"/);
+  assert.match(page, /class="skeleton-bar/);
+});
+
+// robots.txt and sitemap.xml are intentionally not part of the OSS export
+// manifest; production serves manually placed copies, so this contract only
+// runs where the files exist (the private repo).
+const sitemapUrl = new URL('../../../public/sitemap.xml', import.meta.url);
+const robotsUrl = new URL('../../../public/robots.txt', import.meta.url);
+const hasEdgeSeoFiles = existsSync(sitemapUrl) && existsSync(robotsUrl);
+
+test(
+  'OSS sitemap and robots stay crawlable with a dated sitemap',
+  { skip: hasEdgeSeoFiles ? false : 'public/robots.txt and public/sitemap.xml are not exported to the OSS candidate' },
+  () => {
+    const robots = readFileSync(robotsUrl, 'utf8');
+    const sitemap = readFileSync(sitemapUrl, 'utf8');
+
+    assert.match(robots, /User-agent: \*[\s\S]*?Allow: \//);
+    assert.match(robots, /Sitemap: https:\/\/morndraft\.com\/sitemap\.xml/);
+    assert.match(sitemap, /<loc>https:\/\/morndraft\.com\/<\/loc>/);
+    assert.match(sitemap, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
+  },
+);
 
 test('OSS preview chrome matches the 7.10 toolbar contract', () => {
   const shell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
@@ -123,7 +167,7 @@ test('OSS preview chrome matches the 7.10 toolbar contract', () => {
   const deliveryToolbar = read('../../../components/public-workspace/PublicDeliveryToolbar.tsx');
   const page = read('../index.html');
 
-  assert.match(page, /<title>明日回声-MornDraft<\/title>/);
+  assert.match(page, /<title>MornDraft 初稿 - Agent 产物交付编辑器（Markdown \/ Mermaid \/ HTML 预览导出）<\/title>/);
   assert.match(page, /class="skeleton-app"/);
   assert.match(page, /class="skeleton-final-pane"/);
   assert.doesNotMatch(page, /skeleton-source-pane/);
