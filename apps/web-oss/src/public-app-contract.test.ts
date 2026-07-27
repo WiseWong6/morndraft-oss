@@ -40,18 +40,23 @@ test('OSS entry mounts the shared desktop and Lexical Final chain with local-onl
   assert.doesNotMatch(`${publicApp}\n${adapters}\n${publicShell}\n${sharedFinal}`, /\/api\//);
 });
 
-test('OSS about dialog mirrors the commercial AboutModal structure and copy without QR', () => {
+test('OSS about dialog mirrors the commercial AboutModal structure without QR', () => {
   const publicShell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
   const workspaceCss = read('../../../components/public-workspace/public-workspace.css');
 
-  // Copy comes from the shared i18n `about` section, same as the commercial AboutModal.
+  // Title / intro / confirm copy comes from the shared i18n `about` section,
+  // same as the commercial AboutModal.
   assert.match(publicShell, /t\.about\.title/);
   assert.match(publicShell, /t\.about\.problemTitle/);
   assert.match(publicShell, /t\.about\.problems\.map/);
-  assert.match(publicShell, /t\.about\.usageTitle/);
-  assert.match(publicShell, /t\.about\.usage/);
   assert.match(publicShell, /t\.about\.confirm/);
   assert.match(publicShell, /aria-label=\{t\.about\.close\}/);
+  // The company-info block is replaced by the analytics disclosure and the
+  // copyright notice; the commercial usage copy stays out of OSS.
+  assert.doesNotMatch(publicShell, /t\.about\.usage/);
+  assert.match(publicShell, /analyticsDisclosure/);
+  assert.match(publicShell, /本站接入百度统计，使用匿名访问统计以优化体验/);
+  assert.match(publicShell, /\{COPYRIGHT_NOTICE\}/);
   // Structure: header + scrollable body + primary confirm footer.
   assert.match(publicShell, /md-public-about-header/);
   assert.match(publicShell, /md-public-about-body/);
@@ -99,9 +104,14 @@ test('OSS shared shell keeps Source truth, local title derivation, delivery and 
   assert.match(shell, /createLocalEditorImportImageAssetResolver/);
   assert.match(shell, /PublicDeliveryToolbar/);
   assert.match(finalPreview, /PreviewFormatToolbar/);
-  assert.match(shell, /complianceFooter=\{<PublicComplianceFooter \/>\}/);
+  assert.match(shell, /complianceFooter=\{<PublicComplianceFooter onAboutOpen=\{\(\) => setIsAboutOpen\(true\)\} \/>\}/);
   assert.match(finalPreview, /\{complianceFooter\}/);
   assert.match(compliance, /aria-label="网站备案信息"/);
+  // The copyright notice doubles as the About dialog trigger.
+  assert.match(compliance, /onAboutOpen\?\(\): void/);
+  assert.match(compliance, /aad-preview-copyright-button/);
+  // The analytics disclosure lives in the About dialog, not the page footer.
+  assert.doesNotMatch(compliance, /匿名访问统计|analytics-disclosure/);
   assert.doesNotMatch(compliance, /深圳明日回声科技有限公司/);
   assert.match(filing, /粤ICP备2026082169号-1/);
   assert.match(filing, /粤公网安备44030002014257号/);
