@@ -564,6 +564,12 @@
   color: var(--aad-text-strong);
 }
 
+/* OSS header action buttons (语法 / 更多 triggers) must stay regular weight;
+   the shared .aad-action-button defaults to 600. */
+.md-oss-shared-toolbar .aad-action-button {
+  font-weight: 400;
+}
+
 .md-public-menu > div {
   top: calc(100% + 8px);
   border-color: var(--aad-border);
