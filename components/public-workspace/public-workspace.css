@@ -521,7 +521,7 @@
   align-items: center;
   color: var(--aad-muted-strong);
   font-size: .78rem;
-  font-weight: 650;
+  font-weight: 400;
   line-height: 1;
 }
 
@@ -551,7 +551,7 @@
   background: transparent;
   color: var(--aad-muted-strong);
   font-size: .72rem;
-  font-weight: 650;
+  font-weight: 400;
   line-height: 1;
   white-space: nowrap;
 }
