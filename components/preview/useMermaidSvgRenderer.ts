@@ -12,10 +12,12 @@ type PreviewTheme = 'dark' | 'light';
 export const MERMAID_RENDER_REQUEST_EVENT = 'morndraft:mermaid-render-request';
 
 const MERMAID_CANVAS_BASE_WIDTH = 580;
-const MERMAID_DISPLAY_MAX_HEIGHT = 560;
 
 const makeMermaidRenderKey = (code: string, theme: PreviewTheme) => `${theme}\n${code}`;
 
+// Large diagrams must render at their natural width so node text stays
+// legible at 100% zoom; ZoomableWrapper provides horizontal scroll / pan
+// instead of shrinking the whole diagram into a fixed-height box.
 const getMermaidDisplayWidth = (code: string, svg: string) => {
   const fallbackWidth = Math.max(
     1,
@@ -31,13 +33,9 @@ const getMermaidDisplayWidth = (code: string, svg: string) => {
   if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part))) {
     return fallbackWidth;
   }
-  const [, , width, height] = parts;
-  if (width <= 0 || height <= 0) return fallbackWidth;
-  const projectedHeight = (fallbackWidth * height) / width;
-  if (projectedHeight <= MERMAID_DISPLAY_MAX_HEIGHT) {
-    return fallbackWidth;
-  }
-  return Math.max(1, Math.round((MERMAID_DISPLAY_MAX_HEIGHT * width) / height));
+  const [, , width] = parts;
+  if (width <= 0) return fallbackWidth;
+  return Math.max(fallbackWidth, Math.round(width));
 };
 
 export const useMermaidSvgRenderer = ({
