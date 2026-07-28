@@ -131,10 +131,13 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
     root: previewMetricsRoot,
   });
   const [renderDiagnostics, setRenderDiagnostics] = useState<readonly ArtifactDiagnostic[]>([]);
+  const handleRenderDiagnosticsChange = useCallback((next: readonly ArtifactDiagnostic[]) => {
+    setRenderDiagnostics(next);
+  }, []);
   const { updatePreviewDiagnostic } = usePreviewDiagnostics({
     resetKey: `${mode}:${documentEpoch}`,
     sourceKey: source,
-    onChange: (next) => setRenderDiagnostics(next),
+    onChange: handleRenderDiagnosticsChange,
   });
   const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
   const [diagnosticLineFocusRequest, setDiagnosticLineFocusRequest] = useState<{ line: number; requestId: number } | null>(null);

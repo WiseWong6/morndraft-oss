@@ -1200,6 +1200,10 @@ export const getMermaidConfig = (theme) => ({
   securityLevel: 'strict',
   suppressErrorRendering: true,
   fontFamily: FONT_FAMILY,
+  // Mermaid v11's flowchart labelHelper reads the top-level htmlLabels flag
+  // (flowchart.htmlLabels is ignored there); HTML labels are foreignObject
+  // nodes that our sanitizer strips, which would blank every node label.
+  htmlLabels: false,
   flowchart: {
     htmlLabels: false,
   },
