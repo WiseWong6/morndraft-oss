@@ -743,7 +743,7 @@
   color: var(--aad-muted-strong);
   cursor: pointer;
   font-size: 0.72rem;
-  font-weight: 650;
+  font-weight: 400;
   line-height: 1;
   padding-block: 0;
 }
