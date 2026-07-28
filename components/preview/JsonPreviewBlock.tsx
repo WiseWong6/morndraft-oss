@@ -98,7 +98,19 @@ export const JsonPreviewBlock: React.FC<{
         className="aad-json-block aad-json-error"
         copyRole="json-block"
         resetKey={`json-error:${code}`}
-        actions={extraActions}
+        actions={(
+          <>
+            {extraActions}
+            <DiagnosticFixAction
+              diagnostic={errorDiagnostic}
+              isAiFixBusy={isAiFixBusy}
+              onBeginFixReview={onBeginFixReview}
+              onRequestAiFix={onRequestAiFix}
+              repairMode={repairMode}
+              t={t}
+            />
+          </>
+        )}
         diagnostic={errorDiagnostic}
         isAiFixBusy={isAiFixBusy}
         onBeginFixReview={onBeginFixReview}

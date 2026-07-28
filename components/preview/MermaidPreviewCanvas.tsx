@@ -41,6 +41,62 @@ const MermaidPreviewCanvasImpl: React.FC<MermaidPreviewCanvasProps> = ({
   svgContent,
 }) => {
   const [isLightboxOpen, setIsLightboxOpen] = React.useState(false);
+  const canvasRef = React.useRef<HTMLDivElement | null>(null);
+  // Wide/tall diagrams render at natural size; the initial scroll position must
+  // target the drawn content (getBBox) rather than the viewBox origin, which
+  // can be empty whitespace for layouts with padded corners. The Final pane can
+  // be display:none when the SVG first renders (single-pane source/final
+  // switch), so re-apply once the container actually becomes visible.
+  React.useEffect(() => {
+    if (isMobilePreview || scale !== 1 || !svgContent) return undefined;
+    const canvas = canvasRef.current;
+    const container = canvas?.closest('.mermaid-container');
+    const svg = canvas?.querySelector('svg');
+    if (!canvas || !container || !svg) return undefined;
+    let wasHidden = container.clientWidth === 0;
+    const scrollToContent = () => {
+      try {
+        const svgRect = svg.getBoundingClientRect();
+        if (container.clientWidth <= 0 || svgRect.width <= 0) return;
+        // Anchor to the topmost drawn node: a full-bbox anchor can land on
+        // empty whitespace for L/J-shaped layouts (tall subgraphs on one side).
+        // Node <g> elements carry their own translate transforms, so measure
+        // viewport rects instead of transform-agnostic getBBox calls. All
+        // values stay in CSS pixels, matching the scrollTo coordinate space.
+        let anchor: { cx: number; top: number } | null = null;
+        for (const el of svg.querySelectorAll('g.node, g.cluster')) {
+          const r = el.getBoundingClientRect();
+          if (r.width <= 0 && r.height <= 0) continue;
+          if (!anchor || r.top < anchor.top) {
+            anchor = { cx: r.x + r.width / 2, top: r.top };
+          }
+        }
+        if (!anchor) return;
+        container.scrollTo({
+          left: Math.max(0, anchor.cx - svgRect.x - container.clientWidth / 2),
+          top: Math.max(0, anchor.top - svgRect.y - 24),
+        });
+      } catch {
+        // Measurement is unavailable for detached SVG; keep the default position.
+      }
+    };
+    const frame = window.requestAnimationFrame(scrollToContent);
+    const observer = new ResizeObserver(() => {
+      const isHidden = container.clientWidth === 0;
+      if (wasHidden && !isHidden) {
+        wasHidden = false;
+        window.requestAnimationFrame(scrollToContent);
+        observer.disconnect();
+        return;
+      }
+      wasHidden = isHidden;
+    });
+    observer.observe(container);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [isMobilePreview, scale, svgContent]);
   const mobileMetrics = React.useMemo(
     () => getSvgViewBoxMetrics(svgContent),
     [svgContent],
@@ -78,9 +134,10 @@ const MermaidPreviewCanvasImpl: React.FC<MermaidPreviewCanvasProps> = ({
     </div>
   ) : (
     <div
+      ref={canvasRef}
       className="mermaid-diagram-canvas"
       data-mobile-mermaid-fit={isMobilePreview ? 'height' : undefined}
-      style={{ width: isMobilePreview ? undefined : `${canvasWidth}px` }}
+      style={{ width: isMobilePreview ? undefined : `min(100%, ${canvasWidth}px)` }}
       dangerouslySetInnerHTML={{ __html: svgContent }}
     />
   );

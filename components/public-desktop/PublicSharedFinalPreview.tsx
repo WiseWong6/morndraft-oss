@@ -65,6 +65,7 @@ import {
 } from '../preview/previewDiagnosticLineNavigation';
 import { usePreviewMarkdownEditing } from '../preview/usePreviewMarkdownEditing';
 import { usePreviewMarkdownImageInsertion } from '../preview/usePreviewMarkdownImageInsertion';
+import { useAutoDismissDeliveryNotice } from '../preview/useAutoDismissDeliveryNotice';
 import type {
   ArtifactAppliedFix,
   ArtifactFixReview,
@@ -140,6 +141,7 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
   const latestSourceRef = useRef(source);
   const [deliveryNotice, setDeliveryNotice] = useState<DeliveryNotice | null>(null);
   latestSourceRef.current = source;
+  useAutoDismissDeliveryNotice(deliveryNotice, setDeliveryNotice);
 
   const handlePreviewScroll = useCallback(() => {
     setIsBackToTopVisible((scrollContainerRef.current?.scrollTop ?? 0) > 480);

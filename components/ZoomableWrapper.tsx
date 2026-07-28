@@ -209,7 +209,14 @@ const ZoomableWrapper: React.FC<ZoomableWrapperProps> = ({ children, className =
       style={{
         alignItems: shouldCenterFittedContent ? 'center' : 'flex-start',
         cursor: isPanning ? 'grabbing' : isUserPannable ? 'grab' : 'default',
-        justifyContent: isUserPannable ? 'flex-start' : shouldCenterFittedContent ? 'center' : undefined,
+        // Flex centering makes horizontally overflowing content unreachable on
+        // the left side (negative scroll range); fall back to start alignment
+        // once the content is wider than the viewport so it stays scrollable.
+        justifyContent: isUserPannable || (fitMode === 'none' && naturalSize.width > viewportSize.width + 1)
+          ? 'flex-start'
+          : shouldCenterFittedContent
+            ? 'center'
+            : undefined,
         maxHeight: isUserPannable ? maxPanHeight : undefined,
         overscrollBehavior: isUserPannable ? 'contain' : undefined,
       }}
