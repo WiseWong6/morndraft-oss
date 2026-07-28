@@ -362,5 +362,8 @@ export const getPublicMermaidConfig = (theme: PublicWorkspaceTheme) => ({
   securityLevel: 'strict' as const,
   suppressErrorRendering: true,
   theme: theme === 'dark' ? 'dark' as const : 'default' as const,
+  // Mermaid v11's flowchart labelHelper reads the top-level htmlLabels flag;
+  // HTML labels are foreignObject nodes that the sanitizer above strips.
+  htmlLabels: false,
   flowchart: { htmlLabels: false },
 });
