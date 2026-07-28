@@ -121,7 +121,7 @@ test('OSS entry page ships the static SEO layer', () => {
 
   // Crawlers must get real text without executing the SPA.
   assert.match(page, /<h1 class="skeleton-brand">MornDraft<span>初稿<\/span><\/h1>/);
-  assert.match(page, /class="skeleton-tagline"/);
+  assert.doesNotMatch(page, /skeleton-tagline/);
   assert.match(page, /<noscript>[\s\S]*?<h1>MornDraft 初稿 - Agent 产物交付编辑器<\/h1>/);
   assert.match(page, /<meta name="description" content="MornDraft 初稿是面向 Agent 产物的交付编辑器/);
   assert.match(page, /<meta name="keywords" content="MornDraft,初稿,/);
