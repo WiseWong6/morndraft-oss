@@ -31,7 +31,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      - run: npm audit --audit-level=high --omit=dev
+      - run: npm audit --audit-level=high
 
   build:
     runs-on: ubuntu-latest
