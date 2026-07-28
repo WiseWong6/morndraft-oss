@@ -25,6 +25,16 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'off',
+      // eslint-plugin-react-hooks v7 ships compiler-powered rules that fire on
+      // hundreds of pre-existing call sites. They are deferred as a group so
+      // the eslint 10 upgrade stays behavior-parity with v5; enable them
+      // incrementally in dedicated cleanups.
+      'react-hooks/refs': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/preserve-manual-memoization': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/error-boundaries': 'off',
+      'react-hooks/use-memo': 'off',
     },
   },
   eslintConfigPrettier,

@@ -17,9 +17,9 @@ This file lists the exact direct dependency versions kept in the generated publi
 | `@vitejs/plugin-react` | 5.2.0 | MIT |
 | `entities` | 6.0.1 | BSD-2-Clause |
 | `esbuild` | 0.25.12 | MIT |
-| `eslint` | 9.39.4 | MIT |
+| `eslint` | 10.8.0 | MIT |
 | `eslint-config-prettier` | 10.1.8 | MIT |
-| `eslint-plugin-react-hooks` | 5.2.0 | MIT |
+| `eslint-plugin-react-hooks` | 7.1.1 | MIT |
 | `html2canvas` | 1.4.1 | MIT |
 | `json5` | 2.2.3 | MIT |
 | `lexical` | 0.45.0 | MIT |
