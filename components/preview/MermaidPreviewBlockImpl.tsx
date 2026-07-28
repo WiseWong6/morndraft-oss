@@ -17,6 +17,7 @@ import { normalizeMermaidSourceForRender } from '../../utils/mermaid-source.js';
 import type { ArtifactPreviewTranslations } from '../../i18n';
 import type { ArtifactDiagnostic } from './MarkdownCodeBlockRenderer';
 import { ArtifactErrorBlock } from './ArtifactErrorBlock';
+import { DiagnosticFixAction } from './DiagnosticFixAction';
 import { CollapsibleArtifactBlock } from './CollapsibleArtifactBlock';
 import { BlockHeaderCopyAction } from './BlockHeaderCopyAction';
 import { MermaidPreviewCanvas } from './MermaidPreviewCanvas';
@@ -193,6 +194,16 @@ export const MermaidPreviewBlock: React.FC<{
         onBeginFixReview={onBeginFixReview}
         onRequestAiFix={onRequestAiFix}
         repairMode={repairMode}
+        actions={(
+          <DiagnosticFixAction
+            diagnostic={blockingDiagnostic}
+            isAiFixBusy={isAiFixBusy}
+            onBeginFixReview={onBeginFixReview}
+            onRequestAiFix={onRequestAiFix}
+            repairMode={repairMode}
+            t={t}
+          />
+        )}
         canEditSource={sourceEditSupported}
         sourceCode={code}
         sourceLanguage="mermaid"
