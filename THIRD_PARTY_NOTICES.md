@@ -24,7 +24,7 @@ This file lists the exact direct dependency versions kept in the generated publi
 | `json5` | 2.2.3 | MIT |
 | `lexical` | 0.45.0 | MIT |
 | `lucide-react` | 0.561.0 | ISC |
-| `mermaid` | 11.15.0 | MIT |
+| `mermaid` | 11.16.1 | MIT |
 | `micromark` | 4.0.2 | MIT |
 | `micromark-util-decode-string` | 2.0.1 | MIT |
 | `modern-screenshot` | 4.7.0 | MIT |
