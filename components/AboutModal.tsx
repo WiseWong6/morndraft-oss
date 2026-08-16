@@ -155,7 +155,7 @@ const AboutModal: React.FC<AboutModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="w-full px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+            className="morndraft-about-confirm w-full px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
           >
             {t.confirm}
           </button>

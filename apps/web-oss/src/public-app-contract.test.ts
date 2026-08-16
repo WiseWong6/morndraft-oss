@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -43,6 +43,7 @@ test('OSS entry mounts the shared desktop and Lexical Final chain with local-onl
 test('OSS about dialog restores the commercial AboutModal structure with support QR', () => {
   const publicShell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
   const aboutModal = read('../../../components/AboutModal.tsx');
+  const releaseCss = read('./release.css');
 
   assert.match(publicShell, /<AboutModal/);
   assert.match(publicShell, /showEnterpriseInfo=\{releaseConfig\.showAboutEnterpriseInfo\}/);
@@ -52,6 +53,8 @@ test('OSS about dialog restores the commercial AboutModal structure with support
   assert.match(aboutModal, /t\.problemTitle/);
   assert.match(aboutModal, /t\.problems\.map/);
   assert.match(aboutModal, /t\.confirm/);
+  assert.match(aboutModal, /morndraft-about-confirm/);
+  assert.match(releaseCss, /\.morndraft-about-confirm\s*\{[\s\S]*?color:\s*#fff/);
   assert.match(aboutModal, /aria-label=\{t\.close\}/);
   assert.match(aboutModal, /reward\.jpg/);
   assert.match(aboutModal, /qrcode\.jpg/);
@@ -134,7 +137,7 @@ test('OSS entry page ships the static SEO layer', () => {
   assert.match(page, /<meta name="keywords" content="MornDraft,初稿,/);
   assert.doesNotMatch(page, /ICP备|公安网安备|公网安备/);
   assert.match(page, /<meta name="robots" content="index,follow"/);
-  assert.match(page, /<meta name="baidu-site-verification" content="codeva-VRKwGwEWRA" \/>/);
+  assert.doesNotMatch(page, /baidu[_-](?:union|site|verify)|hm\.baidu\.com|_hmt/i);
   assert.match(page, /<link rel="canonical" href="https:\/\/morndraft\.com\/" \/>/);
   // Social cards.
   assert.match(page, /<meta property="og:image" content="https:\/\/morndraft\.com\/og-cover\.png" \/>/);
@@ -159,12 +162,13 @@ test('OSS sitemap and robots stay crawlable with a dated sitemap', () => {
   assert.match(sitemap, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
 });
 
-test('OSS Baidu site verification file ships at the site root', () => {
-  const verifyFile = read('../../../public/baidu_verify_codeva-pSX2jJB9B0.html');
+test('OSS release does not ship Baidu analytics or verification remnants', () => {
+  const page = read('../index.html');
   const manifest = read('../../../profiles/oss-public-distribution.json');
 
-  assert.match(verifyFile.trim(), /^59bf4485e422ffdedb38c6625cf39844$/);
-  assert.match(manifest, /"public\/baidu_verify_codeva-pSX2jJB9B0\.html"/);
+  assert.doesNotMatch(page, /baidu[_-](?:union|site|verify)|hm\.baidu\.com|_hmt/i);
+  assert.doesNotMatch(manifest, /baidu_verify_codeva/i);
+  assert.equal(existsSync(new URL('../../../public/baidu_verify_codeva-pSX2jJB9B0.html', import.meta.url)), false);
 });
 
 test('OSS preview chrome matches the 7.10 toolbar contract', () => {
@@ -173,7 +177,7 @@ test('OSS preview chrome matches the 7.10 toolbar contract', () => {
   const deliveryToolbar = read('../../../components/public-workspace/PublicDeliveryToolbar.tsx');
   const page = read('../index.html');
 
-  assert.match(page, /<title>MornDraft 初稿 - Agent 产物交付编辑器（Markdown \/ Mermaid \/ HTML 预览导出）<\/title>/);
+  assert.match(page, /<title>初稿-Morndraft<\/title>/);
   assert.match(page, /class="skeleton-app"/);
   assert.match(page, /class="skeleton-final-pane"/);
   assert.doesNotMatch(page, /skeleton-source-pane/);

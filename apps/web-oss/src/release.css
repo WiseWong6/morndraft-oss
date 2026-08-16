@@ -68,6 +68,10 @@ textarea {
   font: inherit;
 }
 
+.morndraft-about-confirm {
+  color: #fff;
+}
+
 button:focus-visible,
 select:focus-visible,
 input:focus-visible,

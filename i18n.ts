@@ -807,7 +807,7 @@ export const getInitialLocale = (
 export const TRANSLATIONS = {
   zh: {
     appTitle: '明日回声-MornDraft',
-    documentTitle: '明日回声-MornDraft',
+    documentTitle: '初稿-Morndraft',
     tagline: '',
     back: '返回',
     backHome: '返回主站',
@@ -1543,7 +1543,7 @@ export const TRANSLATIONS = {
   },
   en: {
     appTitle: 'MornDraft',
-    documentTitle: 'MornDraft',
+    documentTitle: '初稿-Morndraft',
     tagline: '',
     back: 'Back',
     backHome: 'Back home',
