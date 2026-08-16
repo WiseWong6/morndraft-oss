@@ -40,35 +40,42 @@ test('OSS entry mounts the shared desktop and Lexical Final chain with local-onl
   assert.doesNotMatch(`${publicApp}\n${adapters}\n${publicShell}\n${sharedFinal}`, /\/api\//);
 });
 
-test('OSS about dialog mirrors the commercial AboutModal structure without QR', () => {
+test('OSS about dialog restores the commercial AboutModal structure with support QR', () => {
+  const publicShell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
+  const aboutModal = read('../../../components/AboutModal.tsx');
+
+  assert.match(publicShell, /<AboutModal/);
+  assert.match(publicShell, /showEnterpriseInfo=\{releaseConfig\.showAboutEnterpriseInfo\}/);
+  assert.match(publicShell, /showSupportQr=\{releaseConfig\.showAboutSupportQr\}/);
+  assert.match(publicShell, /t=\{t\.about\}/);
+  assert.doesNotMatch(publicShell, /analyticsDisclosure|COPYRIGHT_NOTICE/);
+  assert.match(aboutModal, /t\.problemTitle/);
+  assert.match(aboutModal, /t\.problems\.map/);
+  assert.match(aboutModal, /t\.confirm/);
+  assert.match(aboutModal, /aria-label=\{t\.close\}/);
+  assert.match(aboutModal, /reward\.jpg/);
+  assert.match(aboutModal, /qrcode\.jpg/);
+  assert.match(aboutModal, /t\.coffeeTitle/);
+  assert.match(aboutModal, /t\.followTitle/);
+  assert.match(aboutModal, /resolveMornDraftStaticAssetUrl/);
+  assert.match(aboutModal, /event\.key === 'Escape'/);
+  assert.match(aboutModal, /onClick=\{onClose\}/);
+  assert.match(aboutModal, /role="dialog"/);
+  assert.match(aboutModal, /aria-modal="true"/);
+});
+
+test('OSS toolbar exposes a direct, localized home link before the MornDraft wordmark', () => {
   const publicShell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
   const workspaceCss = read('../../../components/public-workspace/public-workspace.css');
 
-  // Title / intro / confirm copy comes from the shared i18n `about` section,
-  // same as the commercial AboutModal.
-  assert.match(publicShell, /t\.about\.title/);
-  assert.match(publicShell, /t\.about\.problemTitle/);
-  assert.match(publicShell, /t\.about\.problems\.map/);
-  assert.match(publicShell, /t\.about\.confirm/);
-  assert.match(publicShell, /aria-label=\{t\.about\.close\}/);
-  // The company-info block is replaced by the analytics disclosure and the
-  // copyright notice; the commercial usage copy stays out of OSS.
-  assert.doesNotMatch(publicShell, /t\.about\.usage/);
-  assert.match(publicShell, /analyticsDisclosure/);
-  assert.match(publicShell, /本站接入百度统计，使用匿名访问统计以优化体验/);
-  assert.match(publicShell, /\{COPYRIGHT_NOTICE\}/);
-  // Structure: header + scrollable body + primary confirm footer.
-  assert.match(publicShell, /md-public-about-header/);
-  assert.match(publicShell, /md-public-about-body/);
-  assert.match(publicShell, /md-public-about-footer/);
-  assert.match(publicShell, /md-public-about-confirm/);
-  // OSS never ships the sponsor / follow QR section.
-  assert.doesNotMatch(publicShell, /reward\.jpg|qrcode\.jpg|coffeeTitle|followTitle/);
-  assert.match(workspaceCss, /\.md-public-about-dialog/);
-  assert.match(workspaceCss, /\.md-public-about-header/);
-  assert.match(workspaceCss, /\.md-public-about-body/);
-  assert.match(workspaceCss, /\.md-public-about-footer/);
-  assert.match(workspaceCss, /\.md-public-about-confirm/);
+  assert.match(publicShell, /className="md-public-home-link"/);
+  assert.match(publicShell, /href="\/"/);
+  assert.match(publicShell, /返回 Wise Wong 主站/);
+  assert.match(publicShell, /Back to Wise Wong home/);
+  assert.match(publicShell, /<House size=\{16\}/);
+  assert.match(publicShell, /md-public-home-link[\s\S]*WorkspaceBrandMark/);
+  assert.doesNotMatch(publicShell, /history\.(?:back|go)/);
+  assert.match(workspaceCss, /\.md-public-home-link/);
 });
 
 test('OSS release App gives the shared workspace a definite viewport height', () => {
