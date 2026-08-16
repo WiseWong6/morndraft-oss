@@ -9,6 +9,11 @@ import {
 import { detectPublicDocument, normalizePublicFenceLanguage } from '../../../components/public-workspace/publicDocument';
 
 const read = (relativePath: string) => readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+const removedTrackingOrVerificationPattern = new RegExp([
+  ['hm', 'baidu', 'com'].join('\\.'),
+  ['_', 'hmt'].join(''),
+  ['baidu', '[_-](?:union|site|verify)'].join(''),
+].join('|'), 'i');
 
 test('OSS entry mounts the shared desktop and Lexical Final chain with local-only adapters', () => {
   const entry = read('./index.ts');
@@ -137,7 +142,7 @@ test('OSS entry page ships the static SEO layer', () => {
   assert.match(page, /<meta name="keywords" content="MornDraft,初稿,/);
   assert.doesNotMatch(page, /ICP备|公安网安备|公网安备/);
   assert.match(page, /<meta name="robots" content="index,follow"/);
-  assert.doesNotMatch(page, /baidu[_-](?:union|site|verify)|hm\.baidu\.com|_hmt/i);
+  assert.doesNotMatch(page, removedTrackingOrVerificationPattern);
   assert.match(page, /<link rel="canonical" href="https:\/\/morndraft\.com\/" \/>/);
   // Social cards.
   assert.match(page, /<meta property="og:image" content="https:\/\/morndraft\.com\/og-cover\.png" \/>/);
@@ -166,7 +171,7 @@ test('OSS release does not ship Baidu analytics or verification remnants', () =>
   const page = read('../index.html');
   const manifest = read('../../../profiles/oss-public-distribution.json');
 
-  assert.doesNotMatch(page, /baidu[_-](?:union|site|verify)|hm\.baidu\.com|_hmt/i);
+  assert.doesNotMatch(page, removedTrackingOrVerificationPattern);
   assert.doesNotMatch(manifest, /baidu_verify_codeva/i);
   assert.equal(existsSync(new URL('../../../public/baidu_verify_codeva-pSX2jJB9B0.html', import.meta.url)), false);
 });
