@@ -91,12 +91,12 @@ test('OSS browser AI stays direct, role-based, local, and opt-in', () => {
   assert.doesNotMatch(`${publicApp}\n${adapters}\n${client}\n${config}`, /MornDraft API|\/api\/ai|usageLedger/);
 });
 
-test('OSS shared shell keeps Source truth, local title derivation, delivery and filing', () => {
+test('OSS shared shell keeps Source truth, local title derivation, delivery and copyright footer', () => {
   const publicApp = read('./PublicAppImpl.tsx');
   const shell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
   const finalPreview = read('../../../components/public-desktop/PublicSharedFinalPreview.tsx');
   const compliance = read('../../../components/public-workspace/PublicComplianceFooter.tsx');
-  const filing = read('../../../components/public-workspace/publicCompliance.ts');
+  const complianceText = read('../../../components/public-workspace/publicCompliance.ts');
 
   assert.match(publicApp, /const \[source, setSource\]/);
   assert.match(publicApp, /derivePublicImportedDocumentTitle\(source, locale, importedFileTitle\)/);
@@ -106,15 +106,15 @@ test('OSS shared shell keeps Source truth, local title derivation, delivery and 
   assert.match(finalPreview, /PreviewFormatToolbar/);
   assert.match(shell, /complianceFooter=\{<PublicComplianceFooter onAboutOpen=\{\(\) => setIsAboutOpen\(true\)\} \/>\}/);
   assert.match(finalPreview, /\{complianceFooter\}/);
-  assert.match(compliance, /aria-label="网站备案信息"/);
+  assert.match(compliance, /aria-label="MornDraft 版权信息"/);
   // The copyright notice doubles as the About dialog trigger.
   assert.match(compliance, /onAboutOpen\?\(\): void/);
   assert.match(compliance, /aad-preview-copyright-button/);
   // The analytics disclosure lives in the About dialog, not the page footer.
   assert.doesNotMatch(compliance, /匿名访问统计|analytics-disclosure/);
   assert.doesNotMatch(compliance, /深圳明日回声科技有限公司/);
-  assert.match(filing, /粤ICP备2026082169号-1/);
-  assert.match(filing, /粤公网安备44030002014257号/);
+  assert.doesNotMatch(`${compliance}\n${complianceText}`, /ICP备|公安网安备|公网安备/);
+  assert.match(complianceText, /© 2026 深圳明日回声科技有限公司/);
 });
 test('OSS entry page ships the static SEO layer', () => {
   const page = read('../index.html');
@@ -125,6 +125,7 @@ test('OSS entry page ships the static SEO layer', () => {
   assert.match(page, /<noscript>[\s\S]*?<h1>MornDraft 初稿 - Agent 产物交付编辑器<\/h1>/);
   assert.match(page, /<meta name="description" content="MornDraft 初稿是面向 Agent 产物的交付编辑器/);
   assert.match(page, /<meta name="keywords" content="MornDraft,初稿,/);
+  assert.doesNotMatch(page, /ICP备|公安网安备|公网安备/);
   assert.match(page, /<meta name="robots" content="index,follow"/);
   assert.match(page, /<meta name="baidu-site-verification" content="codeva-VRKwGwEWRA" \/>/);
   assert.match(page, /<link rel="canonical" href="https:\/\/morndraft\.com\/" \/>/);
