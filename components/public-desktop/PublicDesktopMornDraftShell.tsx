@@ -1,5 +1,5 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Code2, FileCheck, X } from 'lucide-react';
+import { Code2, FileCheck, House } from 'lucide-react';
 import { TextSearchControl, type TextSearchState } from '@morndraft/features-personal';
 import { TRANSLATIONS, getSampleEntries, loadSampleSource, type Locale, type SampleKey } from '../../i18n';
 import type { OssReleaseAdapters } from '../../apps/web-oss/src/releaseAdapters';
@@ -7,6 +7,7 @@ import { useArtifactDocumentAnalysis } from '../../hooks/useArtifactDocumentAnal
 import { usePreviewSourcePatchEcho } from '../../hooks/usePreviewSourcePatchEcho';
 import type { MornDraftReleaseConfig } from '../../utils/releaseConfigTypes';
 import Editor from '../Editor';
+import AboutModal from '../AboutModal';
 import { OssMoreMenu } from '../OssMoreMenu';
 import { OssSyntaxSamplesMenu } from '../OssSyntaxSamplesMenu';
 import { WorkspaceBrandMark } from '../WorkspaceBrandMark';
@@ -20,9 +21,7 @@ import { createPublicAllOpenDeliveryAccess } from '../preview/deliveryAccess';
 import { usePreviewDeliveryDisplayOptions } from '../preview/PreviewDeliveryDisplayControls';
 import { getPreviewTextSearchLabels } from '../preview/previewToolbarText';
 import { PublicComplianceFooter } from '../public-workspace/PublicComplianceFooter';
-import { COPYRIGHT_NOTICE } from '../public-workspace/publicCompliance';
 import { PublicDeliveryToolbar } from '../public-workspace/PublicDeliveryToolbar';
-import { PublicDialog } from '../public-workspace/PublicDialog';
 import '../public-workspace/public-workspace.css';
 import { TextMetricsInline } from '../TextMetricsInline';
 import { DiagnosticConsoleButton } from '../DiagnosticConsoleButton';
@@ -60,7 +59,6 @@ type PublicDesktopView = {
 
 const getLabels = (locale: Locale) => locale === 'zh'
   ? {
-      analyticsDisclosure: '本站接入百度统计，使用匿名访问统计以优化体验',
       desktopNotice: '建议在桌面端使用完整编辑体验。',
       final: 'Final',
       import: '本地导入',
@@ -69,7 +67,6 @@ const getLabels = (locale: Locale) => locale === 'zh'
       drop: '松开即可导入文件、文本或 URL',
     }
   : {
-      analyticsDisclosure: 'This site uses Baidu Analytics to collect anonymous visit statistics to improve the experience.',
       desktopNotice: 'For the full editing experience, open MornDraft on a desktop.',
       final: 'Final',
       import: 'Local import',
@@ -274,7 +271,17 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
       });
   }, [locale, onDocumentImport, releaseConfig.mornDraftComponentScope]);
   const brandSlot = (
-    <WorkspaceBrandMark isDarkTheme={theme === 'dark'} />
+    <div className="md-public-brand-slot">
+      <a
+        className="md-public-home-link"
+        href="/"
+        aria-label={locale === 'zh' ? '返回 Wise Wong 主站' : 'Back to Wise Wong home'}
+        title={locale === 'zh' ? '返回 Wise Wong 主站' : 'Back to Wise Wong home'}
+      >
+        <House size={16} aria-hidden="true" />
+      </a>
+      <WorkspaceBrandMark isDarkTheme={theme === 'dark'} />
+    </div>
   );
   const handleEnterSourceMode = useCallback(() => {
     const line = finalCursorLineRef.current;
@@ -486,46 +493,13 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
           />
         )}
       </div>
-      <PublicDialog
-        className="md-public-about-dialog"
+      <AboutModal
         isOpen={isAboutOpen}
-        labelledBy="oss-about-title"
         onClose={() => setIsAboutOpen(false)}
-      >
-        <header className="md-public-about-header">
-          <h2 id="oss-about-title">{t.about.title}</h2>
-          <button
-            type="button"
-            className="md-public-about-close"
-            aria-label={t.about.close}
-            onClick={() => setIsAboutOpen(false)}
-          >
-            <X size={16} />
-          </button>
-        </header>
-        <div className="md-public-about-body">
-          <section>
-            {t.about.problemTitle && <h3>{t.about.problemTitle}</h3>}
-            {t.about.problems.map((problem) => (
-              <p key={problem}>{problem}</p>
-            ))}
-          </section>
-          <section>
-            <p>{labels.analyticsDisclosure}</p>
-            <p>{COPYRIGHT_NOTICE}</p>
-          </section>
-        </div>
-        <footer className="md-public-about-footer">
-          <button
-            type="button"
-            className="md-public-about-confirm"
-            data-public-dialog-initial-focus
-            onClick={() => setIsAboutOpen(false)}
-          >
-            {t.about.confirm}
-          </button>
-        </footer>
-      </PublicDialog>
+        showEnterpriseInfo={releaseConfig.showAboutEnterpriseInfo}
+        showSupportQr={releaseConfig.showAboutSupportQr}
+        t={t.about}
+      />
     </main>
   );
 };
