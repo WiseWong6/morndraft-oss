@@ -86,6 +86,17 @@ test('OSS toolbar exposes a direct, localized home link before the MornDraft wor
   assert.match(workspaceCss, /\.md-public-home-link/);
 });
 
+test('OSS More menu links directly to the public GitHub repository', () => {
+  const moreMenu = read('../../../components/OssMoreMenu.tsx');
+
+  assert.match(moreMenu, /https:\/\/github\.com\/WiseWong6\/morndraft-oss/);
+  assert.match(moreMenu, /<Github size=\{14\}/);
+  assert.match(moreMenu, /href=\{OSS_REPOSITORY_URL\}/);
+  assert.match(moreMenu, /target="_blank"/);
+  assert.match(moreMenu, /rel="noopener noreferrer"/);
+  assert.doesNotMatch(moreMenu, /github\.com\/WiseWong6\/morndraft-oss\/pull\//);
+});
+
 test('OSS release App gives the shared workspace a definite viewport height', () => {
   const styles = read('./release.css');
   assert.match(styles, /\.oss-app\s*\{[\s\S]*?height:\s*100vh;[\s\S]*?height:\s*100dvh;/u);
