@@ -28,6 +28,12 @@ MORNDRAFT_BUILD_PRESET=oss-full npm run check:public-surface
 npm run test:e2e:oss
 ```
 
+To build the static client below a site subpath, set the public base explicitly:
+
+```bash
+MORNDRAFT_PUBLIC_BASE=/morndraft/ npm run build:oss
+```
+
 ## Security
 
 Use GitHub Security Advisories for private vulnerability reports. Do not post secrets or private draft content in public issues.

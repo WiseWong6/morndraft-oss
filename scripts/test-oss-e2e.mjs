@@ -1414,8 +1414,7 @@ const assertOss710VisualBaseline = async (page, { mobile = false } = {}) => {
     assert.ok(Math.abs(geometry.surface.width - 794) <= 1, `Desktop A4 paper width drifted to ${geometry.surface.width}px.`);
   }
   const filing = await page.locator('.aad-preview-icp-footer').innerText();
-  assert.match(filing, /[已移除]/u);
-  assert.match(filing, /[已移除]/u);
+  assert.doesNotMatch(filing, /ICP备|公安网安备|公网安备/u);
   assert.match(filing, /© 2026 Wise Wong/u);
   assert.doesNotMatch(filing, /匿名访问统计/u);
   // The copyright notice opens the About dialog, which carries the analytics disclosure.

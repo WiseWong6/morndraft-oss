@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   CheckCircle2,
   ChevronDown,
+  Github,
   Globe,
   Info,
   Palette,
@@ -49,6 +50,7 @@ type MoreMenuPosition = {
 
 const AI_MODEL_ROLES = ['generate', 'modify', 'summarize'] satisfies OssAiModelRole[];
 const MORE_MENU_SIDE_MARGIN_PX = 8;
+const OSS_REPOSITORY_URL = 'https://github.com/WiseWong6/morndraft-oss';
 
 const cloneDefaultOssAiConfig = (): OssAiConfig => ({
   ...DEFAULT_OSS_AI_CONFIG,
@@ -80,6 +82,7 @@ const getMoreLabels = (locale: Locale) => {
     clear: zh ? '清除' : 'Clear',
     close: zh ? '关闭' : 'Close',
     deepSeekPreset: zh ? '使用 DeepSeek 预设' : 'Use DeepSeek preset',
+    github: 'GitHub',
     invalidUrl: zh ? 'Base URL 必须使用 HTTPS；仅 localhost 可使用 HTTP。' : 'Base URL must use HTTPS; only localhost may use HTTP.',
     required: zh ? '请填写 Base URL、API Key 和三个模型。' : 'Enter a Base URL, API Key, and all three models.',
     storage: zh ? '浏览器拒绝保存设置，请允许本页面使用本地存储后重试。' : 'The browser blocked settings storage. Allow site storage and try again.',
@@ -353,6 +356,18 @@ export const OssMoreMenu: React.FC<OssMoreMenuProps> = ({
           <Info size={14} aria-hidden="true" />
           <span>{labels.about}</span>
         </button>
+        <a
+          className="aad-toolbar-menu-item aad-oss-more-row"
+          href={OSS_REPOSITORY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          role="menuitem"
+          aria-label={labels.github}
+          onClick={closeMenu}
+        >
+          <Github size={14} aria-hidden="true" />
+          <span>{labels.github}</span>
+        </a>
         <button
           type="button"
           className="aad-toolbar-menu-item aad-oss-more-row"
