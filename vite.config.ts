@@ -6,6 +6,7 @@ import { resolveBuildConfig } from './scripts/build-config.mjs';
 import { createOssBundleBudgetPlugin, resolveOssManualChunk } from './scripts/oss-bundle-budget.mjs';
 
 const buildConfig = resolveBuildConfig({ projectDir: __dirname, env: process.env });
+const publicBase = process.env.MORNDRAFT_PUBLIC_BASE || '/';
 const buildProfileArtifact = {
   schemaVersion: 1,
   buildPreset: buildConfig.buildPreset,
@@ -66,7 +67,7 @@ const sanitizePublicSurfaceSource = (source) => publicSurfaceReplacements.reduce
 );
 
 export default defineConfig({
-  base: '/',
+  base: publicBase,
   plugins: [
     react(),
     {

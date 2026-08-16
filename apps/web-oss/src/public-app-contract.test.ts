@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -9,6 +9,11 @@ import {
 import { detectPublicDocument, normalizePublicFenceLanguage } from '../../../components/public-workspace/publicDocument';
 
 const read = (relativePath: string) => readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+const removedTrackingOrVerificationPattern = new RegExp([
+  ['hm', 'baidu', 'com'].join('\\.'),
+  ['_', 'hmt'].join(''),
+  ['baidu', '[_-](?:union|site|verify)'].join(''),
+].join('|'), 'i');
 
 test('OSS entry mounts the shared desktop and Lexical Final chain with local-only adapters', () => {
   const entry = read('./index.ts');
@@ -40,35 +45,56 @@ test('OSS entry mounts the shared desktop and Lexical Final chain with local-onl
   assert.doesNotMatch(`${publicApp}\n${adapters}\n${publicShell}\n${sharedFinal}`, /\/api\//);
 });
 
-test('OSS about dialog mirrors the commercial AboutModal structure without QR', () => {
+test('OSS about dialog restores the commercial AboutModal structure with support QR', () => {
+  const publicShell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
+  const aboutModal = read('../../../components/AboutModal.tsx');
+  const releaseCss = read('./release.css');
+
+  assert.match(publicShell, /<AboutModal/);
+  assert.match(publicShell, /showEnterpriseInfo=\{releaseConfig\.showAboutEnterpriseInfo\}/);
+  assert.match(publicShell, /showSupportQr=\{releaseConfig\.showAboutSupportQr\}/);
+  assert.match(publicShell, /t=\{t\.about\}/);
+  assert.doesNotMatch(publicShell, /analyticsDisclosure|COPYRIGHT_NOTICE/);
+  assert.match(aboutModal, /t\.problemTitle/);
+  assert.match(aboutModal, /t\.problems\.map/);
+  assert.match(aboutModal, /t\.confirm/);
+  assert.match(aboutModal, /morndraft-about-confirm/);
+  assert.match(releaseCss, /\.morndraft-about-confirm\s*\{[\s\S]*?color:\s*#fff/);
+  assert.match(aboutModal, /aria-label=\{t\.close\}/);
+  assert.match(aboutModal, /reward\.jpg/);
+  assert.match(aboutModal, /qrcode\.jpg/);
+  assert.match(aboutModal, /t\.coffeeTitle/);
+  assert.match(aboutModal, /t\.followTitle/);
+  assert.match(aboutModal, /resolveMornDraftStaticAssetUrl/);
+  assert.match(aboutModal, /event\.key === 'Escape'/);
+  assert.match(aboutModal, /onClick=\{onClose\}/);
+  assert.match(aboutModal, /role="dialog"/);
+  assert.match(aboutModal, /aria-modal="true"/);
+});
+
+test('OSS toolbar exposes a direct, localized home link before the MornDraft wordmark', () => {
   const publicShell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
   const workspaceCss = read('../../../components/public-workspace/public-workspace.css');
 
-  // Title / intro / confirm copy comes from the shared i18n `about` section,
-  // same as the commercial AboutModal.
-  assert.match(publicShell, /t\.about\.title/);
-  assert.match(publicShell, /t\.about\.problemTitle/);
-  assert.match(publicShell, /t\.about\.problems\.map/);
-  assert.match(publicShell, /t\.about\.confirm/);
-  assert.match(publicShell, /aria-label=\{t\.about\.close\}/);
-  // The company-info block is replaced by the analytics disclosure and the
-  // copyright notice; the commercial usage copy stays out of OSS.
-  assert.doesNotMatch(publicShell, /t\.about\.usage/);
-  assert.match(publicShell, /analyticsDisclosure/);
-  assert.match(publicShell, /本站接入百度统计，使用匿名访问统计以优化体验/);
-  assert.match(publicShell, /\{COPYRIGHT_NOTICE\}/);
-  // Structure: header + scrollable body + primary confirm footer.
-  assert.match(publicShell, /md-public-about-header/);
-  assert.match(publicShell, /md-public-about-body/);
-  assert.match(publicShell, /md-public-about-footer/);
-  assert.match(publicShell, /md-public-about-confirm/);
-  // OSS never ships the sponsor / follow QR section.
-  assert.doesNotMatch(publicShell, /reward\.jpg|qrcode\.jpg|coffeeTitle|followTitle/);
-  assert.match(workspaceCss, /\.md-public-about-dialog/);
-  assert.match(workspaceCss, /\.md-public-about-header/);
-  assert.match(workspaceCss, /\.md-public-about-body/);
-  assert.match(workspaceCss, /\.md-public-about-footer/);
-  assert.match(workspaceCss, /\.md-public-about-confirm/);
+  assert.match(publicShell, /className="md-public-home-link"/);
+  assert.match(publicShell, /href="\/"/);
+  assert.match(publicShell, /返回 Wise Wong 主站/);
+  assert.match(publicShell, /Back to Wise Wong home/);
+  assert.match(publicShell, /<House size=\{16\}/);
+  assert.match(publicShell, /md-public-home-link[\s\S]*WorkspaceBrandMark/);
+  assert.doesNotMatch(publicShell, /history\.(?:back|go)/);
+  assert.match(workspaceCss, /\.md-public-home-link/);
+});
+
+test('OSS More menu links directly to the public GitHub repository', () => {
+  const moreMenu = read('../../../components/OssMoreMenu.tsx');
+
+  assert.match(moreMenu, /https:\/\/github\.com\/WiseWong6\/morndraft-oss/);
+  assert.match(moreMenu, /<Github size=\{14\}/);
+  assert.match(moreMenu, /href=\{OSS_REPOSITORY_URL\}/);
+  assert.match(moreMenu, /target="_blank"/);
+  assert.match(moreMenu, /rel="noopener noreferrer"/);
+  assert.doesNotMatch(moreMenu, /github\.com\/WiseWong6\/morndraft-oss\/pull\//);
 });
 
 test('OSS release App gives the shared workspace a definite viewport height', () => {
@@ -91,12 +117,12 @@ test('OSS browser AI stays direct, role-based, local, and opt-in', () => {
   assert.doesNotMatch(`${publicApp}\n${adapters}\n${client}\n${config}`, /MornDraft API|\/api\/ai|usageLedger/);
 });
 
-test('OSS shared shell keeps Source truth, local title derivation, delivery and filing', () => {
+test('OSS shared shell keeps Source truth, local title derivation, delivery and copyright footer', () => {
   const publicApp = read('./PublicAppImpl.tsx');
   const shell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
   const finalPreview = read('../../../components/public-desktop/PublicSharedFinalPreview.tsx');
   const compliance = read('../../../components/public-workspace/PublicComplianceFooter.tsx');
-  const filing = read('../../../components/public-workspace/publicCompliance.ts');
+  const complianceText = read('../../../components/public-workspace/publicCompliance.ts');
 
   assert.match(publicApp, /const \[source, setSource\]/);
   assert.match(publicApp, /derivePublicImportedDocumentTitle\(source, locale, importedFileTitle\)/);
@@ -106,15 +132,15 @@ test('OSS shared shell keeps Source truth, local title derivation, delivery and 
   assert.match(finalPreview, /PreviewFormatToolbar/);
   assert.match(shell, /complianceFooter=\{<PublicComplianceFooter onAboutOpen=\{\(\) => setIsAboutOpen\(true\)\} \/>\}/);
   assert.match(finalPreview, /\{complianceFooter\}/);
-  assert.match(compliance, /aria-label="网站备案信息"/);
+  assert.match(compliance, /aria-label="MornDraft 版权信息"/);
   // The copyright notice doubles as the About dialog trigger.
   assert.match(compliance, /onAboutOpen\?\(\): void/);
   assert.match(compliance, /aad-preview-copyright-button/);
   // The analytics disclosure lives in the About dialog, not the page footer.
   assert.doesNotMatch(compliance, /匿名访问统计|analytics-disclosure/);
   assert.doesNotMatch(compliance, /深圳明日回声科技有限公司/);
-  assert.match(filing, /粤ICP备2026082169号-1/);
-  assert.match(filing, /粤公网安备44030002014257号/);
+  assert.doesNotMatch(`${compliance}\n${complianceText}`, /ICP备|公安网安备|公网安备/);
+  assert.match(complianceText, /© 2026 深圳明日回声科技有限公司/);
 });
 test('OSS entry page ships the static SEO layer', () => {
   const page = read('../index.html');
@@ -125,8 +151,9 @@ test('OSS entry page ships the static SEO layer', () => {
   assert.match(page, /<noscript>[\s\S]*?<h1>MornDraft 初稿 - Agent 产物交付编辑器<\/h1>/);
   assert.match(page, /<meta name="description" content="MornDraft 初稿是面向 Agent 产物的交付编辑器/);
   assert.match(page, /<meta name="keywords" content="MornDraft,初稿,/);
+  assert.doesNotMatch(page, /ICP备|公安网安备|公网安备/);
   assert.match(page, /<meta name="robots" content="index,follow"/);
-  assert.match(page, /<meta name="baidu-site-verification" content="codeva-VRKwGwEWRA" \/>/);
+  assert.doesNotMatch(page, removedTrackingOrVerificationPattern);
   assert.match(page, /<link rel="canonical" href="https:\/\/morndraft\.com\/" \/>/);
   // Social cards.
   assert.match(page, /<meta property="og:image" content="https:\/\/morndraft\.com\/og-cover\.png" \/>/);
@@ -151,12 +178,13 @@ test('OSS sitemap and robots stay crawlable with a dated sitemap', () => {
   assert.match(sitemap, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
 });
 
-test('OSS Baidu site verification file ships at the site root', () => {
-  const verifyFile = read('../../../public/baidu_verify_codeva-pSX2jJB9B0.html');
+test('OSS release does not ship Baidu analytics or verification remnants', () => {
+  const page = read('../index.html');
   const manifest = read('../../../profiles/oss-public-distribution.json');
 
-  assert.match(verifyFile.trim(), /^59bf4485e422ffdedb38c6625cf39844$/);
-  assert.match(manifest, /"public\/baidu_verify_codeva-pSX2jJB9B0\.html"/);
+  assert.doesNotMatch(page, removedTrackingOrVerificationPattern);
+  assert.doesNotMatch(manifest, /baidu_verify_codeva/i);
+  assert.equal(existsSync(new URL('../../../public/baidu_verify_codeva-pSX2jJB9B0.html', import.meta.url)), false);
 });
 
 test('OSS preview chrome matches the 7.10 toolbar contract', () => {
@@ -165,7 +193,7 @@ test('OSS preview chrome matches the 7.10 toolbar contract', () => {
   const deliveryToolbar = read('../../../components/public-workspace/PublicDeliveryToolbar.tsx');
   const page = read('../index.html');
 
-  assert.match(page, /<title>MornDraft 初稿 - Agent 产物交付编辑器（Markdown \/ Mermaid \/ HTML 预览导出）<\/title>/);
+  assert.match(page, /<title>初稿-Morndraft<\/title>/);
   assert.match(page, /class="skeleton-app"/);
   assert.match(page, /class="skeleton-final-pane"/);
   assert.doesNotMatch(page, /skeleton-source-pane/);
