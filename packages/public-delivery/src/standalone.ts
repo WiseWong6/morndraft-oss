@@ -1,5 +1,5 @@
 import { serializePublicThemeVariables } from './theme';
-import { PublicDeliveryError, type PublicDeliveryInput } from './types';
+import { PublicDeliveryError, type PublicDeliveryInput, type PublicDeliveryTheme } from './types';
 import { extractPublicRawHtmlSource } from './rawHtml';
 import {
   findPortableCssImportOccurrences,
@@ -524,35 +524,55 @@ const escapeStandaloneHtmlText = (value: string) => value
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
-// Render the artifact outline as an anchor-linked table of contents inside the
-// standalone document. Links are same-document fragment navigations and need
-// no scripts; block ids come from the preview's data-artifact-id markers.
+const getStandaloneOutlineTokens = (theme: PublicDeliveryTheme) => theme === 'dark'
+  ? {
+      background: '#161618',
+      border: 'rgba(245,245,247,.12)',
+      text: '#f5f5f7',
+      title: '#d1d1d6',
+    }
+  : {
+      background: '#ffffff',
+      border: 'rgba(29,29,24,.12)',
+      text: '#1d1d18',
+      title: '#424238',
+    };
+
+const STANDALONE_OUTLINE_FONT_STACK = "-apple-system,BlinkMacSystemFont,'Inter','PingFang SC','Microsoft YaHei',sans-serif";
+
+// Render the artifact outline as a sticky left sidecar, mirroring the in-app
+// artifact map panel and the portable sidecar delivery layout. Links are
+// same-document fragment navigations and need no scripts; block ids come from
+// the preview's data-artifact-id markers.
 const buildStandaloneArtifactOutline = (
   ownerDocument: Document,
   renderedHtml: string,
   artifactMap: NonNullable<PublicDeliveryInput['artifactMap']>,
+  theme: PublicDeliveryTheme,
 ): string | null => {
   const entries = artifactMap.entries.filter((entry) => entry.id && entry.title);
   if (entries.length === 0) return null;
   const template = ownerDocument.createElement('template');
   template.innerHTML = renderedHtml;
-  const links: string[] = [];
+  const tokens = getStandaloneOutlineTokens(theme);
+  const markedTargets = Array.from(template.content.querySelectorAll('[data-artifact-id]'));
+  const items: string[] = [];
   const usedAnchorIds = new Set<string>();
   for (const entry of entries) {
-    const target = template.content.querySelector(`[data-artifact-id="${CSS.escape(entry.id)}"]`);
-    if (!(target instanceof HTMLElement)) continue;
+    const target = markedTargets.find((element) => element.getAttribute('data-artifact-id') === entry.id);
+    if (!target) continue;
     const anchorId = `${PUBLIC_STANDALONE_TOC_ID_PREFIX}${usedAnchorIds.size}`;
     usedAnchorIds.add(anchorId);
     target.setAttribute('id', anchorId);
     const level = Math.max(1, Math.min(6, Math.round(entry.level || 1)));
-    const kindLabel = entry.kind && entry.kind !== 'heading' ? ` · ${escapeStandaloneHtmlText(entry.kind)}` : '';
-    links.push(
-      `<a href="#${anchorId}" style="display:block;padding:2px 0 2px ${(level - 1) * 16}px;color:inherit;text-decoration:none;">${escapeStandaloneHtmlText(entry.title)}${kindLabel}</a>`,
+    const indent = 10 + (level - 1) * 10;
+    items.push(
+      `<li style="display:block;margin:0;padding:0;list-style:none;"><a href="#${anchorId}" style="display:block;box-sizing:border-box;padding:7px 10px 7px ${indent}px;color:${tokens.text};font-family:${STANDALONE_OUTLINE_FONT_STACK};font-size:12px;line-height:17px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none;border-radius:4px;margin:0 6px;">${escapeStandaloneHtmlText(entry.title)}</a></li>`,
     );
   }
-  if (links.length === 0) return null;
-  const nav = `<nav data-morndraft-standalone-outline="true" style="max-width:720px;margin:0 auto 24px;padding:16px 20px;border:1px solid rgba(127,127,127,.35);border-radius:10px;font-size:14px;line-height:1.7;"><strong style="display:block;margin:0 0 8px;font-size:15px;">${escapeStandaloneHtmlText(artifactMap.title)}</strong>${links.join('')}</nav>`;
-  return `${nav}${template.innerHTML}`;
+  if (items.length === 0) return null;
+  const sidecar = `<aside data-morndraft-portable-artifact-map="sidecar" data-morndraft-standalone-outline="true" style="display:flex;box-sizing:border-box;flex-direction:column;flex:0 0 13.5rem;width:13.5rem;max-width:13.5rem;position:sticky;top:0;align-self:flex-start;height:100vh;min-height:0;margin:0;padding:0;border-right:1px solid ${tokens.border};background:${tokens.background};color:${tokens.text};"><div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.75rem 0.8rem;flex-shrink:0;"><span style="display:inline-flex;align-items:center;gap:0.4rem;color:${tokens.title};font-family:${STANDALONE_OUTLINE_FONT_STACK};font-size:0.76rem;font-weight:750;">${escapeStandaloneHtmlText(artifactMap.title)}</span></div><nav style="flex:1 1 auto;min-height:0;overflow-y:auto;padding:0.45rem 0;"><ol style="display:block;margin:0;padding:0;list-style:none;">${items.join('')}</ol></nav></aside>`;
+  return `<section data-morndraft-portable-preview-with-map="true" style="display:flex;align-items:flex-start;width:100%;max-width:100%;min-height:100vh;box-sizing:border-box;">${sidecar}<div style="flex:1 1 auto;min-width:0;max-width:100%;">${template.innerHTML}</div></section>`;
 };
 
 const buildPublicStandaloneHtmlWithinDeadline = async (
@@ -576,7 +596,7 @@ const buildPublicStandaloneHtmlWithinDeadline = async (
   const themeColor = input.theme === 'dark' ? '#f4f4ef' : '#20201d';
   const title = input.title || 'MornDraft';
   const outlinedBody = input.artifactMap
-    ? buildStandaloneArtifactOutline(document, renderedHtml, input.artifactMap) ?? renderedHtml
+    ? buildStandaloneArtifactOutline(document, renderedHtml, input.artifactMap, input.theme) ?? renderedHtml
     : renderedHtml;
   const renderedDocument = buildPortableDocument({
     body: outlinedBody,
