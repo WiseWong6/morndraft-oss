@@ -30,7 +30,6 @@ export * from './markdown-lexical-edit.js';
 export * from './markdown-source-patch.js';
 export * from './morndraft-flat-adapter.js';
 export * from './morndraft-flat-default-item.js';
-export * from './morndraft-flat-entitlements.js';
 export * from './morndraft-flat-source-patch.js';
 export * from './morndraft-html-source.js';
 export * from './portable-block-header.js';

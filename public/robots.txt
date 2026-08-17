@@ -1,6 +1,4 @@
 User-agent: *
 Allow: /
-Disallow: /api/
-Disallow: /admin-data
 
 Sitemap: https://morndraft.com/sitemap.xml

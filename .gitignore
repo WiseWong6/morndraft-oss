@@ -9,3 +9,7 @@ output/
 !.env.example
 *.log
 .DS_Store
+.claude/
+.spec-workflow/
+.zcode/
+logs/

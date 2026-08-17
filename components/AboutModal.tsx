@@ -6,7 +6,6 @@ import { resolveMornDraftStaticAssetUrl } from '../utils/staticAssetUrl';
 interface AboutModalProps {
   isOpen: boolean;
   onClose: () => void;
-  showEnterpriseInfo: boolean;
   showSupportQr: boolean;
   t: AboutTranslations;
 }
@@ -14,7 +13,6 @@ interface AboutModalProps {
 const AboutModal: React.FC<AboutModalProps> = ({
   isOpen,
   onClose,
-  showEnterpriseInfo,
   showSupportQr,
   t,
 }) => {
@@ -97,21 +95,6 @@ const AboutModal: React.FC<AboutModalProps> = ({
               ))}
             </div>
           </section>
-
-          {showEnterpriseInfo && Boolean(t.usageTitle || t.usage) && (
-            <section>
-              {t.usageTitle && (
-                <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-3">
-                  {t.usageTitle}
-                </h3>
-              )}
-              {t.usage && (
-                <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">
-                  {t.usage}
-                </p>
-              )}
-            </section>
-          )}
 
           {showSupportQr && (
             <section className="pt-6 border-t border-slate-200">

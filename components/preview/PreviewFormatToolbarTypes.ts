@@ -23,7 +23,6 @@ export type PreviewMarkdownBlockFormat =
 
 export type PreviewFormatToolbarDisabledReason =
   | 'selection-required'
-  | 'upgrade-required'
   | 'unavailable';
 
 export type PreviewFormatToolbarControls = {
@@ -59,7 +58,6 @@ export type PreviewFormatToolbarTranslations = {
   previewBulletList: string;
   previewEditSelectionRequired: string;
   previewEditUnavailable: string;
-  previewEditUpgradeRequired: string;
   previewFontFamily: string;
   previewFontSize: string;
   previewFormatToolbar: string;

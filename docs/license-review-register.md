@@ -1,6 +1,6 @@
 # MornDraft OSS License Review Register
 
-This engineering register is projected from the private repository review register for the exact public `package-lock.json`; generation is not a new legal opinion.
+This engineering register records the manual license review for the exact public `package-lock.json`; generation is not a new legal opinion.
 
 ## Projected Manual Review and Metadata Overrides
 

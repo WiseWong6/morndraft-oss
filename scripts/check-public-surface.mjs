@@ -59,7 +59,7 @@ const forbiddenDistPatterns = [
   },
   {
     label: 'third-party telemetry marker',
-    pattern: /(?:google-analytics\.com|googletagmanager\.com|gtag\(|G-0REDACTED0|00000000000000000000000000000000)/gi,
+    pattern: /(?:google-analytics\.com|googletagmanager\.com|gtag\(|\bG-(?=[A-Z0-9]*[0-9])[A-Z0-9]{6,}\b|hm\.baidu\.com|_hmt)/g,
   },
   {
     label: 'private AI provider or usage marker',

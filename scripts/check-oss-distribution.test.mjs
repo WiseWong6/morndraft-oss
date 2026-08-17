@@ -181,7 +181,7 @@ test('detects representative embedded credentials without flagging placeholders'
   assert.deepEqual(findSensitiveText('safe.ts', 'MORNDRAFT_TOKEN=${MORNDRAFT_TOKEN}'), []);
 });
 
-test('detects private entitlement, quota, account-plan, and MCP surfaces without blocking shared layout helpers', () => {
+test('detects private entitlement, quota, account-plan, and MCP surfaces', () => {
   const pattern = SOURCE_MARKER_PATTERNS['private entitlement or account-plan implementation marker'];
   for (const marker of [
     'MORNDRAFT_ACCOUNT_PLANS',
@@ -191,10 +191,6 @@ test('detects private entitlement, quota, account-plan, and MCP surfaces without
   ]) {
     pattern.lastIndex = 0;
     assert.equal(pattern.test(marker), true, marker);
-  }
-  for (const sharedMarker of ['FREE_MORNDRAFT_FLAT_LAYOUT_STYLES', 'resolveMornDraftFlatLayoutTier']) {
-    pattern.lastIndex = 0;
-    assert.equal(pattern.test(sharedMarker), false, sharedMarker);
   }
 });
 
