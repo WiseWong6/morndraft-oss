@@ -292,8 +292,8 @@ export function validateScorecardWorkflow(workflowText) {
   if (!/ossf\/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a\b/.test(workflowText)) {
     findings.push('OpenSSF Scorecard action must use the verified v2.4.3 commit, not its annotated tag object');
   }
-  if (!/github\/codeql-action\/upload-sarif@02c5e83432fe5497fd85b873b6c9f16a8578e1d9\b/.test(workflowText)) {
-    findings.push('Scorecard SARIF upload must use the verified CodeQL v3.37.0 commit, not its annotated tag object');
+  if (!/github\/codeql-action\/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81\b/.test(workflowText)) {
+    findings.push('Scorecard SARIF upload must use the verified CodeQL v4.37.3 commit, not its annotated tag object');
   }
   return findings;
 }
@@ -301,8 +301,8 @@ export function validateScorecardWorkflow(workflowText) {
 export function validateCodeqlWorkflow(workflowText) {
   const findings = [];
   for (const action of ['init', 'analyze']) {
-    if (!new RegExp(`github/codeql-action/${action}@02c5e83432fe5497fd85b873b6c9f16a8578e1d9\\b`).test(workflowText)) {
-      findings.push(`CodeQL ${action} must use the verified v3.37.0 commit, not its annotated tag object`);
+    if (!new RegExp(`github/codeql-action/${action}@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81\\b`).test(workflowText)) {
+      findings.push(`CodeQL ${action} must use the verified v4.37.3 commit, not its annotated tag object`);
     }
   }
   return findings;
