@@ -1,13 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { EditorTranslations } from '../../i18n';
 import { trackMornDraftClick } from '../../utils/analytics';
-import { getPrivateRuntimeGateway } from '../../utils/privateRuntimeGateways';
-import {
-  canUseLocalEditorImportAssetsByAccess,
-  getDeliveryDecision,
-  shouldAuthorizeEditorImportByAccess,
-  type DeliveryAccessState,
-} from '../preview/deliveryAccess';
+import type { DeliveryAccessState } from '../preview/deliveryAccess';
 import {
   buildEditorImportContentFromDropData,
   EditorImportError,
@@ -22,7 +16,7 @@ import {
 } from './uploadedImportContent';
 
 export type EditorImportNotice = { tone: 'success' | 'error'; text: string };
-export type EditorImportSource = 'drop' | 'local-markdown' | 'paste-image' | 'upload';
+export type EditorImportSource = 'drop' | 'paste-image' | 'upload';
 export type EditorImportContentMeta = {
   activateImportedDraft?: boolean;
   activatePendingDraft?: boolean;
@@ -35,8 +29,6 @@ export type EditorImportBatchCompleteMeta = { draftId?: string; source: EditorIm
 export type EditorImportStartResult = { pendingDraftId?: string } | void;
 type EditorImportRunResult = { draftId?: string; ok: true } | { ok: false };
 export type UploadedImportMode = 'combined' | 'draft-units' | 'single-file';
-
-const loadPrivateEditorImportGateway = () => getPrivateRuntimeGateway('editorImport')?.();
 
 type UseEditorImportOptions = {
   deliveryAccess?: DeliveryAccessState;
@@ -53,12 +45,6 @@ type UseEditorImportOptions = {
 const getExtension = (fileName: string) => {
   const lastDot = fileName.lastIndexOf('.');
   return lastDot >= 0 ? fileName.slice(lastDot + 1).toLowerCase() : '';
-};
-
-const basename = (path: string) => {
-  const normalizedPath = path.replace(/\\/g, '/');
-  const index = normalizedPath.lastIndexOf('/');
-  return index >= 0 ? normalizedPath.slice(index + 1) : normalizedPath;
 };
 
 const getRelativePath = (file: File) => {
@@ -82,13 +68,7 @@ const getImportSuggestedTitleFromFiles = (files: readonly File[]) => {
   return (preferredMarkdownEntry ?? htmlEntry ?? entries[0])?.file.name;
 };
 
-const getImportSuggestedTitleFromPath = (pathLabel: string) => {
-  const title = basename(pathLabel).trim();
-  return title || undefined;
-};
-
 export const useEditorImport = ({
-  deliveryAccess,
   onImportBatchComplete,
   onImportContent,
   onImportError,
@@ -100,26 +80,11 @@ export const useEditorImport = ({
 }: UseEditorImportOptions) => {
   const [importNotice, setImportNotice] = useState<EditorImportNotice | null>(null);
   const [activeImportCount, setActiveImportCount] = useState(0);
-  const isPickingLocalMarkdownRef = useRef(false);
-  const editorImportDecision = getDeliveryDecision(deliveryAccess, t, 'editorImport');
-  const shouldUseLocalImageAssets = canUseLocalEditorImportAssetsByAccess(deliveryAccess);
-  const resolveImageAsset = useMemo(() => {
-    if (shouldUseLocalImageAssets) return createLocalEditorImportImageAssetResolver();
-    return async (file: File) => {
-      const gateway = await loadPrivateEditorImportGateway();
-      if (!gateway) {
-        throw new EditorImportError('asset_upload_unavailable', 'Remote image upload is unavailable.');
-      }
-      const { createPrivateEditorImportImageAssetResolver } = gateway;
-      return createPrivateEditorImportImageAssetResolver(deliveryAccess)(file);
-    };
-  }, [deliveryAccess, shouldUseLocalImageAssets]);
+  const resolveImageAsset = useMemo(() => createLocalEditorImportImageAssetResolver(), []);
 
   const getImportErrorMessage = useCallback((error: unknown) => {
     if (error instanceof EditorImportError) {
       switch (error.code) {
-        case 'asset_upload_unavailable':
-          return t.importImageUploadUnavailable;
         case 'batch-too-large':
           return t.importBatchTooLarge;
         case 'empty-import':
@@ -128,12 +93,6 @@ export const useEditorImport = ({
           return t.importFileTooLarge;
         case 'local-markdown-required':
           return t.importLocalMarkdownRequired;
-        case 'public_output_moderation_rejected':
-          return t.importImageModerationRejected;
-        case 'public_output_moderation_request_invalid':
-          return t.importImageModerationRequestInvalid;
-        case 'public_output_moderation_unavailable':
-          return t.importImageModerationUnavailable;
         case 'too-many-files':
           return t.importTooManyFiles;
         case 'unsupported-file-type':
@@ -143,16 +102,6 @@ export const useEditorImport = ({
     }
     return error instanceof Error ? error.message : t.importUnsupportedFile;
   }, [t]);
-
-  const authorizeEditorImport = useCallback(async () => {
-    if (!shouldAuthorizeEditorImportByAccess(deliveryAccess)) return;
-    const gateway = await loadPrivateEditorImportGateway();
-    if (!gateway) {
-      throw new EditorImportError('asset_upload_unavailable', 'Remote import is unavailable.');
-    }
-    const { authorizePrivateEditorImport } = gateway;
-    await authorizePrivateEditorImport(deliveryAccess, t);
-  }, [deliveryAccess, t]);
 
   const startImportTask = useCallback(() => {
     setActiveImportCount(count => count + 1);
@@ -168,7 +117,6 @@ export const useEditorImport = ({
     options: {
       activateImportedDraft?: boolean;
       activatePendingDraft?: boolean;
-      authorize?: boolean;
       suggestedTitle?: string;
     } = {},
   ): Promise<EditorImportRunResult> => {
@@ -181,7 +129,6 @@ export const useEditorImport = ({
       ...(options.suggestedTitle ? { suggestedTitle: options.suggestedTitle } : {}),
     };
     try {
-      if (options.authorize !== false) await authorizeEditorImport();
       const startResult = await onImportStart?.(importMeta);
       if (startResult && 'pendingDraftId' in startResult && startResult.pendingDraftId) {
         importMeta = { ...importMeta, pendingDraftId: startResult.pendingDraftId };
@@ -207,7 +154,6 @@ export const useEditorImport = ({
       finishImportTask();
     }
   }, [
-    authorizeEditorImport,
     finishImportTask,
     getImportErrorMessage,
     onImportContent,
@@ -268,48 +214,6 @@ export const useEditorImport = ({
     });
   }, [buildUploadedImportContent, runDraftUploadImportUnits, runEditorImport, uploadedImportMode]);
 
-  const handleImportLocalMarkdown = useCallback(() => {
-    void (async () => {
-      if (isPickingLocalMarkdownRef.current) return;
-      if (!deliveryAccess?.isDevMode) {
-        setImportNotice({ tone: 'error', text: t.importLocalMarkdownRequired });
-        return;
-      }
-      isPickingLocalMarkdownRef.current = true;
-      setImportNotice(null);
-      let picked: { content: string; markdownPathLabel: string } | null = null;
-      try {
-        const gateway = await loadPrivateEditorImportGateway();
-        if (!gateway) {
-          throw new EditorImportError('local-markdown-required', 'Local Markdown bridge is unavailable.');
-        }
-        const { pickPrivateLocalMarkdown } = gateway;
-        picked = await pickPrivateLocalMarkdown({
-          resolveImageAsset,
-          scenarioId: deliveryAccess.scenarioId,
-        });
-      } catch (error) {
-        setImportNotice({ tone: 'error', text: getImportErrorMessage(error) });
-        console.error(`Failed to pick local Markdown for ${trackingComponent}:`, error);
-      } finally {
-        isPickingLocalMarkdownRef.current = false;
-      }
-      if (!picked) return;
-      void runEditorImport(async () => picked.content, 'local-markdown', {
-        authorize: false,
-        suggestedTitle: getImportSuggestedTitleFromPath(picked.markdownPathLabel),
-      });
-    })();
-  }, [
-    deliveryAccess?.isDevMode,
-    deliveryAccess?.scenarioId,
-    getImportErrorMessage,
-    resolveImageAsset,
-    runEditorImport,
-    t.importLocalMarkdownRequired,
-    trackingComponent,
-  ]);
-
   const handleImportPasteImages = useCallback((files: readonly File[]) => {
     const importFiles = toSingleEditorImportFiles(files);
     void runEditorImport(() => buildUploadedImportContent(importFiles), 'paste-image', {
@@ -334,21 +238,11 @@ export const useEditorImport = ({
     });
   }, [buildUploadedImportContent, resolveImageAsset, runDraftUploadImportUnits, runEditorImport, uploadedImportMode]);
 
-  useEffect(() => {
-    if (!importNotice) return undefined;
-    const timer = window.setTimeout(() => setImportNotice(null), importNotice.tone === 'error' ? 4200 : 2400);
-    return () => window.clearTimeout(timer);
-  }, [importNotice]);
-
   return {
-    canImport: editorImportDecision.isProAllowed,
     handleImportDrop,
     handleImportFiles,
-    handleImportLocalMarkdown,
     handleImportPasteImages,
     importNotice,
-    importTitle: editorImportDecision.isProAllowed ? t.importFileTitle : editorImportDecision.text,
-    isLocalMarkdownImportAvailable: Boolean(deliveryAccess?.isDevMode),
     isImporting: activeImportCount > 0,
   };
 };

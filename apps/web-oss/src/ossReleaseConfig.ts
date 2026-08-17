@@ -24,7 +24,6 @@ export const OSS_RELEASE_CONFIG: MornDraftReleaseConfig = Object.freeze({
   profileId: 'oss',
   shareLinkMode: 'hidden',
   showAccountMenu: false,
-  showAboutEnterpriseInfo: false,
   showAboutSupportQr: true,
   showDonationAction: false,
   showDraftSidebar: false,

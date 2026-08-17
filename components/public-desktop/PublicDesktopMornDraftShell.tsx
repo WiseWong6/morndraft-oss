@@ -496,7 +496,6 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
       <AboutModal
         isOpen={isAboutOpen}
         onClose={() => setIsAboutOpen(false)}
-        showEnterpriseInfo={releaseConfig.showAboutEnterpriseInfo}
         showSupportQr={releaseConfig.showAboutSupportQr}
         t={t.about}
       />

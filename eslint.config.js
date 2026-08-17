@@ -25,6 +25,10 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
       // eslint-plugin-react-hooks v7 ships compiler-powered rules that fire on
       // hundreds of pre-existing call sites. They are deferred as a group so
       // the eslint 10 upgrade stays behavior-parity with v5; enable them
