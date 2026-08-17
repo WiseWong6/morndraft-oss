@@ -1,5 +1,3 @@
-import { parse, serialize } from 'parse5';
-
 const LINK_TAG_RE = /<link\b[^>]*>/gi;
 const HTML_ATTRIBUTE_RE = /\s([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
 const MAX_SNAPSHOT_LENGTH = 2_000_000;
@@ -58,7 +56,11 @@ const isUnsafeNavigationUrlValue = (value) => {
   return !SAFE_DATA_URL_PREFIX_RE.test(normalized);
 };
 
-/** DOM-based attribute sanitization shared by the capture and live-preview sanitizers. */
+/**
+ * DOM-based attribute sanitization shared by the capture and live-preview
+ * sanitizers. Only browser DOM APIs are used so CodeQL models the removal as a
+ * complete sanitization boundary.
+ */
 const sanitizeUnsafeElementAttributes = (element) => {
   Array.from(element.attributes).forEach((attribute) => {
     const name = attribute.name.toLowerCase();
@@ -79,110 +81,35 @@ const sanitizeUnsafeElementAttributes = (element) => {
   }
 };
 
-// ---- parse5-based fallback for non-browser environments (no DOMParser) ----
-
-const getParsedTagName = (node) =>
-  node && typeof node.tagName === 'string' ? node.tagName.toLowerCase() : '';
-
-const getParsedAttributes = (node) => (Array.isArray(node?.attrs) ? node.attrs : []);
-
-const removeParsedChildNode = (node) => {
-  const parent = node?.parentNode;
-  const siblings = parent && Array.isArray(parent.childNodes) ? parent.childNodes : null;
-  if (!siblings) return;
-  const index = siblings.indexOf(node);
-  if (index >= 0) siblings.splice(index, 1);
-};
-
-const sanitizeParsedElement = (node) => {
-  const attributes = getParsedAttributes(node);
-  for (let index = attributes.length - 1; index >= 0; index -= 1) {
-    const attribute = attributes[index];
-    const name = attribute && typeof attribute.name === 'string' ? attribute.name.toLowerCase() : '';
-    if (name.startsWith('on')) {
-      attributes.splice(index, 1);
-      continue;
-    }
-    if (NAVIGATION_URL_ATTRIBUTES.has(name) && isUnsafeNavigationUrlValue(attribute.value)) {
-      attributes.splice(index, 1);
-      continue;
-    }
-    if (name === MORNDRAFT_FLAT_EDIT_PATH_ATTR) {
-      attributes.splice(index, 1);
-    }
+const requireHtmlDomParser = () => {
+  if (typeof globalThis.DOMParser === 'undefined') {
+    throw new Error('HTML preview sanitization requires DOMParser.');
   }
-  if (
-    getParsedTagName(node) === 'iframe' &&
-    !attributes.some(attribute => typeof attribute?.name === 'string' && attribute.name.toLowerCase() === 'sandbox')
-  ) {
-    attributes.push({ name: 'sandbox', value: '' });
-  }
+  return globalThis.DOMParser;
 };
 
-const sanitizeParsedDocument = (documentNode, options) => {
-  const visit = (node) => {
-    if (!node || typeof node !== 'object') return;
-    const tagName = getParsedTagName(node);
-    if (tagName === 'script') {
-      const hasSource = getParsedAttributes(node).some(
-        attribute => typeof attribute?.name === 'string' && attribute.name.toLowerCase() === 'src',
-      );
-      if (options.removeScripts === 'all' || (options.removeScripts === 'inline-only' && !hasSource)) {
-        removeParsedChildNode(node);
-        return;
-      }
-    } else if (tagName === 'meta') {
-      const httpEquiv = getParsedAttributes(node).find(
-        attribute => typeof attribute?.name === 'string' && attribute.name.toLowerCase() === 'http-equiv',
-      );
-      if (httpEquiv && String(httpEquiv.value ?? '').trim().toLowerCase() === 'refresh') {
-        removeParsedChildNode(node);
-        return;
-      }
-    } else if (tagName === 'link' && options.removeRemoteFontStylesheets) {
-      const rel = getParsedAttributes(node).find(
-        attribute => typeof attribute?.name === 'string' && attribute.name.toLowerCase() === 'rel',
-      );
-      const href = getParsedAttributes(node).find(
-        attribute => typeof attribute?.name === 'string' && attribute.name.toLowerCase() === 'href',
-      );
-      if (
-        /\bstylesheet\b/i.test(String(rel?.value ?? '')) &&
-        isNonBlockingRemoteFontStylesheetHref(String(href?.value ?? ''), 'about:blank')
-      ) {
-        removeParsedChildNode(node);
-        return;
-      }
-    }
-    sanitizeParsedElement(node);
-    if (Array.isArray(node.childNodes)) {
-      // Iterate a copy: removeParsedChildNode splices the live array, which
-      // would otherwise skip the sibling right after a removed node.
-      for (const child of [...node.childNodes]) visit(child);
-    }
-  };
-  visit(documentNode);
-  return serialize(documentNode);
-};
+const collectHtmlElements = (doc, tagName) => Array.from(doc.getElementsByTagName(tagName));
 
 export const sanitizeHtmlForStaticCapture = (html) => {
-  if (typeof globalThis.DOMParser === 'undefined') {
-    return sanitizeParsedDocument(parse(String(html ?? ''), { scriptingEnabled: true }), {
-      removeRemoteFontStylesheets: true,
-      removeScripts: 'all',
-    });
-  }
-
-  const doc = new globalThis.DOMParser().parseFromString(html, 'text/html');
-  doc.querySelectorAll('script, meta[http-equiv="refresh"]').forEach((element) => {
+  const DocumentParser = requireHtmlDomParser();
+  const doc = new DocumentParser().parseFromString(html, 'text/html');
+  collectHtmlElements(doc, 'script').forEach((element) => {
     element.remove();
   });
-  doc.querySelectorAll('link[rel~="stylesheet"][href]').forEach((element) => {
-    if (isNonBlockingRemoteFontStylesheetHref(element.getAttribute('href'), doc.baseURI)) {
+  collectHtmlElements(doc, 'meta').forEach((element) => {
+    if (String(element.getAttribute('http-equiv') ?? '').trim().toLowerCase() === 'refresh') {
       element.remove();
     }
   });
-  doc.querySelectorAll('*').forEach((element) => {
+  collectHtmlElements(doc, 'link').forEach((element) => {
+    if (
+      /\bstylesheet\b/i.test(String(element.getAttribute('rel') ?? '')) &&
+      isNonBlockingRemoteFontStylesheetHref(element.getAttribute('href'), doc.baseURI)
+    ) {
+      element.remove();
+    }
+  });
+  collectHtmlElements(doc, '*').forEach((element) => {
     sanitizeUnsafeElementAttributes(element);
   });
 
@@ -199,17 +126,17 @@ export const sanitizeHtmlForStaticCapture = (html) => {
  * scripts run, arbitrary inline scripts do not.
  */
 export const sanitizeHtmlForPublicLivePreview = (html) => {
-  if (typeof globalThis.DOMParser === 'undefined') {
-    return sanitizeParsedDocument(parse(String(html ?? ''), { scriptingEnabled: true }), {
-      removeScripts: 'inline-only',
-    });
-  }
-
-  const doc = new globalThis.DOMParser().parseFromString(String(html ?? ''), 'text/html');
-  doc.querySelectorAll('script:not([src]), meta[http-equiv="refresh"]').forEach((element) => {
-    element.remove();
+  const DocumentParser = requireHtmlDomParser();
+  const doc = new DocumentParser().parseFromString(String(html ?? ''), 'text/html');
+  collectHtmlElements(doc, 'script').forEach((element) => {
+    if (!element.getAttribute('src')) element.remove();
   });
-  doc.querySelectorAll('*').forEach((element) => {
+  collectHtmlElements(doc, 'meta').forEach((element) => {
+    if (String(element.getAttribute('http-equiv') ?? '').trim().toLowerCase() === 'refresh') {
+      element.remove();
+    }
+  });
+  collectHtmlElements(doc, '*').forEach((element) => {
     sanitizeUnsafeElementAttributes(element);
   });
 

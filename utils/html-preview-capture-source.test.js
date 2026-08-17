@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parse, serialize } from 'parse5';
 
 import {
   getHtmlPreviewCaptureSource,
@@ -9,6 +10,78 @@ import {
   sanitizeHtmlForStaticCapture,
   stripNonBlockingRemoteFontStylesheets,
 } from './html-preview-capture-source.js';
+
+// Node has no DOMParser; the production module intentionally requires it (the
+// browser always provides one and the sanitizers stay sync / CodeQL-clean).
+// Tests install a parse5-backed minimal DOMParser so both branches of the
+// sanitizers are exercised without pulling parse5 into the app bundle.
+const installParse5DomParser = () => {
+  if (typeof globalThis.DOMParser !== 'undefined') return;
+
+  const toElement = (node) => {
+    const attributes = Array.isArray(node.attrs) ? node.attrs : [];
+    return {
+      nodeType: 1,
+      tagName: String(node.tagName ?? '').toUpperCase(),
+      attributes,
+      getAttribute(name) {
+        const attribute = attributes.find(item => item.name.toLowerCase() === String(name).toLowerCase());
+        return attribute ? attribute.value : null;
+      },
+      removeAttribute(name) {
+        const index = attributes.findIndex(item => item.name.toLowerCase() === String(name).toLowerCase());
+        if (index >= 0) attributes.splice(index, 1);
+      },
+      setAttribute(name, value) {
+        const existing = attributes.find(item => item.name.toLowerCase() === String(name).toLowerCase());
+        if (existing) existing.value = String(value);
+        else attributes.push({ name, value: String(value) });
+      },
+      remove() {
+        const parent = node.parentNode;
+        const siblings = parent && Array.isArray(parent.childNodes) ? parent.childNodes : null;
+        if (!siblings) return;
+        const index = siblings.indexOf(node);
+        if (index >= 0) siblings.splice(index, 1);
+      },
+      get outerHTML() {
+        return serialize(node);
+      },
+    };
+  };
+
+  globalThis.DOMParser = class {
+    parseFromString(markup, type) {
+      if (String(type ?? '').toLowerCase() !== 'text/html') {
+        throw new Error(`Unsupported parseFromString type: ${type}`);
+      }
+      const documentNode = parse(String(markup ?? ''), { scriptingEnabled: true });
+      const htmlElementNode = (documentNode.childNodes ?? []).find(
+        node => node.tagName === 'html',
+      ) ?? documentNode;
+      return {
+        baseURI: 'about:blank',
+        getElementsByTagName(tagName) {
+          const normalized = String(tagName).toLowerCase();
+          const results = [];
+          const visit = (node) => {
+            if (node && typeof node.tagName === 'string') {
+              if (normalized === '*' || node.tagName.toLowerCase() === normalized) {
+                results.push(toElement(node));
+              }
+            }
+            for (const child of node.childNodes ?? []) visit(child);
+          };
+          visit(documentNode);
+          return results;
+        },
+        documentElement: toElement(htmlElementNode),
+      };
+    }
+  };
+};
+
+installParse5DomParser();
 
 test('sanitizeHtmlForStaticCapture removes scripts and inline handlers', () => {
   const source = '<div onclick="alert(1)">Hello</div><script>alert(1)</script>';
