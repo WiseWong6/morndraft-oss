@@ -448,6 +448,8 @@
   "devDependencies": [
     "@eslint/js",
     "@types/node",
+    "@types/react",
+    "@types/react-dom",
     "@vitejs/plugin-react",
     "eslint",
     "eslint-config-prettier",

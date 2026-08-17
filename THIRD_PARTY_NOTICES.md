@@ -14,6 +14,8 @@ This file lists the exact direct dependency versions kept in the generated publi
 | `@lexical/selection` | 0.45.0 | MIT |
 | `@lexical/table` | 0.45.0 | MIT |
 | `@types/node` | 22.19.15 | MIT |
+| `@types/react` | 19.2.14 | MIT |
+| `@types/react-dom` | 19.2.4 | MIT |
 | `@vitejs/plugin-react` | 5.2.0 | MIT |
 | `entities` | 6.0.1 | BSD-2-Clause |
 | `esbuild` | 0.25.12 | MIT |
@@ -31,8 +33,8 @@ This file lists the exact direct dependency versions kept in the generated publi
 | `parse5` | 7.3.0 | MIT |
 | `pdf-lib` | 1.17.1 | MIT |
 | `playwright` | 1.60.0 | Apache-2.0 |
-| `react` | 19.2.4 | MIT |
-| `react-dom` | 19.2.4 | MIT |
+| `react` | 19.2.8 | MIT |
+| `react-dom` | 19.2.8 | MIT |
 | `react-markdown` | 10.1.0 | MIT |
 | `react-syntax-highlighter` | 16.1.1 | MIT |
 | `rehype-raw` | 7.0.0 | MIT |
@@ -40,7 +42,7 @@ This file lists the exact direct dependency versions kept in the generated publi
 | `remark-gfm` | 4.0.1 | MIT |
 | `tsx` | 4.22.3 | MIT |
 | `typescript` | 5.8.3 | Apache-2.0 |
-| `typescript-eslint` | 8.57.1 | MIT |
+| `typescript-eslint` | 8.67.0 | MIT |
 | `vite` | 6.4.3 | MIT |
 
 ## Required Transitive Notices

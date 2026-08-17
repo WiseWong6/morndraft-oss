@@ -71,7 +71,7 @@ jobs:
       id-token: write
     steps:
       - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a
-      - uses: github/codeql-action/upload-sarif@02c5e83432fe5497fd85b873b6c9f16a8578e1d9
+      - uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
 `;
   assert.deepEqual(validateScorecardWorkflow(validWorkflow), []);
 
@@ -86,17 +86,17 @@ jobs:
   assert.match(validateScorecardWorkflow(invalidWorkflow).join('\n'), /global permissions read-only/);
   assert.match(validateScorecardWorkflow(invalidWorkflow).join('\n'), /scoped to the scorecard job/);
   assert.match(validateScorecardWorkflow(invalidWorkflow).join('\n'), /verified v2\.4\.3 commit/);
-  assert.match(validateScorecardWorkflow(invalidWorkflow).join('\n'), /verified CodeQL v3\.37\.0 commit/);
+  assert.match(validateScorecardWorkflow(invalidWorkflow).join('\n'), /verified CodeQL v4\.37\.3 commit/);
 });
 
 test('requires CodeQL actions to use the verified commit behind the release tag', () => {
   const validWorkflow = `
 steps:
-  - uses: github/codeql-action/init@02c5e83432fe5497fd85b873b6c9f16a8578e1d9
-  - uses: github/codeql-action/analyze@02c5e83432fe5497fd85b873b6c9f16a8578e1d9
+  - uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
+  - uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
 `;
   assert.deepEqual(validateCodeqlWorkflow(validWorkflow), []);
-  assert.match(validateCodeqlWorkflow(validWorkflow.replaceAll('02c5e83432fe5497fd85b873b6c9f16a8578e1d9', 'e5d2f324924c57b6cabef9bdd7a1c85d62a89be2')).join('\n'), /verified v3\.37\.0 commit/);
+  assert.match(validateCodeqlWorkflow(validWorkflow.replaceAll('e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81', 'e5d2f324924c57b6cabef9bdd7a1c85d62a89be2')).join('\n'), /verified v4\.37\.3 commit/);
 });
 
 test('rejects publishable packages and implicit zero/glob test sets', () => {
