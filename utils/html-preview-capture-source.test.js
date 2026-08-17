@@ -1,13 +1,87 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parse, serialize } from 'parse5';
 
 import {
   getHtmlPreviewCaptureSource,
   getHtmlPreviewSnapshotSource,
   isNonBlockingRemoteFontStylesheetHref,
+  sanitizeHtmlForPublicLivePreview,
   sanitizeHtmlForStaticCapture,
   stripNonBlockingRemoteFontStylesheets,
 } from './html-preview-capture-source.js';
+
+// Node has no DOMParser; the production module intentionally requires it (the
+// browser always provides one and the sanitizers stay sync / CodeQL-clean).
+// Tests install a parse5-backed minimal DOMParser so both branches of the
+// sanitizers are exercised without pulling parse5 into the app bundle.
+const installParse5DomParser = () => {
+  if (typeof globalThis.DOMParser !== 'undefined') return;
+
+  const toElement = (node) => {
+    const attributes = Array.isArray(node.attrs) ? node.attrs : [];
+    return {
+      nodeType: 1,
+      tagName: String(node.tagName ?? '').toUpperCase(),
+      attributes,
+      getAttribute(name) {
+        const attribute = attributes.find(item => item.name.toLowerCase() === String(name).toLowerCase());
+        return attribute ? attribute.value : null;
+      },
+      removeAttribute(name) {
+        const index = attributes.findIndex(item => item.name.toLowerCase() === String(name).toLowerCase());
+        if (index >= 0) attributes.splice(index, 1);
+      },
+      setAttribute(name, value) {
+        const existing = attributes.find(item => item.name.toLowerCase() === String(name).toLowerCase());
+        if (existing) existing.value = String(value);
+        else attributes.push({ name, value: String(value) });
+      },
+      remove() {
+        const parent = node.parentNode;
+        const siblings = parent && Array.isArray(parent.childNodes) ? parent.childNodes : null;
+        if (!siblings) return;
+        const index = siblings.indexOf(node);
+        if (index >= 0) siblings.splice(index, 1);
+      },
+      get outerHTML() {
+        return serialize(node);
+      },
+    };
+  };
+
+  globalThis.DOMParser = class {
+    parseFromString(markup, type) {
+      if (String(type ?? '').toLowerCase() !== 'text/html') {
+        throw new Error(`Unsupported parseFromString type: ${type}`);
+      }
+      const documentNode = parse(String(markup ?? ''), { scriptingEnabled: true });
+      const htmlElementNode = (documentNode.childNodes ?? []).find(
+        node => node.tagName === 'html',
+      ) ?? documentNode;
+      return {
+        baseURI: 'about:blank',
+        getElementsByTagName(tagName) {
+          const normalized = String(tagName).toLowerCase();
+          const results = [];
+          const visit = (node) => {
+            if (node && typeof node.tagName === 'string') {
+              if (normalized === '*' || node.tagName.toLowerCase() === normalized) {
+                results.push(toElement(node));
+              }
+            }
+            for (const child of node.childNodes ?? []) visit(child);
+          };
+          visit(documentNode);
+          return results;
+        },
+        documentElement: toElement(htmlElementNode),
+      };
+    }
+  };
+};
+
+installParse5DomParser();
 
 test('sanitizeHtmlForStaticCapture removes scripts and inline handlers', () => {
   const source = '<div onclick="alert(1)">Hello</div><script>alert(1)</script>';
@@ -68,7 +142,52 @@ test('sanitizeHtmlForStaticCapture removes javascript URLs, meta refresh, and sa
 
   assert.doesNotMatch(sanitized, /http-equiv="refresh"/i);
   assert.doesNotMatch(sanitized, /javascript:/i);
-  assert.match(sanitized, /<iframe[^>]+sandbox=""/i);
+  assert.match(sanitized, /<iframe/i);
+  assert.match(sanitized, /sandbox=""/i);
+});
+
+test('sanitizeHtmlForPublicLivePreview keeps external CDN scripts and fonts while stripping inline scripts and handlers', () => {
+  const source = [
+    '<!doctype html><html><head>',
+    '<script src="https://cdn.tailwindcss.com"></script>',
+    '<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>',
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC">',
+    '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">',
+    '</head><body>',
+    '<button onclick="saveAll()">Save</button>',
+    '<a href="javascript:alert(1)">Link</a>',
+    '<script>window.ran = true</script>',
+    '<iframe srcdoc="<p>Hi</p>"></iframe>',
+    '</body></html>',
+  ].join('');
+  const sanitized = sanitizeHtmlForPublicLivePreview(source);
+
+  assert.match(sanitized, /<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/i);
+  assert.match(sanitized, /html2canvas/i);
+  assert.doesNotMatch(sanitized, /<script>window\.ran = true<\/script>/i);
+  assert.match(sanitized, /fonts\.googleapis\.com/i);
+  assert.match(sanitized, /font-awesome/i);
+  assert.doesNotMatch(sanitized, /onclick=/i);
+  assert.doesNotMatch(sanitized, /javascript:/i);
+  assert.match(sanitized, /<iframe/i);
+  assert.match(sanitized, /sandbox=""/i);
+  assert.match(sanitized, /Save/);
+});
+
+test('sanitizeHtmlForPublicLivePreview removes glued on-attributes and unsafe data/vbscript URLs', () => {
+  const source = [
+    '<div href="x"onclick="alert(1)" data-id="1">Glued</div>',
+    '<a href="data:text/html;base64,PHNjcmlwdD4=">Data</a>',
+    '<a href="vbscript:msgbox(1)">Vbs</a>',
+    '<img src="data:image/png;base64,iVBORw0KGgo=">',
+  ].join('');
+  const sanitized = sanitizeHtmlForPublicLivePreview(source);
+
+  assert.doesNotMatch(sanitized, /onclick=/i);
+  assert.doesNotMatch(sanitized, /data:text\/html/i);
+  assert.doesNotMatch(sanitized, /vbscript:/i);
+  assert.match(sanitized, /data:image\/png/i);
+  assert.match(sanitized, /Glued/);
 });
 
 test('getHtmlPreviewCaptureSource reads srcdoc without touching contentDocument', () => {
