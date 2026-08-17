@@ -48,7 +48,7 @@ import type { PreviewEditingSourceKind } from './standaloneHtmlFenceEditing';
 export { canUsePreviewMarkdownEditing } from './previewMarkdownEditingAccess';
 
 type ContentType = 'markdown' | 'json' | 'html' | 'mermaid' | 'mixed';
-type PreviewFormatDisabledReason = 'selection-required' | 'upgrade-required' | 'unavailable';
+type PreviewFormatDisabledReason = 'selection-required' | 'unavailable';
 type MarkdownLineRange = { endLine: number; startLine: number };
 type MarkdownSearchScope = MarkdownLineRange & { kind: 'candidate' | 'heading' | 'list' | 'paragraph' | 'quote' };
 const AI_SELECTION_MIN_LENGTH = 1;
@@ -93,14 +93,11 @@ export const shouldResetPreviewMarkdownEditingState = ({
 export const getPreviewFormatToolbarDisabledReason = ({
   canEdit,
   hasActiveBlock,
-  isUpgradeRequired,
 }: {
   canEdit: boolean;
   hasActiveBlock: boolean;
-  isUpgradeRequired: boolean;
 }): PreviewFormatDisabledReason | undefined => {
   if (canEdit && hasActiveBlock) return undefined;
-  if (!canEdit && isUpgradeRequired) return 'upgrade-required';
   if (canEdit) return 'selection-required';
   return 'unavailable';
 };
@@ -1036,7 +1033,6 @@ export const usePreviewMarkdownEditing = ({
   previewCode,
   previewLineMap,
   processedCode,
-  isUpgradeRequired = false,
   sourceKind = 'document',
   sourcePatchEcho = null,
   stateResetKey,
@@ -1058,7 +1054,6 @@ export const usePreviewMarkdownEditing = ({
   previewCode: string;
   previewLineMap?: SourceLineMap;
   processedCode: string;
-  isUpgradeRequired?: boolean;
   sourceKind?: PreviewEditingSourceKind;
   sourcePatchEcho?: PreviewSourcePatchEcho;
   stateResetKey?: string;
@@ -1527,7 +1522,6 @@ export const usePreviewMarkdownEditing = ({
         disabledReason: getPreviewFormatToolbarDisabledReason({
           canEdit,
           hasActiveBlock: Boolean(activeIslandId),
-          isUpgradeRequired,
         }),
         selectedBlockFormat: 'paragraph' as PreviewMarkdownBlockFormat,
         selectedColor: '',

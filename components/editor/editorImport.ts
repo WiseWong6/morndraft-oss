@@ -1,14 +1,10 @@
 import { PUBLIC_IMPORT_LIMITS } from '../public-workspace/publicImportContract';
 
 export type EditorImportErrorCode =
-  | 'asset_upload_unavailable'
   | 'batch-too-large'
   | 'empty-import'
   | 'file-too-large'
   | 'local-markdown-required'
-  | 'public_output_moderation_rejected'
-  | 'public_output_moderation_request_invalid'
-  | 'public_output_moderation_unavailable'
   | 'too-many-files'
   | 'unsupported-file-type';
 
