@@ -610,6 +610,12 @@ const buildPublicStandaloneHtmlWithinDeadline = async (
 img,svg,canvas,video,iframe,table{max-width:100%;}
 </style>
 ${buildPortableStyleEntries(styles)}
+<style>
+/* The portable document itself is the vertical scroll container. App-shell
+   styles that leak into the collected styles (e.g. html,body{overflow:hidden})
+   must not freeze document scrolling, so re-assert it after them. */
+html,body{height:auto!important;min-height:100%;overflow:visible!important;}
+</style>
 `,
     htmlAttributes: {
       'data-morndraft-public-document-frame': 'true',

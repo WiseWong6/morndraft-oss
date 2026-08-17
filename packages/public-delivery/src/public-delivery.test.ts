@@ -445,6 +445,33 @@ test('buildPublicStandaloneHtml adapts the sidecar outline to the dark theme', a
   assert.doesNotMatch(inner, /background:#ffffff/u);
 });
 
+test('buildPublicStandaloneHtml keeps the portable document scrollable when app styles lock html/body', async () => {
+  const previewRoot = makeRoot('<main data-preview><h1>Long content</h1></main>');
+  (previewRoot as unknown as { ownerDocument: unknown }).ownerDocument = {
+    styleSheets: [{
+      disabled: false,
+      href: null,
+      media: { mediaText: '' },
+      cssRules: [
+        { cssText: 'html, body, #root { height: 100%; margin: 0px; overflow: hidden; }' },
+        { cssText: '.md-public-final { height: 100%; min-height: 0px; overflow: auto; }' },
+      ],
+    }],
+    baseURI: 'https://morndraft.test/docs/current/',
+  };
+  const html = await buildPublicStandaloneHtml(makeInput({ previewRoot }));
+  const inner = extractPortableSrcdoc(html);
+
+  assert.match(
+    inner,
+    /html, body, #root \{ height: 100%; margin: 0px; overflow: hidden; \}/u,
+    'the app-shell overflow rule must be collected into the export',
+  );
+  const leakedAt = inner.indexOf('html, body, #root');
+  const guardAt = inner.indexOf('html,body{height:auto!important;min-height:100%;overflow:visible!important;}');
+  assert.ok(guardAt > leakedAt, 'the scroll guard must be emitted after the collected app styles');
+});
+
 test('buildPublicStandaloneHtml drops the outline when no artifact targets render', async () => {
   const { previewRoot } = makeOutlineRoot(
     '<main data-preview><p>No marked blocks</p></main>',
