@@ -1,6 +1,6 @@
 import { SAMPLE_MERMAID } from './constants';
 import { DEFAULT_HTML_SAMPLE } from './samples/defaultHtmlSample';
-import { MIXED_MCP_ADMIN_HTML_SAMPLE } from './samples/mixedMcpAdminHtmlSample';
+import { MIXED_HTML_SAMPLE } from './samples/mixedHtmlSample';
 import type { MornDraftComponentScope } from './utils/releaseConfigTypes';
 
 export type Locale = 'zh' | 'en';
@@ -111,7 +111,7 @@ graph LR
 
 ## 6. HTML Preview
 \`\`\`html-preview
-${MIXED_MCP_ADMIN_HTML_SAMPLE}
+${MIXED_HTML_SAMPLE}
 \`\`\`
 `;
 
@@ -630,7 +630,7 @@ graph LR
 
 ## 6. HTML Preview
 \`\`\`html-preview
-${MIXED_MCP_ADMIN_HTML_SAMPLE}
+${MIXED_HTML_SAMPLE}
 \`\`\`
 `,
   markdown: `# Markdown Example
