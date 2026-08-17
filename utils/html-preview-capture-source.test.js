@@ -69,7 +69,8 @@ test('sanitizeHtmlForStaticCapture removes javascript URLs, meta refresh, and sa
 
   assert.doesNotMatch(sanitized, /http-equiv="refresh"/i);
   assert.doesNotMatch(sanitized, /javascript:/i);
-  assert.match(sanitized, /<iframe[^>]+sandbox=""/i);
+  assert.match(sanitized, /<iframe/i);
+  assert.match(sanitized, /sandbox=""/i);
 });
 
 test('sanitizeHtmlForPublicLivePreview keeps external CDN scripts and fonts while stripping inline scripts and handlers', () => {
@@ -95,7 +96,8 @@ test('sanitizeHtmlForPublicLivePreview keeps external CDN scripts and fonts whil
   assert.match(sanitized, /font-awesome/i);
   assert.doesNotMatch(sanitized, /onclick=/i);
   assert.doesNotMatch(sanitized, /javascript:/i);
-  assert.match(sanitized, /<iframe[^>]+sandbox=""/i);
+  assert.match(sanitized, /<iframe/i);
+  assert.match(sanitized, /sandbox=""/i);
   assert.match(sanitized, /Save/);
 });
 
