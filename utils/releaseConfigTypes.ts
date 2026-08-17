@@ -23,7 +23,6 @@ export type MornDraftReleaseConfig = {
   profileId: string;
   shareLinkMode: 'hidden';
   showAccountMenu: false;
-  showAboutEnterpriseInfo: boolean;
   showAboutSupportQr: boolean;
   showDonationAction: boolean;
   showDraftSidebar: false;

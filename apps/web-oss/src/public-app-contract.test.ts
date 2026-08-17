@@ -45,13 +45,12 @@ test('OSS entry mounts the shared desktop and Lexical Final chain with local-onl
   assert.doesNotMatch(`${publicApp}\n${adapters}\n${publicShell}\n${sharedFinal}`, /\/api\//);
 });
 
-test('OSS about dialog restores the commercial AboutModal structure with support QR', () => {
+test('OSS about dialog keeps the AboutModal structure with support QR', () => {
   const publicShell = read('../../../components/public-desktop/PublicDesktopMornDraftShell.tsx');
   const aboutModal = read('../../../components/AboutModal.tsx');
   const releaseCss = read('./release.css');
 
   assert.match(publicShell, /<AboutModal/);
-  assert.match(publicShell, /showEnterpriseInfo=\{releaseConfig\.showAboutEnterpriseInfo\}/);
   assert.match(publicShell, /showSupportQr=\{releaseConfig\.showAboutSupportQr\}/);
   assert.match(publicShell, /t=\{t\.about\}/);
   assert.doesNotMatch(publicShell, /analyticsDisclosure|COPYRIGHT_NOTICE/);
@@ -138,7 +137,6 @@ test('OSS shared shell keeps Source truth, local title derivation, delivery and 
   assert.match(compliance, /aad-preview-copyright-button/);
   // The analytics disclosure lives in the About dialog, not the page footer.
   assert.doesNotMatch(compliance, /匿名访问统计|analytics-disclosure/);
-  assert.doesNotMatch(compliance, /Wise Wong/);
   assert.doesNotMatch(`${compliance}\n${complianceText}`, /ICP备|公安网安备|公网安备/);
   assert.match(complianceText, /© 2026 Wise Wong/);
 });

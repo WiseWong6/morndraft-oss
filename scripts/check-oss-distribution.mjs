@@ -23,7 +23,7 @@ import { resolveOssSourceClosure } from './oss-public-source-closure.mjs';
 import { serializePublicPackageLock } from './oss-public-lockfile.mjs';
 import { PROFILE_CAPABILITIES } from '../packages/core/src/oss-capabilities.js';
 
-const IGNORED_DIRECTORIES = new Set(['.git', '.vite', 'artifacts', 'dist', 'node_modules', 'output']);
+const IGNORED_DIRECTORIES = new Set(['.claude', '.git', '.spec-workflow', '.vite', '.zcode', 'artifacts', 'dist', 'logs', 'node_modules', 'output']);
 const TEXT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json', '.md', '.mjs', '.svg', '.ts', '.tsx', '.txt', '.xml', '.yml', '.yaml']);
 const SOURCE_SCAN_IGNORED = new Set([
   'profiles/oss-public-distribution.json',

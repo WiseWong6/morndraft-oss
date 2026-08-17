@@ -1421,7 +1421,7 @@ const assertOss710VisualBaseline = async (page, { mobile = false } = {}) => {
   await page.locator('.aad-preview-copyright-button').click();
   const aboutDialog = page.getByRole('dialog', { name: 'MornDraft' });
   await aboutDialog.waitFor({ state: 'visible' });
-  assert.match(await aboutDialog.innerText(), /百度统计|Baidu Analytics/u);
+  assert.doesNotMatch(await aboutDialog.innerText(), /百度统计|Baidu Analytics|匿名访问统计/u);
   await page.keyboard.press('Escape');
   await aboutDialog.waitFor({ state: 'hidden' });
 };

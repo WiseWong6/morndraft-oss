@@ -244,7 +244,6 @@
     "packages/core/src/mermaid-source.js",
     "packages/core/src/morndraft-flat-adapter.js",
     "packages/core/src/morndraft-flat-default-item.js",
-    "packages/core/src/morndraft-flat-entitlements.js",
     "packages/core/src/morndraft-flat-source-patch.js",
     "packages/core/src/morndraft-html-source.js",
     "packages/core/src/oss-capabilities.js",
@@ -299,7 +298,6 @@
     "public/fonts/noto-sc/noto-serif-sc-chinese-simplified-300-normal.woff2",
     "public/fonts/noto-sc/noto-serif-sc-chinese-simplified-400-normal.woff2",
     "public/fonts/noto-sc/noto-serif-sc-chinese-simplified-700-normal.woff2",
-    "public/gongan-beian.png",
     "public/morndraft-icon-dark.webp",
     "public/morndraft-icon-light.webp",
     "public/morndraft-wordmark-dark.webp",
@@ -461,14 +459,17 @@
     "typescript-eslint",
     "vite"
   ],
-  "excludedPathSegments": [],
+  "excludedPathSegments": [
+    ".claude/",
+    ".spec-workflow/",
+    ".zcode/",
+    "logs/"
+  ],
   "excludedFiles": [],
   "sourceMarkerAllowances": {
     "private AI provider or usage marker": {
       "apps/web-oss/src/public-app-contract.test.ts": 1,
       "components/OssMoreMenu.tsx": 4,
-      "components/preview/deliveryAccess.ts": 1,
-      "i18n.ts": 4,
       "packages/features-personal/src/ai/PublicAiSettingsForm.tsx": 5,
       "packages/features-personal/src/ai/config.ts": 1,
       "packages/features-personal/src/ai/index.ts": 1,
@@ -476,13 +477,8 @@
       "vite.config.ts": 4
     },
     "hosted share link marker": {
-      "components/preview/deliveryAccess.ts": 2,
-      "i18n.ts": 2,
       "utils/htmlStandaloneViewer.ts": 2,
       "vite.config.ts": 5
-    },
-    "private payment marker": {
-      "i18n.ts": 51
     }
   },
   "requiredFiles": [
@@ -728,7 +724,6 @@
     "packages/core/src/mermaid-source.js",
     "packages/core/src/morndraft-flat-adapter.js",
     "packages/core/src/morndraft-flat-default-item.js",
-    "packages/core/src/morndraft-flat-entitlements.js",
     "packages/core/src/morndraft-flat-source-patch.js",
     "packages/core/src/morndraft-html-source.js",
     "packages/core/src/oss-capabilities.js",

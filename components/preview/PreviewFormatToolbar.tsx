@@ -160,9 +160,7 @@ export const PreviewFormatToolbar: React.FC<{
     useState<'block' | 'color' | 'font' | 'letterSpacing' | 'lineHeight' | 'size' | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const canFormat = Boolean(controls?.canFormat);
-  const disabledTitle = controls?.disabledReason === 'upgrade-required'
-    ? t.previewEditUpgradeRequired
-    : controls?.disabledReason === 'selection-required'
+  const disabledTitle = controls?.disabledReason === 'selection-required'
       ? t.previewEditSelectionRequired
       : t.previewEditUnavailable;
 

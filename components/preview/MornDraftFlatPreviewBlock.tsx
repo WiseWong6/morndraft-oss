@@ -19,12 +19,10 @@ import type { ArtifactPreviewTranslations } from '../../i18n';
 import type { HtmlPreviewSelectionChange } from '../../utils/htmlPreviewBridge';
 import {
   getMornDraftFlatLayoutDecision,
-  type MornDraftFlatLayoutDecision,
   type PreviewRenderDeliveryAccess,
 } from './deliveryAccess';
 import { ArtifactErrorBlock } from './ArtifactErrorBlock';
-import { BlockHeaderCopyAction, type BlockCopyContentKind } from './BlockHeaderCopyAction';
-import { CollapsibleArtifactBlock } from './CollapsibleArtifactBlock';
+import { type BlockCopyContentKind } from './BlockHeaderCopyAction';
 import type { HtmlPreviewEditCommitMeta } from './useHtmlPreviewEditMode';
 import type { PreviewSourceSelectionRange } from './ArtifactPreviewTypes';
 import { recordHtmlPreviewRenderProbe } from './htmlPreviewDebug';
@@ -136,27 +134,6 @@ const formatAdapterDiagnostics = (
         : `[${diagnostic.code}]${location} ${message.en}`;
     })
     .join('\n');
-
-const getAccessDecisionMessage = (
-  decision: MornDraftFlatLayoutDecision,
-  t: ArtifactPreviewTranslations,
-) => {
-  if (decision.code === 'service-unavailable') return t.morndraftComponentAccessUnavailableMessage;
-  if (decision.code === 'upgrade') return t.morndraftComponentProRequiredMessage;
-  return decision.text;
-};
-
-const escapeHtmlText = (value: string) =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
-const normalizeReservedHeight = (height: number) => (
-  Number.isFinite(height) ? Math.max(1, Math.round(height)) : 320
-);
 
 type MornDraftFlatSourceEditEntry = {
   range?: { start?: number; end?: number };
@@ -288,106 +265,6 @@ const getDebugHash = (value: string) => {
 const debugMornDraftFlat = (event: string, payload: Record<string, unknown>) => {
   if (!isMornDraftFlatDebugEnabled()) return;
   console.info(`[morndraft-flat] ${event}`, payload);
-};
-
-const buildMornDraftFlatAccessPlaceholderHtml = (
-  decision: MornDraftFlatLayoutDecision,
-  message: string,
-  reservedHeight: number,
-) => {
-  const height = normalizeReservedHeight(reservedHeight);
-  const isChecking = decision.code === 'checking';
-  const placeholderStyle = [
-    'box-sizing:border-box',
-    `height:${height}px`,
-    `min-height:${height}px`,
-    'display:flex',
-    'align-items:center',
-    'justify-content:center',
-    'padding:24px',
-    `background:${isChecking ? '#f8fafc' : '#fffaf2'}`,
-    `color:${isChecking ? '#475569' : '#8a4b16'}`,
-    "font:14px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-    'text-align:center',
-  ].join(';');
-  const spinnerStyle = [
-    'box-sizing:border-box',
-    'width:22px',
-    'height:22px',
-    'border-radius:999px',
-    'border:2px solid rgba(71,85,105,0.2)',
-    'border-top-color:#475569',
-    'animation:morndraft-flat-access-spin 0.82s linear infinite',
-    'margin:0 auto 12px',
-  ].join(';');
-  const bodyStyle = isChecking
-    ? 'max-width:480px;font-weight:600;'
-    : 'max-width:520px;font-weight:600;';
-  const content = isChecking
-    ? [
-        '<style>@keyframes morndraft-flat-access-spin{to{transform:rotate(360deg);}}</style>',
-        `<div style="${spinnerStyle}" aria-hidden="true"></div>`,
-        `<div style="${bodyStyle}">${escapeHtmlText(message)}</div>`,
-      ].join('\n')
-    : `<div style="${bodyStyle}">${escapeHtmlText(message)}</div>`;
-  return [
-    `<section data-morndraft-flat-access-placeholder ${isChecking ? 'data-morndraft-flat-access-loading' : 'data-morndraft-flat-access-notice'} style="${placeholderStyle}">`,
-    `  ${content}`,
-    '</section>',
-  ].join('\n');
-};
-
-const MornDraftFlatAccessPlaceholderBlock: React.FC<{
-  copySource: string;
-  decision: MornDraftFlatLayoutDecision;
-  label: string;
-  message: string;
-  reservedHeight: number;
-  t: ArtifactPreviewTranslations;
-}> = ({
-  copySource,
-  decision,
-  label,
-  message,
-  reservedHeight,
-  t,
-}) => {
-  const height = normalizeReservedHeight(reservedHeight);
-  const isChecking = decision.code === 'checking';
-  return (
-    <CollapsibleArtifactBlock
-      label={label}
-      className="aad-html-frame aad-morndraft-flat-access-block flex flex-col"
-      copyRole="html-preview"
-      resetKey={`morndraft-flat-access:${decision.code}:${height}:${copySource}`}
-      actions={(
-        <BlockHeaderCopyAction contentKind="html" text={copySource} t={t} />
-      )}
-      dataAttributes={{
-        'data-morndraft-flat-access-block': decision.code,
-      }}
-      expandLabel={t.expandBlock}
-      collapseLabel={t.collapseBlock}
-    >
-      <section
-        className={[
-          'aad-morndraft-flat-access-placeholder',
-          isChecking ? 'is-checking' : 'is-notice',
-        ].filter(Boolean).join(' ')}
-        data-morndraft-flat-access-placeholder
-        data-morndraft-flat-access-loading={isChecking ? 'true' : undefined}
-        data-morndraft-flat-access-notice={!isChecking ? 'true' : undefined}
-        style={{
-          '--aad-morndraft-flat-access-height': `${height}px`,
-        } as React.CSSProperties}
-      >
-        {isChecking ? (
-          <div className="aad-morndraft-flat-access-spinner" aria-hidden="true" />
-        ) : null}
-        <div className="aad-morndraft-flat-access-message">{message}</div>
-      </section>
-    </CollapsibleArtifactBlock>
-  );
 };
 
 const MORNDRAFT_FLAT_EDIT_PATH_ATTR = 'data-morndraft-edit-path';
@@ -884,12 +761,6 @@ export const MornDraftHtmlSourcePreviewBlock: React.FC<{
     };
   }, [component]);
   const canUseStructuredHtmlSourceEdit = Boolean(canEdit && onCodeChange && htmlSourceEditModel);
-  const layoutDecision = getMornDraftFlatLayoutDecision(
-    renderDeliveryAccess,
-    t,
-    layout,
-    variant,
-  );
 
   const commitInternalSourceChange = useCallback((newCode: string, options?: MornDraftSourceChangeOptions) => {
     const previousCode = sourceCodeForPatchRef.current;
@@ -993,20 +864,6 @@ export const MornDraftHtmlSourcePreviewBlock: React.FC<{
     }
     commitInternalSourceChange(newCode, { commitPhase: 'final', kind: 'code' });
   };
-
-  if (!layoutDecision.isAllowed) {
-    const height = normalizeReservedHeight(reservedHeight ?? 320);
-    return (
-      <MornDraftFlatAccessPlaceholderBlock
-        copySource={renderCode}
-        decision={layoutDecision}
-        label={t.morndraftComponent}
-        message={getAccessDecisionMessage(layoutDecision, t)}
-        reservedHeight={height}
-        t={t}
-      />
-    );
-  }
 
   return (
     <HtmlPreviewComponent
@@ -1117,46 +974,6 @@ export const MornDraftFlatPreviewBlock: React.FC<{
     const variant = typeof metadata.variant === 'string' ? metadata.variant : undefined;
     const deliveryWidth = resolveSwissCatalogPreviewWidth(result.documentSpec);
     const reservedHeight = resolveSwissCatalogPreviewHeight(result.documentSpec);
-    const layoutDecision = getMornDraftFlatLayoutDecision(
-      renderDeliveryAccess,
-      t,
-      layout,
-      variant,
-    );
-
-    if (!layoutDecision.isAllowed) {
-      debugMornDraftFlat('access-placeholder', {
-        accountPlan: renderDeliveryAccess?.entitlement?.account_plan ?? null,
-        codeHash: getDebugHash(renderCode),
-        decision: layoutDecision.code,
-        deliveryWidth,
-        frameKey: frameKey ?? null,
-        hasEntitlement: Boolean(renderDeliveryAccess?.entitlement),
-        isLoading: Boolean(renderDeliveryAccess?.isLoading),
-        layout: layout ?? null,
-        reservedHeight,
-        tier: layoutDecision.tier,
-        variant: variant ?? null,
-      });
-      return (
-        <HtmlPreviewComponent
-          code={buildMornDraftFlatAccessPlaceholderHtml(
-            layoutDecision,
-            getAccessDecisionMessage(layoutDecision, t),
-            reservedHeight,
-          )}
-          deliveryWidth={deliveryWidth}
-          frameKey={frameKey}
-          initialHeight={reservedHeight}
-          lockInitialHeight
-          label={t.morndraftComponent}
-          hideDefaultMeta
-          copyContentKind="morndraft"
-          copySource={renderCode}
-          deferMountUntilVisible
-        />
-      );
-    }
 
     const canUseFlatTextEdit = Boolean(
       canEdit &&
