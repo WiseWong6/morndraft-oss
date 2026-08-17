@@ -1,56 +1,15 @@
-const EVENT_HANDLER_ATTR_RE = /(?<![a-z0-9-])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
-const MORNDRAFT_EDIT_PATH_ATTR_RE = /\s+data-morndraft-edit-path\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
-const INLINE_SCRIPT_TAG_RE = /<script\b(?![^>]*\bsrc\s*=)[^>]*>[\s\S]*?<\/script\s*>/gi;
-const SCRIPT_TAG_RE = /<script\b[\s\S]*?<\/script>/gi;
-const META_REFRESH_RE = /<meta\b[^>]*http-equiv\s*=\s*(?:"refresh"|'refresh'|refresh)[^>]*>/gi;
-const UNSANDBOXED_IFRAME_RE = /<iframe\b(?![^>]*\bsandbox\s*=)([^>]*)>/gi;
+import { parse, serialize } from 'parse5';
+
 const LINK_TAG_RE = /<link\b[^>]*>/gi;
 const HTML_ATTRIBUTE_RE = /\s([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
 const MAX_SNAPSHOT_LENGTH = 2_000_000;
 const MORNDRAFT_FLAT_EDIT_PATH_ATTR = 'data-morndraft-edit-path';
 
 const NAVIGATION_URL_ATTRIBUTES = new Set(['href', 'src', 'xlink:href', 'action', 'formaction']);
-const NAVIGATION_URL_ATTR_RE =
-  /\s+(?:href|src|xlink:href|action|formaction)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 // data: URLs are only safe for inert media; anything else (data:text/html,
 // data:image/svg+xml, data:text/javascript ...) can smuggle a script context.
 const SAFE_DATA_URL_PREFIX_RE =
   /^data:(?:image\/(?:png|jpe?g|gif|webp|avif|bmp|apng)|font\/|audio\/|video\/|application\/(?:octet-stream|pdf|json|xml)|text\/plain)(?:[;,]|$)/i;
-
-const isUnsafeNavigationUrlValue = (value) => {
-  const normalized = String(value ?? '').trim().toLowerCase();
-  if (normalized.startsWith('javascript:') || normalized.startsWith('vbscript:')) return true;
-  if (!normalized.startsWith('data:')) return false;
-  return !SAFE_DATA_URL_PREFIX_RE.test(normalized);
-};
-
-const stripUnsafeNavigationUrlAttributes = (markup) =>
-  String(markup ?? '').replace(NAVIGATION_URL_ATTR_RE, (match) => {
-    const quoted = match.match(/=\s*(["'])([\s\S]*?)\1/i);
-    const bare = match.match(/=\s*([^\s>]+)/i);
-    const value = quoted ? quoted[2] : bare ? bare[1] : '';
-    return isUnsafeNavigationUrlValue(value) ? '' : match;
-  });
-
-const sanitizeUnsafeElementAttributes = (element) => {
-  Array.from(element.attributes).forEach((attribute) => {
-    const name = attribute.name.toLowerCase();
-    if (name.startsWith('on')) {
-      element.removeAttribute(attribute.name);
-      return;
-    }
-    if (NAVIGATION_URL_ATTRIBUTES.has(name) && isUnsafeNavigationUrlValue(attribute.value)) {
-      element.removeAttribute(attribute.name);
-      return;
-    }
-    if (name === MORNDRAFT_FLAT_EDIT_PATH_ATTR) {
-      element.removeAttribute(attribute.name);
-    }
-  });
-  if (element.tagName.toLowerCase() === 'iframe') {
-    element.setAttribute('sandbox', '');
-  }
-};
 
 const readIframeSrcDoc = (iframe) => iframe?.srcdoc || iframe?.getAttribute?.('srcdoc') || '';
 
@@ -92,14 +51,126 @@ export const stripNonBlockingRemoteFontStylesheets = (html) =>
     return tag;
   });
 
+const isUnsafeNavigationUrlValue = (value) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized.startsWith('javascript:') || normalized.startsWith('vbscript:')) return true;
+  if (!normalized.startsWith('data:')) return false;
+  return !SAFE_DATA_URL_PREFIX_RE.test(normalized);
+};
+
+/** DOM-based attribute sanitization shared by the capture and live-preview sanitizers. */
+const sanitizeUnsafeElementAttributes = (element) => {
+  Array.from(element.attributes).forEach((attribute) => {
+    const name = attribute.name.toLowerCase();
+    if (name.startsWith('on')) {
+      element.removeAttribute(attribute.name);
+      return;
+    }
+    if (NAVIGATION_URL_ATTRIBUTES.has(name) && isUnsafeNavigationUrlValue(attribute.value)) {
+      element.removeAttribute(attribute.name);
+      return;
+    }
+    if (name === MORNDRAFT_FLAT_EDIT_PATH_ATTR) {
+      element.removeAttribute(attribute.name);
+    }
+  });
+  if (element.tagName.toLowerCase() === 'iframe') {
+    element.setAttribute('sandbox', '');
+  }
+};
+
+// ---- parse5-based fallback for non-browser environments (no DOMParser) ----
+
+const getParsedTagName = (node) =>
+  node && typeof node.tagName === 'string' ? node.tagName.toLowerCase() : '';
+
+const getParsedAttributes = (node) => (Array.isArray(node?.attrs) ? node.attrs : []);
+
+const removeParsedChildNode = (node) => {
+  const parent = node?.parentNode;
+  const siblings = parent && Array.isArray(parent.childNodes) ? parent.childNodes : null;
+  if (!siblings) return;
+  const index = siblings.indexOf(node);
+  if (index >= 0) siblings.splice(index, 1);
+};
+
+const sanitizeParsedElement = (node) => {
+  const attributes = getParsedAttributes(node);
+  for (let index = attributes.length - 1; index >= 0; index -= 1) {
+    const attribute = attributes[index];
+    const name = attribute && typeof attribute.name === 'string' ? attribute.name.toLowerCase() : '';
+    if (name.startsWith('on')) {
+      attributes.splice(index, 1);
+      continue;
+    }
+    if (NAVIGATION_URL_ATTRIBUTES.has(name) && isUnsafeNavigationUrlValue(attribute.value)) {
+      attributes.splice(index, 1);
+      continue;
+    }
+    if (name === MORNDRAFT_FLAT_EDIT_PATH_ATTR) {
+      attributes.splice(index, 1);
+    }
+  }
+  if (
+    getParsedTagName(node) === 'iframe' &&
+    !attributes.some(attribute => typeof attribute?.name === 'string' && attribute.name.toLowerCase() === 'sandbox')
+  ) {
+    attributes.push({ name: 'sandbox', value: '' });
+  }
+};
+
+const sanitizeParsedDocument = (documentNode, options) => {
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    const tagName = getParsedTagName(node);
+    if (tagName === 'script') {
+      const hasSource = getParsedAttributes(node).some(
+        attribute => typeof attribute?.name === 'string' && attribute.name.toLowerCase() === 'src',
+      );
+      if (options.removeScripts === 'all' || (options.removeScripts === 'inline-only' && !hasSource)) {
+        removeParsedChildNode(node);
+        return;
+      }
+    } else if (tagName === 'meta') {
+      const httpEquiv = getParsedAttributes(node).find(
+        attribute => typeof attribute?.name === 'string' && attribute.name.toLowerCase() === 'http-equiv',
+      );
+      if (httpEquiv && String(httpEquiv.value ?? '').trim().toLowerCase() === 'refresh') {
+        removeParsedChildNode(node);
+        return;
+      }
+    } else if (tagName === 'link' && options.removeRemoteFontStylesheets) {
+      const rel = getParsedAttributes(node).find(
+        attribute => typeof attribute?.name === 'string' && attribute.name.toLowerCase() === 'rel',
+      );
+      const href = getParsedAttributes(node).find(
+        attribute => typeof attribute?.name === 'string' && attribute.name.toLowerCase() === 'href',
+      );
+      if (
+        /\bstylesheet\b/i.test(String(rel?.value ?? '')) &&
+        isNonBlockingRemoteFontStylesheetHref(String(href?.value ?? ''), 'about:blank')
+      ) {
+        removeParsedChildNode(node);
+        return;
+      }
+    }
+    sanitizeParsedElement(node);
+    if (Array.isArray(node.childNodes)) {
+      // Iterate a copy: removeParsedChildNode splices the live array, which
+      // would otherwise skip the sibling right after a removed node.
+      for (const child of [...node.childNodes]) visit(child);
+    }
+  };
+  visit(documentNode);
+  return serialize(documentNode);
+};
+
 export const sanitizeHtmlForStaticCapture = (html) => {
   if (typeof globalThis.DOMParser === 'undefined') {
-    return stripUnsafeNavigationUrlAttributes(stripNonBlockingRemoteFontStylesheets(html))
-      .replace(SCRIPT_TAG_RE, '')
-      .replace(META_REFRESH_RE, '')
-      .replace(EVENT_HANDLER_ATTR_RE, '')
-      .replace(MORNDRAFT_EDIT_PATH_ATTR_RE, '')
-      .replace(UNSANDBOXED_IFRAME_RE, '<iframe sandbox=""$1>');
+    return sanitizeParsedDocument(parse(String(html ?? ''), { scriptingEnabled: true }), {
+      removeRemoteFontStylesheets: true,
+      removeScripts: 'all',
+    });
   }
 
   const doc = new globalThis.DOMParser().parseFromString(html, 'text/html');
@@ -129,12 +200,9 @@ export const sanitizeHtmlForStaticCapture = (html) => {
  */
 export const sanitizeHtmlForPublicLivePreview = (html) => {
   if (typeof globalThis.DOMParser === 'undefined') {
-    return stripUnsafeNavigationUrlAttributes(String(html ?? ''))
-      .replace(INLINE_SCRIPT_TAG_RE, '')
-      .replace(META_REFRESH_RE, '')
-      .replace(EVENT_HANDLER_ATTR_RE, '')
-      .replace(MORNDRAFT_EDIT_PATH_ATTR_RE, '')
-      .replace(UNSANDBOXED_IFRAME_RE, '<iframe sandbox=""$1>');
+    return sanitizeParsedDocument(parse(String(html ?? ''), { scriptingEnabled: true }), {
+      removeScripts: 'inline-only',
+    });
   }
 
   const doc = new globalThis.DOMParser().parseFromString(String(html ?? ''), 'text/html');
