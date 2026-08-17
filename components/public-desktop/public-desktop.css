@@ -33,6 +33,14 @@
   border-bottom: 1px solid var(--aad-border);
 }
 
+/* Desktop: drop the leading padding so the brand home button occupies the
+   same left icon column as the artifact-map rail button underneath. */
+@media (min-width: 1024px) {
+  .md-oss-shared-toolbar {
+    padding-left: 0;
+  }
+}
+
 .md-oss-shared-toolbar-group,
 .md-oss-shared-toolbar-actions {
   display: flex;

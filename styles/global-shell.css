@@ -413,6 +413,14 @@ html, body {
   padding-left: var(--aad-artifact-map-title-anchor-x, 1rem) !important;
 }
 
+/* Desktop: the wider home button already centers its icon on the left icon
+   column, so the toolbar itself starts flush at that column. */
+@media (min-width: 1024px) {
+  .aad-commercial-workspace-shell.is-public-workspace .aad-workspace-toolbar-inner {
+    padding-left: 0 !important;
+  }
+}
+
 .aad-commercial-workspace-shell .aad-workspace-draft-toggle {
   width: var(--aad-workspace-left-icon-width);
   min-width: var(--aad-workspace-left-icon-width);
