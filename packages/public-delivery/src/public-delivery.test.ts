@@ -70,6 +70,62 @@ const makeInput = (overrides: Partial<PublicDeliveryInput> = {}): PublicDelivery
   ...overrides,
 });
 
+class FakeOutlineTarget {
+  readonly attributes = new Map<string, string>();
+
+  constructor(artifactId: string) {
+    this.attributes.set('data-artifact-id', artifactId);
+  }
+
+  getAttribute(name: string) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  setAttribute(name: string, value: string) {
+    this.attributes.set(name, value);
+  }
+}
+
+// Minimal preview-root fixture whose ownerDocument supports the template
+// parsing surface consumed by the standalone artifact outline builder.
+const makeOutlineRoot = (renderedHtml: string, artifactIds: readonly string[]) => {
+  const targets = artifactIds.map((id) => new FakeOutlineTarget(id));
+  const ownerDocument = {
+    styleSheets: [],
+    baseURI: 'https://morndraft.test/docs/current/',
+    createElement: (tagName: string) => {
+      assert.equal(tagName, 'template');
+      let serialized = '';
+      return {
+        get innerHTML() {
+          return serialized;
+        },
+        set innerHTML(value: string) {
+          serialized = value;
+        },
+        content: {
+          querySelectorAll: (selector: string) => {
+            assert.equal(selector, '[data-artifact-id]');
+            return targets;
+          },
+        },
+      };
+    },
+  } as unknown as Document;
+  const previewRoot = {
+    cloneNode: () => ({
+      getAttribute: () => null,
+      outerHTML: renderedHtml,
+      querySelectorAll: () => [],
+      removeAttribute: () => undefined,
+      setAttribute: () => undefined,
+      tagName: 'MAIN',
+    }),
+    ownerDocument,
+  } as unknown as HTMLElement;
+  return { previewRoot, targets };
+};
+
 const extractPortableSrcdoc = (html: string) => {
   const encoded = html.match(/\ssrcdoc="([\s\S]*?)"><\/iframe>/u)?.[1];
   assert.ok(encoded, 'portable document iframe must contain srcdoc');
@@ -328,6 +384,84 @@ test('buildPublicStandaloneHtml confines mutation-XSS payloads to an opaque chil
   assert.doesNotMatch(topLevelBody, /<form|<math|<img/iu);
   assert.match(topLevelBody, /&lt;form&gt;&lt;math&gt;/u);
   assert.doesNotMatch(html, /sandbox="[^"]*allow-same-origin/iu);
+});
+
+test('buildPublicStandaloneHtml renders the artifact map as a left sidecar outline', async () => {
+  const { previewRoot, targets } = makeOutlineRoot(
+    '<main data-preview><h1>Alpha</h1><h2>Beta</h2></main>',
+    ['artifact-heading-alpha', 'artifact-heading-beta'],
+  );
+  const html = await buildPublicStandaloneHtml(makeInput({
+    previewRoot,
+    artifactMap: {
+      title: '目录 <Nav>',
+      entries: [
+        { id: 'artifact-heading-alpha', kind: 'heading', level: 1, title: '一级 <Alpha>' },
+        { id: 'artifact-heading-beta', kind: 'heading', level: 2, title: '二级 Beta' },
+        { id: 'artifact-heading-missing', kind: 'heading', level: 3, title: '缺失目标' },
+      ],
+    },
+  }));
+  const inner = extractPortableSrcdoc(html);
+  const body = inner.slice(inner.indexOf('<body>'));
+
+  assert.match(
+    body,
+    /^<body>\s*<section data-morndraft-portable-preview-with-map="true" style="display:flex;align-items:flex-start/u,
+    'the outlined body must open with the sidecar flex frame',
+  );
+  const sidecarIndex = body.indexOf('<aside data-morndraft-portable-artifact-map="sidecar"');
+  const contentIndex = body.indexOf('<main data-preview>');
+  assert.ok(sidecarIndex > -1, 'the standalone outline sidecar must render');
+  assert.ok(contentIndex > sidecarIndex, 'the sidecar must sit left of the document content');
+  assert.match(body, /flex:0 0 13\.5rem;[^>]*position:sticky;top:0/u);
+  assert.match(body, /border-right:1px solid rgba\(29,29,24,\.12\)/u);
+  assert.match(body, />目录 &lt;Nav&gt;<\/span>/u);
+  assert.match(body, /href="#aad-toc-target-0"[^>]*padding:7px 10px 7px 10px;[^>]*>一级 &lt;Alpha&gt;</u);
+  assert.match(body, /href="#aad-toc-target-1"[^>]*padding:7px 10px 7px 20px;[^>]*>二级 Beta</u);
+  assert.doesNotMatch(body, /缺失目标/u);
+  assert.equal(targets[0].getAttribute('id'), 'aad-toc-target-0');
+  assert.equal(targets[1].getAttribute('id'), 'aad-toc-target-1');
+});
+
+test('buildPublicStandaloneHtml adapts the sidecar outline to the dark theme', async () => {
+  const { previewRoot } = makeOutlineRoot(
+    '<main data-preview><h1>Alpha</h1></main>',
+    ['artifact-heading-alpha'],
+  );
+  const html = await buildPublicStandaloneHtml(makeInput({
+    previewRoot,
+    theme: 'dark',
+    artifactMap: {
+      title: '目录',
+      entries: [{ id: 'artifact-heading-alpha', kind: 'heading', level: 1, title: '一级 Alpha' }],
+    },
+  }));
+  const inner = extractPortableSrcdoc(html);
+
+  assert.match(inner, /data-morndraft-portable-artifact-map="sidecar"/u);
+  assert.match(inner, /background:#161618/u);
+  assert.match(inner, /border-right:1px solid rgba\(245,245,247,\.12\)/u);
+  assert.doesNotMatch(inner, /background:#ffffff/u);
+});
+
+test('buildPublicStandaloneHtml drops the outline when no artifact targets render', async () => {
+  const { previewRoot } = makeOutlineRoot(
+    '<main data-preview><p>No marked blocks</p></main>',
+    ['artifact-heading-alpha'],
+  );
+  const html = await buildPublicStandaloneHtml(makeInput({
+    previewRoot,
+    artifactMap: {
+      title: '目录',
+      entries: [{ id: 'artifact-heading-ghost', kind: 'heading', level: 1, title: 'Ghost' }],
+    },
+  }));
+  const inner = extractPortableSrcdoc(html);
+
+  assert.match(inner, /<main data-preview><p>No marked blocks<\/p><\/main>/u);
+  assert.doesNotMatch(inner, /data-morndraft-portable-preview-with-map/u);
+  assert.doesNotMatch(inner, /data-morndraft-portable-artifact-map/u);
 });
 
 test('buildPublicStandaloneHtml keeps raw HTML inside an allow-scripts opaque sandbox', async () => {
