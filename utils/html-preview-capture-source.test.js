@@ -72,7 +72,7 @@ test('sanitizeHtmlForStaticCapture removes javascript URLs, meta refresh, and sa
   assert.match(sanitized, /<iframe[^>]+sandbox=""/i);
 });
 
-test('sanitizeHtmlForPublicLivePreview keeps scripts and remote fonts while stripping handlers and javascript URLs', () => {
+test('sanitizeHtmlForPublicLivePreview keeps external CDN scripts and fonts while stripping inline scripts and handlers', () => {
   const source = [
     '<!doctype html><html><head>',
     '<script src="https://cdn.tailwindcss.com"></script>',
@@ -90,13 +90,29 @@ test('sanitizeHtmlForPublicLivePreview keeps scripts and remote fonts while stri
 
   assert.match(sanitized, /<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/i);
   assert.match(sanitized, /html2canvas/i);
-  assert.match(sanitized, /<script>window\.ran = true<\/script>/i);
+  assert.doesNotMatch(sanitized, /<script>window\.ran = true<\/script>/i);
   assert.match(sanitized, /fonts\.googleapis\.com/i);
   assert.match(sanitized, /font-awesome/i);
   assert.doesNotMatch(sanitized, /onclick=/i);
   assert.doesNotMatch(sanitized, /javascript:/i);
   assert.match(sanitized, /<iframe[^>]+sandbox=""/i);
   assert.match(sanitized, /Save/);
+});
+
+test('sanitizeHtmlForPublicLivePreview removes glued on-attributes and unsafe data/vbscript URLs', () => {
+  const source = [
+    '<div href="x"onclick="alert(1)" data-id="1">Glued</div>',
+    '<a href="data:text/html;base64,PHNjcmlwdD4=">Data</a>',
+    '<a href="vbscript:msgbox(1)">Vbs</a>',
+    '<img src="data:image/png;base64,iVBORw0KGgo=">',
+  ].join('');
+  const sanitized = sanitizeHtmlForPublicLivePreview(source);
+
+  assert.doesNotMatch(sanitized, /onclick=/i);
+  assert.doesNotMatch(sanitized, /data:text\/html/i);
+  assert.doesNotMatch(sanitized, /vbscript:/i);
+  assert.match(sanitized, /data:image\/png/i);
+  assert.match(sanitized, /Glued/);
 });
 
 test('getHtmlPreviewCaptureSource reads srcdoc without touching contentDocument', () => {
