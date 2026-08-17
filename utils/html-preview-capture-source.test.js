@@ -5,6 +5,7 @@ import {
   getHtmlPreviewCaptureSource,
   getHtmlPreviewSnapshotSource,
   isNonBlockingRemoteFontStylesheetHref,
+  sanitizeHtmlForPublicLivePreview,
   sanitizeHtmlForStaticCapture,
   stripNonBlockingRemoteFontStylesheets,
 } from './html-preview-capture-source.js';
@@ -69,6 +70,33 @@ test('sanitizeHtmlForStaticCapture removes javascript URLs, meta refresh, and sa
   assert.doesNotMatch(sanitized, /http-equiv="refresh"/i);
   assert.doesNotMatch(sanitized, /javascript:/i);
   assert.match(sanitized, /<iframe[^>]+sandbox=""/i);
+});
+
+test('sanitizeHtmlForPublicLivePreview keeps scripts and remote fonts while stripping handlers and javascript URLs', () => {
+  const source = [
+    '<!doctype html><html><head>',
+    '<script src="https://cdn.tailwindcss.com"></script>',
+    '<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>',
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC">',
+    '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">',
+    '</head><body>',
+    '<button onclick="saveAll()">Save</button>',
+    '<a href="javascript:alert(1)">Link</a>',
+    '<script>window.ran = true</script>',
+    '<iframe srcdoc="<p>Hi</p>"></iframe>',
+    '</body></html>',
+  ].join('');
+  const sanitized = sanitizeHtmlForPublicLivePreview(source);
+
+  assert.match(sanitized, /<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/i);
+  assert.match(sanitized, /html2canvas/i);
+  assert.match(sanitized, /<script>window\.ran = true<\/script>/i);
+  assert.match(sanitized, /fonts\.googleapis\.com/i);
+  assert.match(sanitized, /font-awesome/i);
+  assert.doesNotMatch(sanitized, /onclick=/i);
+  assert.doesNotMatch(sanitized, /javascript:/i);
+  assert.match(sanitized, /<iframe[^>]+sandbox=""/i);
+  assert.match(sanitized, /Save/);
 });
 
 test('getHtmlPreviewCaptureSource reads srcdoc without touching contentDocument', () => {
