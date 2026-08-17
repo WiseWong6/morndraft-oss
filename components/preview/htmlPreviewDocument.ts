@@ -14,6 +14,7 @@ import {
   buildStandaloneMermaidZoomRuntimeScript,
   buildStandaloneUiRuntimeScript,
   buildCspMetaTag,
+  buildPublicStrictCompatCsp,
   buildStaticHtmlDeliveryCsp,
   injectCspMetaIntoHtml,
   injectHeadMarkupIntoHtml,
@@ -188,8 +189,15 @@ export const buildHtmlPreviewSrcDoc = ({
   isMobilePreview?: boolean;
   securityMode?: HtmlPreviewSecurityMode;
 }) => {
+  const isPublicStrict = securityMode === 'publicStrict';
+  // publicStrict keeps font stylesheets blocking (no media-print/onload trick):
+  // the nonce-only script-src would otherwise block the inline onload handler
+  // and the fonts would never apply.
   const source = injectMornDraftSwissCatalogSharedStyles(
-    deferPreviewBlockingExternalScripts(stabilizeMobileHtmlPreviewSource(html)),
+    deferPreviewBlockingExternalScripts(
+      stabilizeMobileHtmlPreviewSource(html),
+      { deferFontStylesheets: !isPublicStrict },
+    ),
   );
   const trimmed = trimHtmlAsciiWhitespace(source);
   const hasDocType = /^<!doctype[\t\n\f\r ]+html(?:[\t\n\f\r ]|>)/i.test(trimmed);
@@ -201,12 +209,13 @@ export const buildHtmlPreviewSrcDoc = ({
   const previewBridge = isRawMode
     ? `${fontStylesheet}${rawPreviewBridge}`
     : `${fontStylesheet}${HTML_RESPONSIVE_FIT_BRIDGE}${mobileBridge}`;
-  const isPublicStrict = securityMode === 'publicStrict';
   // Public preview source is sanitized before it reaches this builder. Keep
   // the bridge nonce stable per frame so unrelated editor updates do not
-  // navigate every sibling iframe.
+  // navigate every sibling iframe. publicStrict allows the trusted CDN
+  // allowlist (Tailwind / cdnjs / jsDelivr / unpkg / Google Fonts) while the
+  // script nonce keeps author-authored inline scripts inert.
   const previewNonce = isPublicStrict ? `preview_${id}` : undefined;
-  const csp = previewNonce ? buildStaticHtmlDeliveryCsp(previewNonce) : USER_HTML_PREVIEW_LIVE_CSP;
+  const csp = previewNonce ? buildPublicStrictCompatCsp(previewNonce) : USER_HTML_PREVIEW_LIVE_CSP;
   const sizeBridge = buildHtmlPreviewBridgeScript(id, previewNonce);
 
   if (hasDocType || hasHtmlTag) {

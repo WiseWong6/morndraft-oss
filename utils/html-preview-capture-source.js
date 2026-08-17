@@ -90,6 +90,48 @@ export const sanitizeHtmlForStaticCapture = (html) => {
   return `<!doctype html>\n${doc.documentElement.outerHTML}`;
 };
 
+/**
+ * Sanitizer for public live previews (publicStrict): keeps author-authored
+ * <script> tags and remote font stylesheets in the srcdoc so CDN-driven samples
+ * (Tailwind, Google Fonts, Font Awesome) can render, while still stripping
+ * inline event handlers, javascript: URLs, meta refresh, and forcing sandbox
+ * attributes on iframes. The relaxed-but-nonced CSP then decides what actually
+ * executes: whitelisted CDN scripts run, arbitrary inline scripts do not.
+ */
+export const sanitizeHtmlForPublicLivePreview = (html) => {
+  if (typeof globalThis.DOMParser === 'undefined') {
+    return String(html ?? '')
+      .replace(META_REFRESH_RE, '')
+      .replace(EVENT_HANDLER_ATTR_RE, '')
+      .replace(MORNDRAFT_EDIT_PATH_ATTR_RE, '')
+      .replace(JAVASCRIPT_URL_ATTR_RE, '')
+      .replace(UNSANDBOXED_IFRAME_RE, '<iframe sandbox=""$1>');
+  }
+
+  const doc = new globalThis.DOMParser().parseFromString(String(html ?? ''), 'text/html');
+  doc.querySelectorAll('meta[http-equiv="refresh"]').forEach((element) => {
+    element.remove();
+  });
+  doc.querySelectorAll('*').forEach((element) => {
+    Array.from(element.attributes).forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim().toLowerCase();
+
+      if (name.startsWith('on') || value.startsWith('javascript:')) {
+        element.removeAttribute(attribute.name);
+      } else if (name === MORNDRAFT_FLAT_EDIT_PATH_ATTR) {
+        element.removeAttribute(attribute.name);
+      }
+    });
+
+    if (element.tagName.toLowerCase() === 'iframe') {
+      element.setAttribute('sandbox', '');
+    }
+  });
+
+  return `<!doctype html>\n${doc.documentElement.outerHTML}`;
+};
+
 export const getHtmlPreviewCaptureSource = (iframe) => {
   const srcDoc = readIframeSrcDoc(iframe);
   if (!srcDoc.trim()) {
