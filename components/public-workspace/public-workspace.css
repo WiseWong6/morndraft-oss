@@ -455,6 +455,15 @@
   outline-offset: 2px;
 }
 
+/* Desktop: match the artifact-map rail button column so the House icon stays
+   on the same x axis as the ListTree rail icon below the header. */
+@media (min-width: 1024px) {
+  .md-public-home-link {
+    width: var(--aad-workspace-left-icon-width, 2.05rem);
+    flex: 0 0 var(--aad-workspace-left-icon-width, 2.05rem);
+  }
+}
+
 .aad-workspace-brand-mark {
   display: inline-flex;
   width: 7.6rem;
