@@ -76,11 +76,18 @@
   border-bottom: 1px solid var(--aad-border);
 }
 
-/* Desktop: drop the leading padding so the brand home button occupies the
-   same left icon column as the artifact-map rail button underneath. */
+/* Desktop: anchor the Final toolbar title to the artifact-map icon column so
+   "交付" left-aligns with the TOC rail icon and the expanded TOC text. */
 @media (min-width: 1024px) {
   .md-oss-shared-toolbar {
-    padding-left: 0;
+    padding-left: var(--aad-artifact-map-title-anchor-x, 0);
+  }
+
+  /* Source toolbar mirrors this on the other axis: its title starts on the
+     same x as the top-bar home icon (top bar padding + half the shared left
+     icon column). */
+  .md-oss-source-workspace .aad-editor-toolbar {
+    padding-left: calc((1rem + var(--aad-workspace-left-icon-width, 2.05rem)) / 2);
   }
 }
 
