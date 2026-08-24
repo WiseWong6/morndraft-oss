@@ -69,12 +69,14 @@ const getLabels = (locale: Locale) => locale === 'zh'
       import: '本地导入',
       importing: '正在导入…',
       drop: '松开即可导入文件、文本或 URL',
+      tagline: '一站支持 Markdown、Mermaid、JSON、HTML、图片、网站混合内容预览、审核、复制和导出。',
     }
   : {
       desktopNotice: 'For the full editing experience, open MornDraft on a desktop.',
       import: 'Local import',
       importing: 'Importing…',
       drop: 'Drop files, text, or a URL to import',
+      tagline: 'One-stop preview, review, copy, and export for Markdown, Mermaid, JSON, HTML, images, and mixed web content.',
     };
 
 export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }> = ({
@@ -330,6 +332,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
         <House size={16} aria-hidden="true" />
       </a>
       <WorkspaceBrandMark isDarkTheme={theme === 'dark'} />
+      <span className="md-oss-top-bar-tagline">{labels.tagline}</span>
     </div>
   );
 

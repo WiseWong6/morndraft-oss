@@ -29,6 +29,20 @@
   gap: 8px;
 }
 
+.md-oss-top-bar-tagline {
+  color: var(--aad-muted);
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+@media (max-width: 1023px) {
+  .md-oss-top-bar-tagline {
+    display: none;
+  }
+}
+
 .md-oss-top-bar-actions {
   display: flex;
   flex: 0 0 auto;
