@@ -90,11 +90,36 @@
   border-bottom: 1px solid var(--aad-border);
 }
 
-/* Desktop: anchor the Final toolbar title to the artifact-map icon column so
-   "交付" left-aligns with the TOC rail icon and the expanded TOC text. */
+/* Desktop: the Final toolbar title uses the same left inset as the Source
+   toolbar title, so both panes get equal breathing room from their edges. */
 @media (min-width: 1024px) {
+  /* Header Copy/Export buttons and the Pages/Code switches below share one
+     fixed column grid, so each switch label starts on the same x as the
+     delivery icon above it. The label paddings absorb the icons' optical
+     -2.5px (Copy) / -3.5px (Export) shifts from preview-delivery.css. */
+  .md-oss-final-workspace {
+    --md-oss-delivery-column-width: 6.25rem;
+  }
+
+  .md-oss-shared-toolbar-actions .aad-action-button {
+    width: var(--md-oss-delivery-column-width);
+    min-width: var(--md-oss-delivery-column-width);
+  }
+
+  .md-oss-final-workspace .aad-preview-display-controls-bar {
+    --aad-delivery-action-width: var(--md-oss-delivery-column-width);
+  }
+
+  .md-oss-final-workspace .aad-delivery-switches:not(.is-single-switch) .aad-delivery-switch:first-child {
+    padding-left: calc(var(--aad-delivery-action-padding-x, 0.66rem) - 2.5px);
+  }
+
+  .md-oss-final-workspace .aad-delivery-switches .aad-delivery-switch:last-child {
+    padding-left: calc(var(--aad-delivery-action-padding-x, 0.66rem) - 3.5px);
+  }
+
   .md-oss-shared-toolbar {
-    padding-left: var(--aad-artifact-map-title-anchor-x, 0);
+    padding-left: calc((1rem + var(--aad-workspace-left-icon-width, 2.05rem)) / 2);
   }
 
   /* Source toolbar mirrors this on the other axis: its title starts on the
