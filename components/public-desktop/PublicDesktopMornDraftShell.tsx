@@ -350,11 +350,27 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
           {importNotice.text}
         </div>
       )}
+      <header className="aad-toolbar md-oss-top-bar">
+        <div className="md-oss-top-bar-brand">
+          {brandSlot}
+        </div>
+        <div className="md-oss-top-bar-actions">
+          <OssSyntaxSamplesMenu locale={locale} onLoadSample={loadSample} sampleEntries={sampleEntries} />
+          <OssMoreMenu
+            locale={locale}
+            onAboutOpen={() => setIsAboutOpen(true)}
+            onLocaleChange={onLocaleChange}
+            onThemeModeChange={(next) => onThemeChange(next)}
+            releaseConfig={releaseConfig}
+            themeMode={themeMode}
+          />
+        </div>
+      </header>
       <p className="md-oss-desktop-notice" role="note">{labels.desktopNotice}</p>
+      <div className="md-oss-workspaces-row">
       <div className="md-oss-workspace md-oss-source-workspace" style={sourcePaneStyle}>
         <Editor
           value={source}
-          brandSlot={brandSlot}
           deliveryAccess={deliveryAccess}
           diagnostics={artifactAnalysis.diagnostics}
           fixes={artifactAnalysis.fixes}
@@ -385,7 +401,6 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
       >
         <header className="aad-toolbar md-oss-shared-toolbar">
           <div className="aad-workspace-title-tools md-oss-shared-toolbar-group">
-            {brandSlot}
             <input
               ref={importInputRef}
               className="sr-only md-public-file-input"
@@ -422,7 +437,6 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
             </div>
           </div>
           <div className="aad-preview-toolbar-actions md-oss-shared-toolbar-actions">
-            <OssSyntaxSamplesMenu locale={locale} onLoadSample={loadSample} sampleEntries={sampleEntries} />
             <PublicDeliveryToolbar
               adapter={adapters.delivery}
               artifactMapEntries={artifactMapEntries}
@@ -439,14 +453,6 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
               source={source}
               theme={theme}
               title={documentTitle}
-            />
-            <OssMoreMenu
-              locale={locale}
-              onAboutOpen={() => setIsAboutOpen(true)}
-              onLocaleChange={onLocaleChange}
-              onThemeModeChange={(next) => onThemeChange(next)}
-              releaseConfig={releaseConfig}
-              themeMode={themeMode}
             />
           </div>
         </header>
@@ -504,6 +510,7 @@ export const PublicDesktopMornDraftShell: React.FC<{ view: Record<string, any> }
             }}
           />
         )}
+      </div>
       </div>
       <AboutModal
         isOpen={isAboutOpen}

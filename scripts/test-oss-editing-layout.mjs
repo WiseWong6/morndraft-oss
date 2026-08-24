@@ -286,7 +286,8 @@ try {
   assert.ok(layout.workspace.height >= 719, `Public workspace collapsed to ${layout.workspace.height}px.`);
   assert.ok(layout.main.height >= 650, `Public main area collapsed to ${layout.main.height}px.`);
   assert.ok(layout.editor.height >= 650, `Source editor collapsed to ${layout.editor.height}px.`);
-  assert.ok(layout.textarea.height >= 650, `Source textarea collapsed to ${layout.textarea.height}px.`);
+  // 720px viewport minus the 48px global top bar and the 48px editor toolbar.
+  assert.ok(layout.textarea.height >= 600, `Source textarea collapsed to ${layout.textarea.height}px.`);
 
   await sourceEditor.fill('# Source heading\n- Source middle\nlast line');
   const sourceMiddleLinePoint = await sourceEditor.evaluate((element) => {
