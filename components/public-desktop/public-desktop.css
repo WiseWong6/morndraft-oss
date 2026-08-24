@@ -109,6 +109,14 @@
   overflow: visible;
 }
 
+/* Copy/Export use the shared bold .aad-action-button default (600 / 0.75rem)
+   like the top-bar triggers, overriding the legacy regular-weight
+   .md-public-delivery button styles. */
+.md-oss-shared-toolbar-actions .aad-action-button {
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
 .md-oss-shared-final-scroll {
   position: relative;
   min-height: 0;
