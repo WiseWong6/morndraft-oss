@@ -129,6 +129,10 @@ test('OSS shared shell keeps Source truth, local title derivation, delivery and 
   assert.match(shell, /createLocalEditorImportImageAssetResolver/);
   assert.match(shell, /PublicDeliveryToolbar/);
   assert.match(finalPreview, /PreviewFormatToolbar/);
+  // Zoom controls and back-to-top must anchor to the positioned pane wrapper,
+  // not to the scroll container, so they stay pinned while long documents scroll.
+  assert.match(finalPreview, /className="md-oss-shared-final-body"/);
+  assert.match(finalPreview, /className="aad-preview-scroll md-oss-shared-final-scroll"[\s\S]*?<\/div>\s*<div className="aad-preview-zoom-controls" data-copy-remove="true">/);
   assert.match(shell, /complianceFooter=\{<PublicComplianceFooter onAboutOpen=\{\(\) => setIsAboutOpen\(true\)\} \/>\}/);
   assert.match(finalPreview, /\{complianceFooter\}/);
   assert.match(compliance, /aria-label="MornDraft 版权信息"/);

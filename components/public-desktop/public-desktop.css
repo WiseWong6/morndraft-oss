@@ -156,6 +156,20 @@
   font-size: 0.75rem;
 }
 
+/* Positioned wrapper around the final-pane scroll container: zoom controls and
+   back-to-top anchor here so they stay pinned to the visible pane corner
+   instead of scrolling away with long documents (mirrors the private shell's
+   aad-preview-body layer). It also takes over the flex role that
+   artifact-map.css assigns to .aad-preview-content-frame > .aad-preview-scroll. */
+.md-oss-shared-final-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
 .md-oss-shared-final-scroll {
   position: relative;
   min-height: 0;
