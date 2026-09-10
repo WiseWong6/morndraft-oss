@@ -222,6 +222,7 @@ html, body {
 .aad-action-button:focus-visible,
 .aad-entitlement-pill:focus-visible,
 .aad-icon-button:focus-visible,
+.aad-preview-zoom-value:focus-visible,
 .aad-scroll-to-top:focus-visible,
 .aad-editor-diagnostic-console:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--aad-accent) 42%, transparent);
@@ -1544,6 +1545,69 @@ html, body {
 
 .aad-scroll-to-top:disabled {
   cursor: default;
+}
+
+.aad-preview-zoom-controls {
+  position: absolute;
+  right: 1rem;
+  bottom: calc(1rem + 2.75rem + 0.5rem);
+  z-index: 35;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  border: 1px solid color-mix(in srgb, var(--aad-border) 88%, var(--aad-muted));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--aad-surface) 94%, var(--aad-canvas));
+  box-shadow: 0 8px 24px color-mix(in srgb, #000 14%, transparent);
+  color: var(--aad-text-strong);
+  padding: 3px;
+}
+
+.aad-preview-zoom-controls .aad-preview-zoom-button {
+  height: 1.9rem;
+  width: 1.9rem;
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+
+.aad-preview-zoom-controls .aad-preview-zoom-button:disabled {
+  opacity: 0.35;
+}
+
+.aad-preview-zoom-controls .aad-preview-zoom-button:hover:not(:disabled) {
+  transform: none;
+}
+
+.aad-preview-zoom-value {
+  min-width: 2.9rem;
+  border: 0;
+  background: transparent;
+  color: var(--aad-text-strong);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  padding: 0;
+  text-align: center;
+}
+
+.aad-preview-zoom-value:disabled {
+  cursor: default;
+  color: var(--aad-muted);
+}
+
+@media (hover: hover) {
+  .aad-preview-zoom-controls .aad-preview-zoom-button:hover:not(:disabled),
+  .aad-preview-zoom-value:hover:not(:disabled) {
+    color: var(--aad-accent);
+  }
+}
+
+[data-theme="dark"] .aad-preview-zoom-controls {
+  background: color-mix(in srgb, var(--aad-surface) 88%, var(--aad-canvas));
+  box-shadow: 0 10px 30px color-mix(in srgb, #000 34%, transparent);
 }
 
 @media (hover: hover) {

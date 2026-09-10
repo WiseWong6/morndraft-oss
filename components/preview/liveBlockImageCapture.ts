@@ -8,6 +8,7 @@ import {
 } from './htmlScreenshotCapture';
 import { HTML_PREVIEW_FRAME_SELECTOR } from './htmlCaptureFrames';
 import { getMermaidSvgs, getRenderedMermaidTrimRect, svgToPngCapture } from './mermaidCapture';
+import { getPreviewZoomFactorFrom } from '../../utils/previewZoom';
 import type { BlockCopyContentKind } from './BlockHeaderCopyAction';
 
 type PreviewTheme = 'dark' | 'light';
@@ -177,6 +178,7 @@ const waitForCaptureStyles = (view: Window | null) =>
 
 const getElementCaptureWidth = (element: HTMLElement) => {
   const candidates: number[] = [];
+  const zoomFactor = getPreviewZoomFactorFrom(element);
   const pushCandidate = (value: number | undefined) => {
     if (Number.isFinite(value) && value && value > 1) {
       candidates.push(Math.ceil(value));
@@ -188,7 +190,7 @@ const getElementCaptureWidth = (element: HTMLElement) => {
     const rect = current.getBoundingClientRect();
     const styles = current.ownerDocument.defaultView?.getComputedStyle(current);
     const styleWidth = styles?.width ? Number.parseFloat(styles.width) : 0;
-    pushCandidate(rect.width);
+    pushCandidate(rect.width / zoomFactor);
     pushCandidate(current.clientWidth);
     pushCandidate(current.offsetWidth);
     pushCandidate(current.scrollWidth);

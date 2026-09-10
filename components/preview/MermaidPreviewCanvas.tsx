@@ -2,6 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, X } from 'lucide-react';
 import ZoomableWrapper from '../ZoomableWrapper';
+import { getPreviewZoomFactorFrom } from '../../utils/previewZoom';
 
 type MermaidPreviewCanvasProps = {
   canvasWidth: number;
@@ -63,6 +64,9 @@ const MermaidPreviewCanvasImpl: React.FC<MermaidPreviewCanvasProps> = ({
         // Node <g> elements carry their own translate transforms, so measure
         // viewport rects instead of transform-agnostic getBBox calls. All
         // values stay in CSS pixels, matching the scrollTo coordinate space.
+        // Rects are viewport-scaled, so divide out the preview zoom layer to
+        // stay in the container's local scroll space.
+        const zoomFactor = getPreviewZoomFactorFrom(container);
         let anchor: { cx: number; top: number } | null = null;
         for (const el of svg.querySelectorAll('g.node, g.cluster')) {
           const r = el.getBoundingClientRect();
@@ -73,8 +77,8 @@ const MermaidPreviewCanvasImpl: React.FC<MermaidPreviewCanvasProps> = ({
         }
         if (!anchor) return;
         container.scrollTo({
-          left: Math.max(0, anchor.cx - svgRect.x - container.clientWidth / 2),
-          top: Math.max(0, anchor.top - svgRect.y - 24),
+          left: Math.max(0, (anchor.cx - svgRect.x) / zoomFactor - container.clientWidth / 2),
+          top: Math.max(0, (anchor.top - svgRect.y) / zoomFactor - 24),
         });
       } catch {
         // Measurement is unavailable for detached SVG; keep the default position.

@@ -357,6 +357,7 @@
     "utils/mermaid-theme.js",
     "utils/ossAiConfig.ts",
     "utils/privateRuntimeGateways.ts",
+    "utils/previewZoom.ts",
     "utils/releaseConfigTypes.ts",
     "utils/staticAssetUrl.ts",
     "utils/text-metrics.js",
