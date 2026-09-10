@@ -45,6 +45,29 @@ export const buildStaticHtmlDeliveryCsp = (scriptNonce?: string | null) =>
 export const STATIC_HTML_DELIVERY_CSP = buildStaticHtmlDeliveryCsp();
 
 /**
+ * CSP for public/shared live previews (publicStrict): keeps the per-frame
+ * script nonce so author-authored inline scripts stay inert, but allows the
+ * trusted CDN allowlist (Tailwind, cdnjs, jsDelivr, unpkg, Google Fonts) so
+ * CDN-driven HTML samples — e.g. Tailwind card decks — render correctly inside
+ * the public gate instead of collapsing without their stylesheets/fonts.
+ */
+export const buildPublicStrictCompatCsp = (scriptNonce?: string | null) => [
+  "default-src 'none'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  isSafeScriptNonce(scriptNonce)
+    ? `script-src 'nonce-${scriptNonce}' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com`
+    : "script-src 'none'",
+  "connect-src https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://fonts.gstatic.com",
+  "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com",
+  "img-src 'self' https: data:",
+  "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com",
+  "frame-src 'self' about:",
+  "child-src 'self' about:",
+  "form-action 'none'",
+].join('; ');
+
+/**
  * Relaxed CSP for live/shared preview iframes — allows CDN scripts, stylesheets, and
  * fonts so that user HTML relying on Tailwind CDN, Google Fonts, Font Awesome,
  * etc. can render correctly.  User HTML still runs inside a sandboxed inner

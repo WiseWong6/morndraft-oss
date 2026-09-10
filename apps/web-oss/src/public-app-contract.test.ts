@@ -129,6 +129,10 @@ test('OSS shared shell keeps Source truth, local title derivation, delivery and 
   assert.match(shell, /createLocalEditorImportImageAssetResolver/);
   assert.match(shell, /PublicDeliveryToolbar/);
   assert.match(finalPreview, /PreviewFormatToolbar/);
+  // Zoom controls and back-to-top must anchor to the positioned pane wrapper,
+  // not to the scroll container, so they stay pinned while long documents scroll.
+  assert.match(finalPreview, /className="md-oss-shared-final-body"/);
+  assert.match(finalPreview, /className="aad-preview-scroll md-oss-shared-final-scroll"[\s\S]*?<\/div>\s*<div className="aad-preview-zoom-controls" data-copy-remove="true">/);
   assert.match(shell, /complianceFooter=\{<PublicComplianceFooter onAboutOpen=\{\(\) => setIsAboutOpen\(true\)\} \/>\}/);
   assert.match(finalPreview, /\{complianceFooter\}/);
   assert.match(compliance, /aria-label="MornDraft 版权信息"/);
@@ -193,12 +197,13 @@ test('OSS preview chrome matches the 7.10 toolbar contract', () => {
 
   assert.match(page, /<title>初稿-Morndraft<\/title>/);
   assert.match(page, /class="skeleton-app"/);
+  assert.match(page, /class="skeleton-source-pane"/);
   assert.match(page, /class="skeleton-final-pane"/);
-  assert.doesNotMatch(page, /skeleton-source-pane/);
   assert.doesNotMatch(page, /matchMedia/);
   assert.match(shell, /aad-toolbar md-oss-shared-toolbar/);
-  assert.match(shell, /aad-workspace-mode-switch is-final/);
-  assert.match(shell, /data-commercial-workspace-mode/);
+  assert.doesNotMatch(shell, /aad-workspace-mode-switch/);
+  assert.doesNotMatch(shell, /data-commercial-workspace-mode/);
+  assert.match(shell, /md-oss-workspace md-oss-source-workspace/);
   assert.match(shell, /aad-toolbar-title">\{t\.preview\.title\}/);
   assert.match(shell, /<TextMetricsInline/);
   assert.match(

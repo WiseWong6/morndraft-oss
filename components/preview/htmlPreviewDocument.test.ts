@@ -70,6 +70,37 @@ test('raw full HTML preview keeps user document colors without MornDraft theme f
   assertNoMornDraftHtmlThemeBridge(html);
 });
 
+test('publicStrict preview allows the trusted CDN allowlist under a script nonce', () => {
+  const html = buildHtmlPreviewSrcDoc({
+    html: [
+      '<!doctype html><html><head>',
+      '<script src="https://cdn.tailwindcss.com"></script>',
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC">',
+      '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">',
+      '</head><body><div class="flex">Card</div></body></html>',
+    ].join(''),
+    id: 'public-deck',
+    theme: 'light',
+    renderMode: 'embedded',
+    securityMode: 'publicStrict',
+  });
+
+  // nonce keeps author-authored inline scripts inert while the CDN allowlist loads samples
+  assert.match(
+    html,
+    /script-src &#39;nonce-preview_public-deck&#39; https:\/\/cdn\.tailwindcss\.com https:\/\/cdnjs\.cloudflare\.com/u,
+  );
+  assert.match(html, /style-src &#39;self&#39; &#39;unsafe-inline&#39; https:\/\/cdn\.tailwindcss\.com/u);
+  assert.match(html, /font-src &#39;self&#39; data: https:\/\/fonts\.gstatic\.com/u);
+  // font stylesheets stay blocking (no media=print onload) so they apply under the nonce CSP
+  assert.match(html, /<link rel="stylesheet" href="https:\/\/fonts\.googleapis\.com/u);
+  assert.doesNotMatch(html, /media="print"/u);
+  // the layout-critical Tailwind script survives and is not async/deferred
+  assert.match(html, /<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/u);
+  // the bridge keeps its stable per-frame nonce
+  assert.match(html, /data-morndraft-html-preview-bridge nonce="preview_public-deck"/u);
+});
+
 test('raw HTML preview and standalone delivery ignore fake head tags in inert source contexts', () => {
   const cases = [
     '<!doctype html><html><script>const fakeHead = "<head data-fake>";</script><body>Script</body></html>',
