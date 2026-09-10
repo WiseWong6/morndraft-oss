@@ -656,7 +656,17 @@ const clickByTestId = async (page, testId) => {
   await target.click();
 };
 
-const sourceModeButton = (page) => page.locator('[data-testid="oss-workspace-mode-toggle"]');
+// Dual-pane workspace: Source and Final are both visible at all times, so the
+// former mode-switch clicks degrade into pane visibility waits.
+const ensureSourceVisible = async (page) => {
+  await page.locator('.md-oss-workspace:not(.md-oss-final-workspace) .aad-editor-input').first().waitFor({
+    state: 'visible',
+    timeout: 15_000,
+  });
+};
+const ensureFinalVisible = async (page) => {
+  await page.locator('[data-public-final="true"]').waitFor({ state: 'visible', timeout: 15_000 });
+};
 
 const waitForDeliveryIdle = async (page) => {
   await page.waitForFunction(() => {
@@ -778,9 +788,7 @@ const runPublicShowcaseSurfaceFlow = async (page) => {
     'The first MornDraft Syntax showcase lost its public flat marker.',
   );
 
-  const sourceButton = sourceModeButton(page);
-  const finalButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   const sourceEditor = page.locator('.aad-editor-input').first();
   const syntaxSource = await sourceEditor.inputValue();
   assert.equal(
@@ -822,7 +830,7 @@ const runPublicShowcaseSurfaceFlow = async (page) => {
   assert.match(insertedSource, /<!-- morndraft:structure /u, 'The slash entry lost its MornDraft structure metadata.');
   assert.match(insertedSource, /data-morndraft-source="morndraft-flat"/u, 'The slash entry lost its public flat marker.');
 
-  await finalButton.click();
+  await ensureFinalVisible(page);
   const insertedFlatBlock = page.locator('[data-public-preview-root="true"] [data-public-flat="true"]');
   await insertedFlatBlock.waitFor({ state: 'visible' });
   assert.equal(await insertedFlatBlock.count(), 1, 'The representative slash entry did not render as one flat block.');
@@ -958,8 +966,6 @@ const selectRenderedOccurrence = async (block, needle, occurrence) => {
 
 const runImportFlow = async (page, canonicalFlatSource) => {
   const input = page.locator('input.md-public-file-input');
-  const sourceButton = sourceModeButton(page);
-  const finalButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
   const fixtures = [
     { name: 'fixture.md', mimeType: 'text/markdown', source: '# Imported Markdown', marker: 'Imported Markdown' },
     {
@@ -997,9 +1003,9 @@ const runImportFlow = async (page, canonicalFlatSource) => {
       buffer: Buffer.from(fixture.source),
     });
     await waitForImportCompletion(page);
-    await sourceButton.click();
+    await ensureSourceVisible(page);
     assert.match(await page.locator('.md-public-source-editor textarea').first().inputValue(), new RegExp(fixture.marker.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
-    await finalButton.click();
+    await ensureFinalVisible(page);
     await page.locator('[data-public-preview-root="true"]').waitFor({ state: 'visible' });
     if (fixture.kind === 'json' || fixture.kind === 'html') {
       assert.equal(await page.locator('[data-public-final="true"]').getAttribute('data-document-kind'), fixture.kind);
@@ -1019,13 +1025,13 @@ const runImportFlow = async (page, canonicalFlatSource) => {
       const finalEditor = page.locator('[data-public-final="true"] .md-public-source-editor textarea');
       await finalEditor.fill(fixture.finalEdit);
       await page.locator('.md-public-final-edit-toggle').click();
-      await sourceButton.click();
+      await ensureSourceVisible(page);
       assert.match(await page.locator('.md-public-source-editor textarea').first().inputValue(), new RegExp(fixture.finalMarker.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
-      await finalButton.click();
+      await ensureFinalVisible(page);
     }
   }
 
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   const previousSource = await page.locator('.md-public-source-editor textarea').first().inputValue();
   const onePixelPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgQIAKfRZ8QAAAABJRU5ErkJggg==', 'base64');
   const rejectedAttachments = [
@@ -1040,7 +1046,7 @@ const runImportFlow = async (page, canonicalFlatSource) => {
       { name: 'unreferenced.png', mimeType: 'image/png', buffer: onePixelPng },
     ]);
     await waitForImportCompletion(page, 'error');
-    await sourceButton.click();
+    await ensureSourceVisible(page);
     assert.equal(
       await page.locator('.md-public-source-editor textarea').first().inputValue(),
       previousSource,
@@ -1048,7 +1054,7 @@ const runImportFlow = async (page, canonicalFlatSource) => {
     );
   }
 
-  await finalButton.click();
+  await ensureFinalVisible(page);
   await page.locator('[data-public-preview-root="true"]').waitFor({ state: 'visible' });
   await armImportCompletion(page);
   const originalImageBytes = await dispatchNoisyImageDrop(page, {
@@ -1060,7 +1066,7 @@ const runImportFlow = async (page, canonicalFlatSource) => {
   });
   await waitForImportCompletion(page);
   assert.ok(originalImageBytes > 2 * 1024 * 1024, 'The browser fixture did not exercise real image compression.');
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   const importedImageSource = await page.locator('.md-public-source-editor textarea').first().inputValue();
   const importedImageMatch = importedImageSource.match(/data:image\/[a-z0-9.+-]+;base64,([a-z0-9+/=]+)/iu);
   assert.ok(importedImageMatch, 'Dropped local image was not embedded as a data URL.');
@@ -1068,7 +1074,7 @@ const runImportFlow = async (page, canonicalFlatSource) => {
   assert.ok(compressedImageBytes <= 2 * 1024 * 1024, 'Embedded image exceeds the 2 MiB public import limit.');
   assert.ok(compressedImageBytes < originalImageBytes, 'Dropped image was not actually compressed.');
   assert.doesNotMatch(importedImageSource, /\.\/noise\.png/u);
-  await finalButton.click();
+  await ensureFinalVisible(page);
   const importedImage = page.locator('[data-public-preview-root="true"] img[alt="noise"]');
   await importedImage.waitFor({ state: 'visible' });
   assert.match(await importedImage.getAttribute('src') ?? '', /^data:image\/[a-z0-9.+-]+;base64,/iu);
@@ -1144,7 +1150,7 @@ const runImportFlow = async (page, canonicalFlatSource) => {
     'A non-import document reset retained a stale imported filename.',
   );
 
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   await armImportCompletion(page);
   const slowImportBytes = await dispatchNoisyImageDrop(page, {
     dimension: 1200,
@@ -1159,7 +1165,7 @@ const runImportFlow = async (page, canonicalFlatSource) => {
     buffer: Buffer.from('# Newer import wins'),
   });
   await waitForImportCompletion(page);
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   const sourceAfterNewerImport = page.locator('.md-public-source-editor textarea').first();
   assert.equal(await sourceAfterNewerImport.inputValue(), '# Newer import wins');
   await page.waitForTimeout(2_500);
@@ -1189,8 +1195,7 @@ const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
   assert.doesNotMatch(stored.local ?? '', /oss-e2e-key/u, 'Default storage must not persist the API Key.');
   assert.match(stored.session ?? '', /oss-e2e-key/u, 'Session storage must keep the API Key for this tab.');
 
-  const sourceMode = sourceModeButton(page);
-  if (await sourceMode.count()) await sourceMode.click();
+  await ensureSourceVisible(page);
   const sourceEditor = page.locator('.md-public-source-editor textarea').first();
   await sourceEditor.fill('/AI');
   await clickByTestId(page, 'oss-ai-generate');
@@ -1214,7 +1219,7 @@ const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
   const arbitraryDataUrl = `data:application/octet-stream;base64,${arbitraryDataPayloadTail}`;
   const rawHtmlSource = `${percentEncodedImageFence}\n\nRaw HTML repeat target`;
   await sourceEditor.fill(rawHtmlSource);
-  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await ensureFinalVisible(page);
   const percentEncodedImageFrame = await waitForFrameWithSelector(page, '#oss-percent-encoded-ai-image');
   const percentEncodedImage = percentEncodedImageFrame.locator('#oss-percent-encoded-ai-image');
   await percentEncodedImage.evaluate((image) => new Promise((resolve, reject) => {
@@ -1246,9 +1251,9 @@ const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
   );
   await page.getByRole('dialog').getByRole('button', { name: /^(Close|关闭)$/u }).click();
 
-  await sourceMode.click();
+  await ensureSourceVisible(page);
   await sourceEditor.fill(`Sensitive local resource ${arbitraryDataUrl} must stay in this browser.`);
-  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await ensureFinalVisible(page);
   renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'Sensitive local resource' });
   await renderedBlock.waitFor({ state: 'visible' });
   await selectRenderedOccurrence(renderedBlock, 'octet-stream', 0);
@@ -1264,12 +1269,12 @@ const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
   );
   await page.getByRole('dialog').getByRole('button', { name: /^(Close|关闭)$/u }).click();
 
-  await sourceMode.click();
+  await ensureSourceVisible(page);
   const percentEncodedImageMarkdown = `![encoded](${percentEncodedImageData})`;
   const sourceBeforeModify = `Local resource: ${arbitraryDataUrl}\n\n![local](${localImageData})\n\n${percentEncodedImageMarkdown}\n\nFirst target\n\nSecond repeat repeat repeat`;
   const sourceAfterModify = `Local resource: ${arbitraryDataUrl}\n\n![local](${localImageData})\n\n${percentEncodedImageMarkdown}\n\nFirst target\n\nSecond Modified selection from OSS AI repeat repeat`;
   await sourceEditor.fill(sourceBeforeModify);
-  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await ensureFinalVisible(page);
   const percentEncodedMarkdownImage = page.locator('img[alt="encoded"]');
   await percentEncodedMarkdownImage.waitFor({ state: 'visible' });
   await percentEncodedMarkdownImage.evaluate((image) => new Promise((resolve, reject) => {
@@ -1295,16 +1300,16 @@ const runAiFlow = async (page, mockBaseUrl, aiRequests) => {
   await expectAiResult(page, 'Modified selection from OSS AI');
   await clickByTestId(page, 'oss-ai-adopt');
 
-  await sourceMode.click();
+  await ensureSourceVisible(page);
   assert.equal(await sourceEditor.inputValue(), sourceAfterModify);
-  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await ensureFinalVisible(page);
   renderedBlock = page.locator('[data-public-final-block="true"]').filter({ hasText: 'Second Modified selection from OSS AI repeat repeat' });
   await renderedBlock.waitFor({ state: 'visible' });
   await selectRenderedOccurrence(renderedBlock, 'repeat', 1);
   await clickByTestId(page, 'oss-ai-summarize');
   await expectAiResult(page, 'Summary from OSS AI');
   await page.getByRole('dialog').getByRole('button', { name: /^(Close|关闭)$/u }).click();
-  await sourceMode.click();
+  await ensureSourceVisible(page);
   assert.equal(
     await sourceEditor.inputValue(),
     sourceAfterModify,
@@ -1427,8 +1432,7 @@ const assertOss710VisualBaseline = async (page, { mobile = false } = {}) => {
 };
 
 const runFinalEditingFlow = async (page) => {
-  const sourceButton = sourceModeButton(page);
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   const sourceEditor = page.locator('.md-public-source-editor textarea').first();
   await sourceEditor.fill([
     '# Stable heading',
@@ -1441,7 +1445,7 @@ const runFinalEditingFlow = async (page) => {
     '',
     'Markdown after the iframe.',
   ].join('\n'));
-  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await ensureFinalVisible(page);
   const previewRoot = page.locator('[data-public-preview-root="true"]');
   await previewRoot.waitFor({ state: 'visible' });
   const frame = previewRoot.locator('iframe.md-public-html-frame');
@@ -1465,9 +1469,9 @@ const runFinalEditingFlow = async (page) => {
   const identityPreserved = await frame.evaluate((element) => element.contentWindow === window.__ossStableFrame);
   assert.equal(identityPreserved, true, 'An adjacent Markdown patch remounted an unchanged HTML iframe.');
 
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   assert.match(await sourceEditor.inputValue(), /Precisely patched paragraph before the iframe\./u);
-  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await ensureFinalVisible(page);
 };
 
 const collectDownloadTimeoutDiagnostics = async (page) => {
@@ -1709,9 +1713,9 @@ const assertDynamicDeliveryRejectedBeforeAllocation = async (
 };
 
 const replaceSourceAndOpenFinal = async (page, source) => {
-  await sourceModeButton(page).click();
+  await ensureSourceVisible(page);
   await page.locator('.md-public-source-editor textarea').first().fill(source);
-  await page.getByRole('button', { name: /^(Final|最终效果)$/u }).click();
+  await ensureFinalVisible(page);
   await page.locator('[data-public-preview-root="true"]').waitFor({ state: 'visible' });
 };
 
@@ -2776,7 +2780,7 @@ const runDeliveryHardeningFlow = async (
   try {
     await clickByTestId(page, 'oss-delivery-download-png');
     await page.locator('.aad-preview-share-button.is-loading').waitFor({ state: 'visible' });
-    await sourceModeButton(page).click();
+    await ensureSourceVisible(page);
     await page.locator('.md-public-source-editor textarea').first().fill('# New source cancels old delivery');
     await page.waitForTimeout(slowCssDelayMs + 450);
     assert.equal(cancelledDownloads, 0, 'A stale delivery downloaded after Source changed.');
@@ -2861,8 +2865,6 @@ const runDeliveryHardeningFlow = async (
 };
 
 const runMermaidImmediateDeliveryFlow = async (page) => {
-  const sourceButton = sourceModeButton(page);
-  const finalButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
   const mermaidSource = [
     'flowchart TD',
     ...Array.from({ length: 10 }, (_, index) => `  N${index}[Render ${index}] --> N${index + 1}[Render ${index + 1}]`),
@@ -2894,9 +2896,9 @@ const runMermaidImmediateDeliveryFlow = async (page) => {
   ];
   for (const [index, delivery] of deliveries.entries()) {
     console.log(`[oss-e2e] immediate Mermaid ${delivery.extension}`);
-    await sourceButton.click();
+    await ensureSourceVisible(page);
     await page.locator('.md-public-source-editor textarea').first().fill(`${mermaidSource}\n%% immediate-delivery-${index}`);
-    await finalButton.click();
+    await ensureFinalVisible(page);
     const previewRoot = page.locator('[data-public-preview-root="true"]');
     await assertDownload(page, delivery.testId, delivery.extension, delivery.verify);
     const readyFrame = previewRoot.locator('iframe.md-public-mermaid-frame[data-public-render-state="ready"]');
@@ -2905,14 +2907,14 @@ const runMermaidImmediateDeliveryFlow = async (page) => {
   }
 
   console.log('[oss-e2e] Mermaid user animation staticization');
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   await page.locator('.md-public-source-editor textarea').first().fill([
     'flowchart LR',
     '  A[Animated class] --> B[Static node]',
     '  classDef userAnimated fill:#f96,stroke:#333,stroke-width:2px,animation:dash .05s linear infinite',
     '  class A userAnimated',
   ].join('\n'));
-  await finalButton.click();
+  await ensureFinalVisible(page);
   const evaluateLiveStaticizedFrame = async (callback) => {
     const deadline = Date.now() + 5_000;
     let lastNavigationError;
@@ -2966,15 +2968,13 @@ const runMermaidImmediateDeliveryFlow = async (page) => {
 };
 
 const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, deliveryResourceBaseline) => {
-  const sourceButton = sourceModeButton(page);
-  if (await sourceButton.count()) await sourceButton.click();
+  await ensureSourceVisible(page);
   await page.locator('.md-public-source-editor textarea').first().fill([
     '```html',
     '<!doctype html><html><body><style>h1{color:#123456}</style><h1>Static OSS image delivery</h1><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/></svg></body></html>',
     '```',
   ].join('\n'));
-  const previewButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
-  if (await previewButton.count()) await previewButton.click();
+  await ensureFinalVisible(page);
   await page.locator('[data-public-preview-root="true"]').waitFor({ state: 'visible' });
 
   await assertDownload(page, 'oss-delivery-download-png', '.png', (content) => {
@@ -2987,14 +2987,14 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
     (content) => assertA4ImagePdf(content, 'OSS delivery PDF'),
   );
 
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   await page.evaluate(() => { window.__ossRawPolluted = false; });
   await page.locator('.md-public-source-editor textarea').first().fill([
     '```html',
     '<!doctype html><html><body><h1>Dynamic portable OSS delivery</h1><canvas></canvas><svg onload="try{top.__ossRawPolluted=true}catch(e){}"></svg><script>document.body.dataset.ready="true"</script></body></html>',
     '```',
   ].join('\n'));
-  await previewButton.click();
+  await ensureFinalVisible(page);
   await page.locator('[data-public-preview-root="true"] iframe.md-public-html-frame').waitFor({ state: 'attached' });
   await assertDownload(page, 'oss-delivery-download-html', '.html', (content) => {
     const html = content.toString('utf8');
@@ -3006,13 +3006,13 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
   await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-pdf');
   assert.equal(await page.evaluate(() => window.__ossRawPolluted), false, 'Raw HTML capture escaped its opaque iframe.');
 
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   await page.locator('.md-public-source-editor textarea').first().fill([
     '```html',
     '<!doctype html><html><body><img id="relative-portable-image" src="/oss-e2e-marker.svg"><a href="./relative-target">relative</a><template id="relative-portable-template"><img id="template-relative-portable-image" src="/oss-e2e-marker.svg"></template><script>document.body.append(document.getElementById("relative-portable-template").content.cloneNode(true))</script></body></html>',
     '```',
   ].join('\n'));
-  await previewButton.click();
+  await ensureFinalVisible(page);
   const relativePortable = await assertDownload(page, 'oss-delivery-download-html', '.html', (content) => {
     const html = content.toString('utf8');
     assert.match(html, new RegExp(`${appUrl.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}/oss-e2e-marker\\.svg`, 'u'));
@@ -3042,7 +3042,7 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
   }
 
   await setWorkspaceTheme(page, 'dark');
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   await page.locator('.md-public-source-editor textarea').first().fill([
     '# Dark mixed capture',
     '',
@@ -3052,7 +3052,7 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
     '<!doctype html><html><body style="margin:0;min-height:180px;background:#315477;color:#fff">static child</body></html>',
     '```',
   ].join('\n'));
-  await previewButton.click();
+  await ensureFinalVisible(page);
   await page.locator('[data-public-preview-root="true"] iframe.md-public-html-frame').waitFor({ state: 'attached' });
   const darkMixedPng = await assertDownload(page, 'oss-delivery-download-png', '.png', (content) => {
     assert.deepEqual([...content.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
@@ -3073,7 +3073,7 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
     await loaded;
   });
 
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   await page.locator('.md-public-source-editor textarea').first().fill([
     '# Portable mixed document',
     '',
@@ -3081,7 +3081,7 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
     '<!doctype html><html><body><script>document.body.dataset.childReady="true";try{top.document.body.dataset.ossPolluted="true"}catch(e){}</script></body></html>',
     '```',
   ].join('\n'));
-  await previewButton.click();
+  await ensureFinalVisible(page);
   await page.locator('[data-public-preview-root="true"] iframe.md-public-html-frame').waitFor({ state: 'attached' });
   const portablePath = path.join(outputDir, 'portable-mixed.html');
   await assertDownload(page, 'oss-delivery-download-html', '.html', async (content) => {
@@ -3150,9 +3150,9 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
   await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-png');
   await assertDeliveryFailureWithoutDownload(page, 'oss-delivery-download-pdf');
 
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   await page.locator('.md-public-source-editor textarea').first().fill('# Portable mXSS isolation');
-  await previewButton.click();
+  await ensureFinalVisible(page);
   await page.locator('[data-public-preview-root="true"]').waitFor({ state: 'visible' });
   await page.evaluate(() => {
     window.__ossMxssPolluted = 0;
@@ -3188,9 +3188,9 @@ const runDeliveryFlow = async (page, createNetworkTrackedContext, appUrl, delive
   }
 
   await setWorkspaceTheme(page, 'light');
-  await sourceButton.click();
+  await ensureSourceVisible(page);
   await page.locator('.md-public-source-editor textarea').first().fill('# Repeated local delivery\n\nStable capture surface.');
-  await previewButton.click();
+  await ensureFinalVisible(page);
   await page.locator('[data-public-preview-root="true"]').waitFor({ state: 'visible' });
   await page.locator('.aad-editor-floating-toast[role="status"]').waitFor({ state: 'hidden' });
   const baselineDomCount = await page.locator('body *').count();
@@ -3227,21 +3227,16 @@ const runSharedDesktopOssAcceptance = async ({
   assert.equal(await page.getByText(/登录|订阅|Draft Box|云草稿/u).count(), 0);
 
   const publicWorkspace = page.locator('[data-public-workspace="true"]');
-  const sourceButton = sourceModeButton(page);
-  const finalButton = page.getByRole('button', { name: /^(Final|最终效果)$/u });
+  await publicWorkspace.waitFor({ state: 'visible' });
+  // Dual-pane workspace: Source and Final are both visible at all times.
+  assert.equal(await page.locator('[data-testid="oss-workspace-mode-toggle"]').count(), 0);
   const ensureSourceMode = async () => {
-    if (await publicWorkspace.getAttribute('data-commercial-workspace-mode') !== 'source') {
-      await sourceButton.click();
-    }
     await page.locator('.md-oss-workspace:not(.md-oss-final-workspace) .aad-editor-input').waitFor({
       state: 'visible',
       timeout: 15_000,
     });
   };
   const ensureFinalMode = async () => {
-    if (await publicWorkspace.getAttribute('data-commercial-workspace-mode') !== 'final') {
-      await finalButton.click();
-    }
     await page.locator('[data-public-final="true"]').waitFor({ state: 'visible', timeout: 15_000 });
   };
   await ensureSourceMode();

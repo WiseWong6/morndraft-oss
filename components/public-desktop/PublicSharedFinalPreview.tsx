@@ -431,6 +431,7 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
       onNavigate={(entry) => artifactNavigation.navigateToEntry(entry)}
       onPanelToggle={() => setIsArtifactMapPanelOpen((value) => !value)}
     >
+    <div className="md-oss-shared-final-body">
     <div
       ref={scrollContainerRef}
       className="aad-preview-scroll md-oss-shared-final-scroll"
@@ -533,6 +534,7 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
         onUndoLastFix={onUndoLastFix}
         t={t.preview}
       />
+    </div>
       <div className="aad-preview-zoom-controls" data-copy-remove="true">
         <button
           type="button"

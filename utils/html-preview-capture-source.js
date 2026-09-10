@@ -1,14 +1,13 @@
-const EVENT_HANDLER_ATTR_RE = /\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
-const MORNDRAFT_EDIT_PATH_ATTR_RE = /\s+data-morndraft-edit-path\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
-const JAVASCRIPT_URL_ATTR_RE =
-  /\s+(href|src|xlink:href)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi;
-const SCRIPT_TAG_RE = /<script\b[\s\S]*?<\/script>/gi;
-const META_REFRESH_RE = /<meta\b[^>]*http-equiv\s*=\s*(?:"refresh"|'refresh'|refresh)[^>]*>/gi;
-const UNSANDBOXED_IFRAME_RE = /<iframe\b(?![^>]*\bsandbox\s*=)([^>]*)>/gi;
 const LINK_TAG_RE = /<link\b[^>]*>/gi;
 const HTML_ATTRIBUTE_RE = /\s([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
 const MAX_SNAPSHOT_LENGTH = 2_000_000;
 const MORNDRAFT_FLAT_EDIT_PATH_ATTR = 'data-morndraft-edit-path';
+
+const NAVIGATION_URL_ATTRIBUTES = new Set(['href', 'src', 'xlink:href', 'action', 'formaction']);
+// data: URLs are only safe for inert media; anything else (data:text/html,
+// data:image/svg+xml, data:text/javascript ...) can smuggle a script context.
+const SAFE_DATA_URL_PREFIX_RE =
+  /^data:(?:image\/(?:png|jpe?g|gif|webp|avif|bmp|apng)|font\/|audio\/|video\/|application\/(?:octet-stream|pdf|json|xml)|text\/plain)(?:[;,]|$)/i;
 
 const readIframeSrcDoc = (iframe) => iframe?.srcdoc || iframe?.getAttribute?.('srcdoc') || '';
 
@@ -50,41 +49,95 @@ export const stripNonBlockingRemoteFontStylesheets = (html) =>
     return tag;
   });
 
-export const sanitizeHtmlForStaticCapture = (html) => {
-  if (typeof globalThis.DOMParser === 'undefined') {
-    return stripNonBlockingRemoteFontStylesheets(html)
-      .replace(SCRIPT_TAG_RE, '')
-      .replace(META_REFRESH_RE, '')
-      .replace(EVENT_HANDLER_ATTR_RE, '')
-      .replace(MORNDRAFT_EDIT_PATH_ATTR_RE, '')
-      .replace(JAVASCRIPT_URL_ATTR_RE, '')
-      .replace(UNSANDBOXED_IFRAME_RE, '<iframe sandbox=""$1>');
-  }
+const isUnsafeNavigationUrlValue = (value) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized.startsWith('javascript:') || normalized.startsWith('vbscript:')) return true;
+  if (!normalized.startsWith('data:')) return false;
+  return !SAFE_DATA_URL_PREFIX_RE.test(normalized);
+};
 
-  const doc = new globalThis.DOMParser().parseFromString(html, 'text/html');
-  doc.querySelectorAll('script, meta[http-equiv="refresh"]').forEach((element) => {
+/**
+ * DOM-based attribute sanitization shared by the capture and live-preview
+ * sanitizers. Only browser DOM APIs are used so CodeQL models the removal as a
+ * complete sanitization boundary.
+ */
+const sanitizeUnsafeElementAttributes = (element) => {
+  Array.from(element.attributes).forEach((attribute) => {
+    const name = attribute.name.toLowerCase();
+    if (name.startsWith('on')) {
+      element.removeAttribute(attribute.name);
+      return;
+    }
+    if (NAVIGATION_URL_ATTRIBUTES.has(name) && isUnsafeNavigationUrlValue(attribute.value)) {
+      element.removeAttribute(attribute.name);
+      return;
+    }
+    if (name === MORNDRAFT_FLAT_EDIT_PATH_ATTR) {
+      element.removeAttribute(attribute.name);
+    }
+  });
+  if (element.tagName.toLowerCase() === 'iframe') {
+    element.setAttribute('sandbox', '');
+  }
+};
+
+const requireHtmlDomParser = () => {
+  if (typeof globalThis.DOMParser === 'undefined') {
+    throw new Error('HTML preview sanitization requires DOMParser.');
+  }
+  return globalThis.DOMParser;
+};
+
+const collectHtmlElements = (doc, tagName) => Array.from(doc.getElementsByTagName(tagName));
+
+export const sanitizeHtmlForStaticCapture = (html) => {
+  const DocumentParser = requireHtmlDomParser();
+  const doc = new DocumentParser().parseFromString(html, 'text/html');
+  collectHtmlElements(doc, 'script').forEach((element) => {
     element.remove();
   });
-  doc.querySelectorAll('link[rel~="stylesheet"][href]').forEach((element) => {
-    if (isNonBlockingRemoteFontStylesheetHref(element.getAttribute('href'), doc.baseURI)) {
+  collectHtmlElements(doc, 'meta').forEach((element) => {
+    if (String(element.getAttribute('http-equiv') ?? '').trim().toLowerCase() === 'refresh') {
       element.remove();
     }
   });
-  doc.querySelectorAll('*').forEach((element) => {
-    Array.from(element.attributes).forEach((attribute) => {
-      const name = attribute.name.toLowerCase();
-      const value = attribute.value.trim().toLowerCase();
-
-      if (name.startsWith('on') || value.startsWith('javascript:')) {
-        element.removeAttribute(attribute.name);
-      } else if (name === MORNDRAFT_FLAT_EDIT_PATH_ATTR) {
-        element.removeAttribute(attribute.name);
-      }
-    });
-
-    if (element.tagName.toLowerCase() === 'iframe') {
-      element.setAttribute('sandbox', '');
+  collectHtmlElements(doc, 'link').forEach((element) => {
+    if (
+      /\bstylesheet\b/i.test(String(element.getAttribute('rel') ?? '')) &&
+      isNonBlockingRemoteFontStylesheetHref(element.getAttribute('href'), doc.baseURI)
+    ) {
+      element.remove();
     }
+  });
+  collectHtmlElements(doc, '*').forEach((element) => {
+    sanitizeUnsafeElementAttributes(element);
+  });
+
+  return `<!doctype html>\n${doc.documentElement.outerHTML}`;
+};
+
+/**
+ * Sanitizer for public live previews (publicStrict): keeps author-authored
+ * external <script src> tags and remote font stylesheets in the srcdoc so
+ * CDN-driven samples (Tailwind, Google Fonts, Font Awesome) can render, while
+ * still stripping inline (src-less) scripts, inline event handlers, unsafe
+ * navigation URLs, meta refresh, and forcing sandbox on iframes. The
+ * relaxed-but-nonced CSP then decides what actually executes: whitelisted CDN
+ * scripts run, arbitrary inline scripts do not.
+ */
+export const sanitizeHtmlForPublicLivePreview = (html) => {
+  const DocumentParser = requireHtmlDomParser();
+  const doc = new DocumentParser().parseFromString(String(html ?? ''), 'text/html');
+  collectHtmlElements(doc, 'script').forEach((element) => {
+    if (!element.getAttribute('src')) element.remove();
+  });
+  collectHtmlElements(doc, 'meta').forEach((element) => {
+    if (String(element.getAttribute('http-equiv') ?? '').trim().toLowerCase() === 'refresh') {
+      element.remove();
+    }
+  });
+  collectHtmlElements(doc, '*').forEach((element) => {
+    sanitizeUnsafeElementAttributes(element);
   });
 
   return `<!doctype html>\n${doc.documentElement.outerHTML}`;
