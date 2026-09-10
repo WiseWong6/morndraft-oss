@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { getZoomPanLayout } from '@morndraft/core';
+import { getPreviewZoomFactorFrom } from '../utils/previewZoom';
 
 interface ZoomableWrapperProps {
   children: React.ReactNode;
@@ -52,9 +53,12 @@ const ZoomableWrapper: React.FC<ZoomableWrapperProps> = ({ children, className =
         el.style.transform = 'none';
         const rect = el.getBoundingClientRect();
         el.style.transform = originalTransform;
+        // getBoundingClientRect is viewport-scaled; divide out the preview
+        // zoom layer so the pan/fit layout stays in local coordinates.
+        const zoomFactor = getPreviewZoomFactorFrom(el);
         const nextSize = {
-          width: Math.round(Math.max(rect.width, el.scrollWidth)),
-          height: Math.round(Math.max(rect.height, el.scrollHeight) + 24),
+          width: Math.round(Math.max(rect.width / zoomFactor, el.scrollWidth)),
+          height: Math.round(Math.max(rect.height / zoomFactor, el.scrollHeight) + 24),
         };
         setNaturalSize((currentSize) => (
           Math.abs(currentSize.width - nextSize.width) < 1 &&

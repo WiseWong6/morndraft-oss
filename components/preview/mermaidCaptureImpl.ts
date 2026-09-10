@@ -2,6 +2,7 @@ import {
   applyMermaidNodeTextContrast,
   getMermaidThemePalette,
 } from '../../utils/mermaid-theme.js';
+import { getPreviewZoomFactorFrom } from '../../utils/previewZoom';
 type PreviewTheme = 'dark' | 'light';
 export type HtmlCapture = { blob: Blob; width: number; height: number };
 type CaptureRect = { x: number; y: number; width: number; height: number };
@@ -572,11 +573,12 @@ const getStandaloneMermaidDisplayMetrics = (
 ): MermaidDisplayMetrics | null => {
   if (!svg) return null;
 
+  const zoomFactor = getPreviewZoomFactorFrom(svg);
   const renderedRect = svg.getBoundingClientRect();
   if (renderedRect.width > 0 && renderedRect.height > 0) {
     return {
-      width: Math.max(1, Math.ceil(renderedRect.width)),
-      height: Math.max(1, Math.ceil(renderedRect.height)),
+      width: Math.max(1, Math.ceil(renderedRect.width / zoomFactor)),
+      height: Math.max(1, Math.ceil(renderedRect.height / zoomFactor)),
     };
   }
 

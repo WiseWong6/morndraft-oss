@@ -15,6 +15,7 @@ import {
 } from './mermaidCapture';
 import { replaceMermaidBlocksWithRichCopyShells } from './mermaidRichCopy';
 import { PORTABLE_CODE_BLOCK_CLASS_ALLOWLIST, replacePortableCodeBlocks } from './portableCodeBlocks';
+import { getPreviewZoomFactorFrom } from '../../utils/previewZoom';
 import {
   COPY_STYLE_PROPS,
   RICH_COPY_STYLE_PROPS,
@@ -1049,11 +1050,12 @@ const capturePortablePreviewPdfPages = async (
 };
 
 const getPortableScreenshotCaptureHeight = (sourceRoot: HTMLElement) => {
+  const zoomFactor = getPreviewZoomFactorFrom(sourceRoot);
   const sourceRect = sourceRoot.getBoundingClientRect();
-  const sourceWidth = Math.max(1, sourceRect.width || sourceRoot.clientWidth || WECHAT_ARTICLE_WIDTH);
+  const sourceWidth = Math.max(1, (sourceRect.width / zoomFactor) || sourceRoot.clientWidth || WECHAT_ARTICLE_WIDTH);
   const sourceHeight = Math.max(
     900,
-    Math.ceil(sourceRect.height || sourceRoot.clientHeight || sourceRoot.scrollHeight || 0),
+    Math.ceil((sourceRect.height / zoomFactor) || sourceRoot.clientHeight || sourceRoot.scrollHeight || 0),
     sourceRoot.scrollHeight,
   );
   return Math.ceil(sourceHeight * Math.max(1, sourceWidth / WECHAT_ARTICLE_WIDTH));
