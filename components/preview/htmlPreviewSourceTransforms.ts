@@ -95,14 +95,19 @@ export const relocateTailwindCdnScriptsToBodyEnd = (html: string) => {
   return insertBeforeBodyClose(withoutTailwindRuntimeGroups, runtimeGroups.join(''));
 };
 
-export const deferPreviewBlockingExternalScripts = (html: string) =>
-  relocateTailwindCdnScriptsToBodyEnd(html)
+export const deferPreviewBlockingExternalScripts = (
+  html: string,
+  options: { deferFontStylesheets?: boolean } = {},
+) => {
+  const deferFontStylesheets = options.deferFontStylesheets !== false;
+  return relocateTailwindCdnScriptsToBodyEnd(html)
     .replace(BLOCKING_EXTERNAL_STYLESHEET_RE, (tag) =>
-      PREVIEW_DEFERABLE_STYLESHEET_RE.test(tag)
+      deferFontStylesheets && PREVIEW_DEFERABLE_STYLESHEET_RE.test(tag)
         ? tag.replace(/\s*\/?>$/, (close) => ` media="print" onload="this.media='all'"${close}`)
         : tag,
     )
     .replace(BLOCKING_EXTERNAL_SCRIPT_RE, deferExternalScriptTag);
+};
 
 const isHtmlWhitespaceCode = (code: number) =>
   code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d || code === 0x20;

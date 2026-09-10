@@ -1,6 +1,6 @@
 import { buildHtmlPreviewSrcDoc, type HtmlPreviewRenderMode } from './htmlPreviewDocument';
 import type { HtmlPreviewSecurityMode } from './HtmlPreviewFrameTypes';
-import { sanitizeHtmlForStaticCapture } from '../../utils/html-preview-capture-source.js';
+import { sanitizeHtmlForPublicLivePreview } from '../../utils/html-preview-capture-source.js';
 
 type PreviewTheme = 'dark' | 'light';
 
@@ -25,7 +25,7 @@ export const buildHtmlPreviewFrameSrcDoc = ({
 }) => {
   void requiresStableReady;
   return buildHtmlPreviewSrcDoc({
-    html: securityMode === 'publicStrict' ? sanitizeHtmlForStaticCapture(code) : code,
+    html: securityMode === 'publicStrict' ? sanitizeHtmlForPublicLivePreview(code) : code,
     id,
     theme,
     renderMode,
