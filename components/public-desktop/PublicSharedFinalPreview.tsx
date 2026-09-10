@@ -1,4 +1,5 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ZoomIn, ZoomOut } from 'lucide-react';
 import {
   findArtifactMapEntryForLine,
   recoverMarkdownFencesForPreview,
@@ -6,6 +7,13 @@ import {
 import type { TextSearchState } from '@morndraft/features-personal';
 import { ArtifactMapShell } from '@morndraft/features-personal';
 import type { ArtifactDeskTranslations } from '../../i18n';
+import { trackMornDraftClick } from '../../utils/analytics';
+import {
+  PREVIEW_ZOOM_MAX,
+  PREVIEW_ZOOM_MIN,
+  PREVIEW_ZOOM_STEP,
+  clampPreviewZoom,
+} from '../../utils/previewZoom';
 import { detectArtifactContent } from '../../utils/content-detection.js';
 import type { MornDraftComponentScope } from '../../utils/releaseConfigTypes';
 import type { ArtifactDiagnostic } from '../editor/diagnosticTypes';
@@ -136,8 +144,22 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [previewSurface, setPreviewSurface] = useState<HTMLElement | null>(null);
-  const [isArtifactMapPanelOpen, setIsArtifactMapPanelOpen] = useState(true);
+  const [isArtifactMapPanelOpen, setIsArtifactMapPanelOpen] = useState(false);
   const [isBackToTopVisible, setIsBackToTopVisible] = useState(false);
+  const [previewZoomState, setPreviewZoomState] = useState(() => ({
+    key: stateResetKey,
+    value: 1,
+  }));
+  const previewZoom = previewZoomState.key === stateResetKey ? previewZoomState.value : 1;
+  const updatePreviewZoom = useCallback((next: number | ((current: number) => number)) => {
+    setPreviewZoomState((current) => {
+      const currentZoom = current.key === stateResetKey ? current.value : 1;
+      const requested = typeof next === 'function' ? next(currentZoom) : next;
+      const value = Math.round(clampPreviewZoom(requested) * 100) / 100;
+      if (current.key === stateResetKey && current.value === value) return current;
+      return { key: stateResetKey, value };
+    });
+  }, [stateResetKey]);
   const latestSourceRef = useRef(source);
   const [deliveryNotice, setDeliveryNotice] = useState<DeliveryNotice | null>(null);
   latestSourceRef.current = source;
@@ -461,7 +483,11 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
           value={onRequestAiFix ? { isAiFixBusy, onRequestAiFix, repairMode: 'ai' as const } : null}
         >
         <BlockHeaderCopyContext.Provider value={blockHeaderCopyContextValue}>
-        <div className="aad-preview-pad w-full">
+        <div
+          className="aad-preview-pad w-full"
+          data-preview-zoom={previewZoom !== 1 ? String(previewZoom) : undefined}
+          style={previewZoom !== 1 ? ({ zoom: previewZoom } as React.CSSProperties) : undefined}
+        >
           <div ref={setPreviewSurface} className="aad-document-surface md-public-final-surface">
             <PreviewThemeContext.Provider value={theme}>
               <PreviewI18nContext.Provider value={t.preview}>
@@ -507,6 +533,59 @@ export const PublicSharedFinalPreview: React.FC<PublicSharedFinalPreviewProps> =
         onUndoLastFix={onUndoLastFix}
         t={t.preview}
       />
+      <div className="aad-preview-zoom-controls" data-copy-remove="true">
+        <button
+          type="button"
+          className="aad-icon-button aad-preview-zoom-button"
+          title={t.preview.zoomOut}
+          aria-label={t.preview.zoomOut}
+          disabled={previewZoom <= PREVIEW_ZOOM_MIN}
+          onClick={() => {
+            trackMornDraftClick('morndraft_preview_zoom_out', {
+              target: { type: 'button', text: t.preview.zoomOut },
+              context: { component: 'preview_zoom_controls' },
+              metadata: { zoom: Math.round((previewZoom - PREVIEW_ZOOM_STEP) * 100) },
+            });
+            updatePreviewZoom((current) => current - PREVIEW_ZOOM_STEP);
+          }}
+        >
+          <ZoomOut size={16} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="aad-preview-zoom-value"
+          title={t.preview.resetZoom}
+          aria-label={t.preview.resetZoom}
+          disabled={previewZoom === 1}
+          onClick={() => {
+            trackMornDraftClick('morndraft_preview_zoom_reset', {
+              target: { type: 'button', text: t.preview.resetZoom },
+              context: { component: 'preview_zoom_controls' },
+              metadata: { zoom: 100 },
+            });
+            updatePreviewZoom(1);
+          }}
+        >
+          {Math.round(previewZoom * 100)}%
+        </button>
+        <button
+          type="button"
+          className="aad-icon-button aad-preview-zoom-button"
+          title={t.preview.zoomIn}
+          aria-label={t.preview.zoomIn}
+          disabled={previewZoom >= PREVIEW_ZOOM_MAX}
+          onClick={() => {
+            trackMornDraftClick('morndraft_preview_zoom_in', {
+              target: { type: 'button', text: t.preview.zoomIn },
+              context: { component: 'preview_zoom_controls' },
+              metadata: { zoom: Math.round((previewZoom + PREVIEW_ZOOM_STEP) * 100) },
+            });
+            updatePreviewZoom((current) => current + PREVIEW_ZOOM_STEP);
+          }}
+        >
+          <ZoomIn size={16} aria-hidden="true" />
+        </button>
+      </div>
       <ScrollToTopButton
         className="aad-preview-back-to-top"
         label={t.preview.backToTop}
