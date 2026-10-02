@@ -37,7 +37,7 @@
     "@lexical/markdown": "^0.45.0",
     "@lexical/react": "^0.45.0",
     "@lexical/rich-text": "^0.45.0",
-    "@lexical/selection": "^0.45.0",
+    "@lexical/selection": "^0.52.0",
     "@lexical/table": "^0.45.0",
     "entities": "^6.0.1",
     "html2canvas": "^1.4.1",
