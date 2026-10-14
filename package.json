@@ -35,7 +35,7 @@
   "dependencies": {
     "@lexical/list": "^0.45.0",
     "@lexical/markdown": "^0.45.0",
-    "@lexical/react": "^0.45.0",
+    "@lexical/react": "^0.52.0",
     "@lexical/rich-text": "^0.45.0",
     "@lexical/selection": "^0.45.0",
     "@lexical/table": "^0.45.0",
